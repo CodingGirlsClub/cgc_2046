@@ -4,11 +4,16 @@ use crate::{
 };
 use cgc_agent_host::AgentEvent;
 use cgc_platform::acp::connection::HostEvent;
+use std::collections::HashSet;
 
 pub struct NativeThreadState {
     pub session: ConversationSession,
     pub subagents: Vec<SubagentCard>,
     pub last_tool_call_id: Option<String>,
+    /// 已发起但尚未完成的 `submit_learning_attempt` 调用 id。
+    submit_tool_ids: HashSet<String>,
+    /// 一次提交成功后置位；drain 后发 `LearningStateChanged` 并清空。
+    pub learning_state_changed: bool,
 }
 
 impl Default for NativeThreadState {
@@ -23,6 +28,8 @@ impl NativeThreadState {
             session: ConversationSession::native(),
             subagents: Vec::new(),
             last_tool_call_id: None,
+            submit_tool_ids: HashSet::new(),
+            learning_state_changed: false,
         }
     }
     pub fn retry_available(&self) -> bool {
@@ -37,19 +44,34 @@ impl NativeThreadState {
         }
         match event {
             HostEvent::ToolCall { call } => {
-                self.last_tool_call_id = Some(call.tool_call_id.clone())
+                self.last_tool_call_id = Some(call.tool_call_id.clone());
+                if call
+                    .name
+                    .as_deref()
+                    .is_some_and(|name| name.contains("submit_learning_attempt"))
+                    || call.title.contains("submit_learning_attempt")
+                {
+                    self.submit_tool_ids.insert(call.tool_call_id.clone());
+                }
             }
             HostEvent::ToolCallUpdated {
                 tool_call_id,
                 status,
                 ..
-            } if self.last_tool_call_id.as_ref() == Some(tool_call_id)
-                && matches!(status.as_deref(), Some("completed") | Some("failed")) =>
-            {
-                self.last_tool_call_id = None
+            } => {
+                if self.last_tool_call_id.as_ref() == Some(tool_call_id)
+                    && matches!(status.as_deref(), Some("completed") | Some("failed"))
+                {
+                    self.last_tool_call_id = None;
+                }
+                if matches!(status.as_deref(), Some("completed"))
+                    && self.submit_tool_ids.remove(tool_call_id)
+                {
+                    self.learning_state_changed = true;
+                }
             }
             HostEvent::TurnEnd { .. } | HostEvent::Error { .. } | HostEvent::Exited => {
-                self.last_tool_call_id = None
+                self.last_tool_call_id = None;
             }
             _ => {}
         }

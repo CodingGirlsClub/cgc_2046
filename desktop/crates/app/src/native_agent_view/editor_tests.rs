@@ -591,3 +591,41 @@ fn native_pending_agent_call_clears_when_page_leaves_target(cx: &mut TestAppCont
 
 #[path = "paste_tests.rs"]
 mod paste_tests;
+
+/// 提交工具成功后必须置位，RootView 才能重拉学习投影让卡片立即更新。
+#[test]
+fn submit_tool_completion_marks_learning_state_changed() {
+    use crate::native_agent_view::NativeThreadState;
+    use cgc_platform::acp::connection::{HostEvent, ToolCallView};
+
+    let mut state = NativeThreadState::new();
+    state.ingest(
+        0,
+        &HostEvent::ToolCall {
+            call: ToolCallView {
+                tool_call_id: "call-1".into(),
+                title: "提交掌握".into(),
+                name: Some("mcp_cgc-2046-learning_submit_learning_attempt".into()),
+                kind: "other".into(),
+                status: "pending".into(),
+                args: None,
+                output: None,
+                locations: Vec::new(),
+            },
+        },
+    );
+    assert!(!state.learning_state_changed);
+    state.ingest(
+        0,
+        &HostEvent::ToolCallUpdated {
+            tool_call_id: "call-1".into(),
+            title: None,
+            status: Some("completed".into()),
+            output: None,
+        },
+    );
+    assert!(
+        state.learning_state_changed,
+        "successful submit must trigger a projection refresh"
+    );
+}

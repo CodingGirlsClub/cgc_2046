@@ -249,8 +249,10 @@ fn execution_instruction(intent: &AgentIntent) -> Option<&'static str> {
              3. 文件类：在工作区定位并读取（list_directory/read_file/run_command；根目录见系统提示）；找不到就问用户路径。\n\
              4. 说明类：请学习者用自己的话说明，再按 rubric 评价。\n\
              5. 逐条给出 criterion id 的结论：通过/不通过/待证据，以及证据（命令输出、路径:行、截图或记录引用）。\n\
-             6. 只报告检查结果，不提交、不记录掌握；证据缺失时说“需要你提供 X”，不要直接判失败。\n\
-             7. 没有本地工具时明确说明无法检查，不要假装检查过。"
+             6. 检查本身不提交、不记录掌握；证据缺失时说“需要你提供 X”，不要直接判失败。\n\
+             7. 如果所有 criterion 都通过：先问用户“是否提交并记录掌握？”，然后结束本轮；只有用户明确确认后，才调用 submit_learning_attempt（rubric_results 精确覆盖每个 criterion id，evidence 引用真实证据，confidence 与证据一致）。不要在同一轮自行提交。\n\
+             8. 任一 criterion 未通过/待证据，或目标仍 locked：不要提交，说明缺什么或缺哪个前置。\n\
+             9. 没有本地工具时明确说明无法检查，不要假装检查过。"
         }
         AgentIntent::Submit => {
             "按以下程序提交：\n\
@@ -408,7 +410,8 @@ mod tests {
         assert!(result.contains("退出码"), "run procedure included");
     }
 
-    /// #46：检查完成情况必须按 rubric 判断证据类型，不把「没有文件」当失败。
+    /// #46：检查完成情况必须按 rubric 判断证据类型，不把「没有文件」当失败；
+    /// 全部通过后先询问，用户确认才提交。
     #[test]
     fn prompt_with_agent_call_requires_artifact_evidence() {
         let call = AgentCall::from_action(
@@ -425,6 +428,10 @@ mod tests {
             "待证据",
             "不要直接判失败",
             "不提交",
+            "是否提交并记录掌握",
+            "明确确认",
+            "submit_learning_attempt",
+            "locked",
             "没有本地工具",
         ] {
             assert!(
