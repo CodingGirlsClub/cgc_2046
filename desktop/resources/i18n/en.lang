@@ -398,6 +398,7 @@ courses.learning.notes_filter_all = All
 courses.learning.notes_filter_notes = My notes
 courses.learning.notes_filter_retro = Retro
 courses.learning.notes_count = {count} notes
+courses.learning.notes_agent_status = Note attached; edit before sending
 courses.learning.notes_today = Today
 courses.learning.notes_yesterday = Yesterday
 courses.learning.notes_earlier = Earlier

@@ -9,7 +9,9 @@ use cgc_courses::catalog::{CourseCatalogService, CoursesApi, FakeCoursesApi};
 use cgc_courses::content::{
     AgentActionSpec, AgentIntent, CourseChecklistItem, CourseObjective, MaterialKind, TypedMaterial,
 };
-use cgc_courses::notes::{CourseNote, CourseNotesService, FakeNotesApi, NoteKind};
+use cgc_courses::notes::{
+    CourseNote, CourseNotesService, FakeNotesApi, NewCourseNote, NoteKind, NotesApi, NotesError,
+};
 use cgc_courses::projection::{LearningProjection, LearningProjectionService, ObjectiveState};
 use cgc_platform::session::{FakeAuthApi, MemoryStore, SessionService};
 use gpui_kit::test::TestWindowExt;
@@ -409,6 +411,192 @@ fn completed_issue_triggers_retro_once(cx: &mut TestAppContext) {
             .count();
         assert_eq!(retros, 1);
     });
+}
+
+#[gpui_kit::test]
+fn stale_add_note_result_is_dropped_after_course_switch(cx: &mut TestAppContext) {
+    let (_handle, root) = issue_card_window(cx);
+    let (release, gate) = std::sync::mpsc::channel();
+    root.update(cx, move |root, _| {
+        root.notes = CourseNotesService::new(Arc::new(BlockingNotesApi {
+            inner: FakeNotesApi::default(),
+            gate: std::sync::Mutex::new(gate),
+        }));
+        root.notes.begin_load("crs-000");
+    });
+
+    root.update(cx, |root, cx| {
+        root.add_note_from_selection(
+            "旧课程笔记".into(),
+            Some("mat-text".into()),
+            crate::agent_call::LearningTarget::Material {
+                course_id: "crs-000".into(),
+                revision: Some(1),
+                issue_id: "issue-1".into(),
+                objective_id: None,
+                material_id: "mat-text".into(),
+            },
+            cx,
+        );
+    });
+    root.update(cx, |root, _| root.notes.begin_load("crs-001"));
+    release.send(()).expect("release note request");
+    cx.run_until_parked();
+
+    root.update(cx, |root, _| {
+        assert!(root.notes.notes_for_issue("issue-1").is_empty());
+    });
+}
+
+struct BlockingNotesApi {
+    inner: FakeNotesApi,
+    gate: std::sync::Mutex<std::sync::mpsc::Receiver<()>>,
+}
+
+impl NotesApi for BlockingNotesApi {
+    fn list_notes(
+        &self,
+        token: Option<&str>,
+        course_id: &str,
+    ) -> Result<Vec<CourseNote>, NotesError> {
+        self.inner.list_notes(token, course_id)
+    }
+
+    fn create_note(
+        &self,
+        token: Option<&str>,
+        input: NewCourseNote,
+    ) -> Result<CourseNote, NotesError> {
+        let gate = self
+            .gate
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        gate.recv().ok();
+        self.inner.create_note(token, input)
+    }
+
+    fn update_note(
+        &self,
+        token: Option<&str>,
+        note_id: &str,
+        text: &str,
+    ) -> Result<CourseNote, NotesError> {
+        self.inner.update_note(token, note_id, text)
+    }
+
+    fn delete_note(&self, token: Option<&str>, note_id: &str) -> Result<(), NotesError> {
+        self.inner.delete_note(token, note_id)
+    }
+
+    fn ensure_retro(
+        &self,
+        token: Option<&str>,
+        course_id: &str,
+        issue_id: &str,
+    ) -> Result<Option<CourseNote>, NotesError> {
+        self.inner.ensure_retro(token, course_id, issue_id)
+    }
+}
+
+#[gpui_kit::test]
+fn delete_completion_removes_only_the_deleted_note(cx: &mut TestAppContext) {
+    let (_handle, root) = issue_card_window(cx);
+    let note_one = CourseNote {
+        id: "n1".into(),
+        course_id: "crs-000".into(),
+        issue_id: "issue-1".into(),
+        source_material_id: None,
+        kind: NoteKind::Note,
+        text: "first".into(),
+        created_at: "2026-11-11T00:00:00Z".into(),
+        updated_at: None,
+    };
+    let note_two = CourseNote {
+        id: "n2".into(),
+        course_id: "crs-000".into(),
+        issue_id: "issue-1".into(),
+        source_material_id: None,
+        kind: NoteKind::Note,
+        text: "second".into(),
+        created_at: "2026-11-11T00:01:00Z".into(),
+        updated_at: None,
+    };
+    let (release, gate) = std::sync::mpsc::channel();
+    root.update(cx, move |root, _| {
+        root.notes = CourseNotesService::new(Arc::new(BlockingDeleteNotesApi {
+            inner: FakeNotesApi::with_notes(vec![note_one.clone(), note_two.clone()]),
+            gate: std::sync::Mutex::new(gate),
+        }));
+        root.notes.begin_load("crs-000");
+        root.notes.adopt(vec![note_one, note_two]);
+    });
+
+    root.update(cx, |root, cx| {
+        root.confirm_delete_note("n1", cx);
+        root.request_delete_note("n2", cx);
+    });
+    release.send(()).expect("release delete request");
+    cx.run_until_parked();
+
+    root.update(cx, |root, _| {
+        let ids = root
+            .notes
+            .notes_for_issue("issue-1")
+            .into_iter()
+            .map(|note| note.id.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(ids, vec!["n2".to_string()]);
+    });
+}
+
+struct BlockingDeleteNotesApi {
+    inner: FakeNotesApi,
+    gate: std::sync::Mutex<std::sync::mpsc::Receiver<()>>,
+}
+
+impl NotesApi for BlockingDeleteNotesApi {
+    fn list_notes(
+        &self,
+        token: Option<&str>,
+        course_id: &str,
+    ) -> Result<Vec<CourseNote>, NotesError> {
+        self.inner.list_notes(token, course_id)
+    }
+
+    fn create_note(
+        &self,
+        token: Option<&str>,
+        input: NewCourseNote,
+    ) -> Result<CourseNote, NotesError> {
+        self.inner.create_note(token, input)
+    }
+
+    fn update_note(
+        &self,
+        token: Option<&str>,
+        note_id: &str,
+        text: &str,
+    ) -> Result<CourseNote, NotesError> {
+        self.inner.update_note(token, note_id, text)
+    }
+
+    fn delete_note(&self, token: Option<&str>, note_id: &str) -> Result<(), NotesError> {
+        let gate = self
+            .gate
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        gate.recv().ok();
+        self.inner.delete_note(token, note_id)
+    }
+
+    fn ensure_retro(
+        &self,
+        token: Option<&str>,
+        course_id: &str,
+        issue_id: &str,
+    ) -> Result<Option<CourseNote>, NotesError> {
+        self.inner.ensure_retro(token, course_id, issue_id)
+    }
 }
 
 #[gpui_kit::test]

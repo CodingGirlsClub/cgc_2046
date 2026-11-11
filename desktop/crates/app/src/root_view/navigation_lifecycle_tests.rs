@@ -369,6 +369,7 @@ fn notes_panel_opens_and_filters_retro(cx: &mut TestAppContext) {
     root.update(cx, |root, _| {
         root.notes = CourseNotesService::new(std::sync::Arc::new(FakeNotesApi::default()));
         root.notes.begin_load("crs-001");
+        root.notes_notice = Some("已保存".into());
         root.notes.adopt(vec![
             CourseNote {
                 id: "n1".into(),
@@ -397,6 +398,7 @@ fn notes_panel_opens_and_filters_retro(cx: &mut TestAppContext) {
         root.update(cx, |root, cx| root.open_notes_panel(cx));
         window.render_frame(cx);
         assert!(window.try_find("course-notes-panel").is_some());
+        assert!(window.try_find("course-notes-notice").is_some());
         assert!(
             window.try_find("issue-notes").is_none(),
             "issue-card notes section must yield to the open Notes panel"

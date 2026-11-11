@@ -123,7 +123,8 @@ defmodule Cgc2046Web.GraphqlSchema.Learning do
     )
 
     field(:text, non_null(:string))
-    field(:inserted_at, non_null(:datetime))
+    field(:created_at, non_null(:datetime), resolve: fn note, _, _ -> {:ok, note.inserted_at} end)
+
     field(:updated_at, :datetime)
   end
 

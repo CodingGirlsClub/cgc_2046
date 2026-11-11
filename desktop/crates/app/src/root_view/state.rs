@@ -248,6 +248,7 @@ pub struct ShellState {
     pub(in crate::root_view) site_tree_search_focused: bool,
     pub(in crate::root_view) site_tree_course_open: Option<String>,
     pub(in crate::root_view) site_tree_scroll: ScrollHandle,
+    pub(in crate::root_view) notes_scroll: ScrollHandle,
     pub(in crate::root_view) site_tree_scroll_restore: Option<f32>,
     /// Outline 目录树；课程内容加载后惰性创建。
     pub(in crate::root_view) outline_tree: Option<Entity<TreeState>>,
@@ -495,6 +496,7 @@ impl ShellState {
             site_tree_search_focused: false,
             site_tree_course_open: None,
             site_tree_scroll: ScrollHandle::new(),
+            notes_scroll: ScrollHandle::new(),
             site_tree_scroll_restore: None,
             outline_tree: None,
             outline_tree_subscription: None,

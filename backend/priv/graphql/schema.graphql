@@ -8009,7 +8009,7 @@ type CourseNote {
   sourceMaterialId: String
   kind: String!
   text: String!
-  insertedAt: DateTime!
+  createdAt: DateTime!
   updatedAt: DateTime
 }
 

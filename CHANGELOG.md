@@ -24,6 +24,11 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 ### Fixed
 - [Desktop] 课程 Notes 面板打开时，Issue 卡不再重复渲染同一笔记的编辑框，避免 GPUI 重复 `set_focus` 导致崩溃。
+- [Backend] Retro 的幂等键按 learner 隔离；同一课程 revision 下不同学员各自拥有自己的 Retro，不再互相读取或删除。
+- [Backend] Notes GraphQL 统一暴露 `createdAt`，与桌面查询对齐。
+- [Desktop] 切换课程后丢弃旧的 Notes 写入响应；删除结果只移除被删除的笔记。
+- [Backend] Retro 使用 run 对应的 revision 内容，不再用最新 revision 校验旧掌握度。
+- [Desktop] Notes 面板补操作提示/筛选计数/独立滚动位置；native note status 接入 i18n。
 
 ## [2026-11-09]
 

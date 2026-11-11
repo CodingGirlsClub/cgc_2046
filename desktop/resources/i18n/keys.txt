@@ -452,6 +452,7 @@ courses.learning.notes_filter_all
 courses.learning.notes_filter_notes
 courses.learning.notes_filter_retro
 courses.learning.notes_count
+courses.learning.notes_agent_status
 courses.learning.notes_today
 courses.learning.notes_yesterday
 courses.learning.notes_earlier

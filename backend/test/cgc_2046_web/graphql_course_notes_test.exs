@@ -32,7 +32,7 @@ defmodule Cgc2046Web.GraphqlCourseNotesTest do
         """
         mutation Create($input: CreateCourseNoteInput!) {
           createCourseNote(input: $input) {
-            id courseId issueId sourceMaterialId kind text
+            id courseId issueId sourceMaterialId kind text createdAt
           }
         }
         """,
@@ -53,6 +53,7 @@ defmodule Cgc2046Web.GraphqlCourseNotesTest do
     assert note["sourceMaterialId"] == "mat-1"
     assert note["kind"] == "note"
     assert note["text"] == "GraphQL 笔记"
+    assert is_binary(note["createdAt"]) and note["createdAt"] != ""
 
     duplicate =
       graphql(

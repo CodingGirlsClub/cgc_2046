@@ -3,6 +3,7 @@
 //! 子模块可直接访问父模块私有字段。
 
 use super::*;
+use crate::i18n::{translate, Key};
 use gpui_kit::base::Disableable;
 
 impl NativeAgentView {
@@ -40,7 +41,7 @@ impl NativeAgentView {
             state.set_value(prompt, window, cx);
             state.focus(window, cx);
         });
-        self.status = "已引用笔记，发送前可编辑".into();
+        self.status = translate(self.language, Key::CoursesLearningNotesAgentStatus).to_string();
         cx.notify();
     }
 

@@ -54,6 +54,11 @@ pub(in crate::root_view) fn render_right_dock(
         RightPanel::Notes => notes::render_course_notes(ctx, language, palette, cx),
         RightPanel::Notifications => unreachable!(),
     };
+    let scroll_handle = if panel == RightPanel::Notes {
+        ctx.notes_scroll.clone()
+    } else {
+        ctx.site_tree_scroll.clone()
+    };
 
     let header = (panel == RightPanel::Outline).then(|| {
         div()
@@ -104,19 +109,20 @@ pub(in crate::root_view) fn render_right_dock(
                 .min_h(px(0.0))
                 // Outline 的 Tree 自己是 uniform_list 滚动容器；外层再滚会双滚动。
                 .when(panel != RightPanel::Outline, |this| {
-                    this.overflow_y_scroll()
-                        .track_scroll(&ctx.site_tree_scroll)
-                        .on_scroll(cx.listener(|_this, _, _, cx| {
-                            cx.spawn(async move |this, cx| {
-                                cx.background_executor()
-                                    .timer(std::time::Duration::from_millis(200))
-                                    .await;
-                                let _ = this.update(cx, |this, cx| {
-                                    this.persist_site_tree_scroll(cx);
-                                });
-                            })
-                            .detach();
-                        }))
+                    this.overflow_y_scroll().track_scroll(&scroll_handle)
+                })
+                .when(panel == RightPanel::SiteTree, |this| {
+                    this.on_scroll(cx.listener(|_this, _, _, cx| {
+                        cx.spawn(async move |this, cx| {
+                            cx.background_executor()
+                                .timer(std::time::Duration::from_millis(200))
+                                .await;
+                            let _ = this.update(cx, |this, cx| {
+                                this.persist_site_tree_scroll(cx);
+                            });
+                        })
+                        .detach();
+                    }))
                 })
                 .p(if panel == RightPanel::SiteTree {
                     px(0.0)

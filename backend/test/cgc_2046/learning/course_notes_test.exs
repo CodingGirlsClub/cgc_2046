@@ -207,6 +207,10 @@ defmodule Cgc2046.Learning.CourseNotesTest do
     run = create_completed_run(ctx, revision.id)
     assert run.id
 
+    # 课程重发布后仍用 run 的 revision 生成 Retro，而不是用最新 revision 的
+    # 内容去比对旧掌握度。
+    _ = publish_revision(ctx.workspace, ctx.course, %{"goals" => [], "issues" => []}, 2)
+
     assert {:ok, retro} = CourseNotes.ensure_retro(ctx.learner, ctx.course.id, "issue-1")
     assert retro.kind == :retro
     assert retro.text =~ "【复盘】"
@@ -217,6 +221,49 @@ defmodule Cgc2046.Learning.CourseNotesTest do
 
     assert {:ok, true} = CourseNotes.delete(ctx.learner, retro.id)
     assert {:ok, nil} = CourseNotes.ensure_retro(ctx.learner, ctx.course.id, "issue-1")
+  end
+
+  test "keeps retros isolated per learner for the same course revision", ctx do
+    learner_b = Fixtures.register_user("notes-learner-b")
+    enrollment_b = enroll(ctx.course, learner_b)
+
+    content = %{
+      "goals" => [],
+      "issues" => [
+        %{
+          "id" => "issue-1",
+          "title" => "完成目标",
+          "objectives" => [
+            %{
+              "id" => "obj-1",
+              "title" => "掌握目标",
+              "required" => true,
+              "prereq_ids" => [],
+              "rubric" => [%{"id" => "r1"}]
+            }
+          ]
+        }
+      ]
+    }
+
+    revision = publish_revision(ctx.workspace, ctx.course, content)
+    create_completed_run(ctx, revision.id)
+
+    create_completed_run(
+      Map.merge(ctx, %{learner: learner_b, enrollment: enrollment_b}),
+      revision.id
+    )
+
+    assert {:ok, retro_a} = CourseNotes.ensure_retro(ctx.learner, ctx.course.id, "issue-1")
+    assert retro_a.user_id == ctx.learner.id
+
+    assert {:ok, retro_b} = CourseNotes.ensure_retro(learner_b, ctx.course.id, "issue-1")
+    assert retro_b.user_id == learner_b.id
+    assert retro_b.id != retro_a.id
+
+    assert {:ok, true} = CourseNotes.delete(ctx.learner, retro_a.id)
+    assert {:ok, same_b} = CourseNotes.ensure_retro(learner_b, ctx.course.id, "issue-1")
+    assert same_b.id == retro_b.id
   end
 
   test "does not create retro before required objectives are mastered", ctx do
@@ -239,14 +286,14 @@ defmodule Cgc2046.Learning.CourseNotesTest do
              })
   end
 
-  defp publish_revision(workspace, course, content) do
+  defp publish_revision(workspace, course, content, number \\ 1) do
     {:ok, revision} =
       CourseRevision
       |> Ash.Changeset.for_create(
         :create,
         %{
           course_id: course.id,
-          number: 1,
+          number: number,
           content: content,
           published_at: DateTime.utc_now()
         },
@@ -271,7 +318,7 @@ defmodule Cgc2046.Learning.CourseNotesTest do
       |> Ash.Changeset.for_create(
         :create,
         %{
-          name: "Notes Retro workflow",
+          name: "Notes Retro workflow #{System.unique_integer([:positive])}",
           type: :learning,
           input_schema: %{},
           node_def: %{"steps" => []}

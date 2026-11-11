@@ -444,6 +444,7 @@ pub(in crate::root_view) fn render_course_notes(
         .cloned()
         .collect::<Vec<_>>();
 
+    let filtered_count = filtered.len();
     let mut groups: std::collections::BTreeMap<String, Vec<CourseNote>> =
         std::collections::BTreeMap::new();
     for note in filtered {
@@ -453,20 +454,34 @@ pub(in crate::root_view) fn render_course_notes(
     let root = cx.entity().downgrade();
     let filter_button = |id: &'static str, label_key, active: bool, filter: NotesFilter| {
         let root = root.clone();
-        let _ = active;
-        Button::new(id)
+        let button = Button::new(id)
             .xsmall()
-            .ghost()
-            .label(translate(language, label_key))
-            .on_click(move |_, _, cx| {
-                let _ = root.update(cx, |this, cx| {
-                    this.notes_filter = filter;
-                    cx.notify();
-                });
-            })
+            .label(translate(language, label_key));
+        let button = if active {
+            button.outline()
+        } else {
+            button.ghost()
+        };
+        button.on_click(move |_, _, cx| {
+            let _ = root.update(cx, |this, cx| {
+                this.notes_filter = filter;
+                cx.notify();
+            });
+        })
     };
 
     let mut content = Vec::new();
+    if let Some(notice) = ctx.notes_notice.clone() {
+        content.push(
+            div()
+                .id("course-notes-notice")
+                .test_support()
+                .text_size(px(11.0))
+                .text_color(palette.accent_strong)
+                .child(notice)
+                .into_any_element(),
+        );
+    }
     content.push(
         div()
             .flex()
@@ -582,7 +597,7 @@ pub(in crate::root_view) fn render_course_notes(
                 .child(
                     div().text_size(px(10.0)).text_color(palette.ink_3).child(
                         translate(language, Key::CoursesLearningNotesCount)
-                            .replace("{count}", &ctx.notes.notes().len().to_string()),
+                            .replace("{count}", &filtered_count.to_string()),
                     ),
                 ),
         )

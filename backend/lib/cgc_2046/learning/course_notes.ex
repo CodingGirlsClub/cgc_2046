@@ -14,7 +14,7 @@ defmodule Cgc2046.Learning.CourseNotes do
 
   require Ash.Query
 
-  alias Cgc2046.Courses.{Course, CourseProjection}
+  alias Cgc2046.Courses.Course
   alias Cgc2046.Curriculum
   alias Cgc2046.Curriculum.Content
   alias Cgc2046.Learning.{Authorization, CourseNote, Runs}
@@ -136,14 +136,14 @@ defmodule Cgc2046.Learning.CourseNotes do
   def ensure_retro(actor, course_id, issue_id) do
     with {:ok, issue_id} <- validate_issue(issue_id),
          {:ok, course} <- fetch_accessible_course(actor, course_id),
-         {:ok, %{content: content}} <- CourseProjection.content(actor, course.id),
-         revision_id = latest_revision_id(course),
-         issue when is_map(issue) <- find_issue(content, issue_id),
          state <- Runs.learning_state(actor, course),
+         revision_id <- state.revision_id || latest_revision_id(course),
+         {:ok, content} <- revision_content(course, revision_id),
+         issue when is_map(issue) <- find_issue(content, issue_id),
          true <- all_required_mastered?(state.objectives, issue_id) do
-      retro_key = retro_key(course, revision_id, issue_id)
+      retro_key = retro_key(course, revision_id, issue_id, actor.id)
 
-      case find_retro(retro_key) do
+      case find_retro(retro_key, actor.id) do
         %CourseNote{deleted_at: nil} = note ->
           {:ok, note}
 
@@ -306,6 +306,15 @@ defmodule Cgc2046.Learning.CourseNotes do
 
   defp map_write_error(_error), do: {:error, :duplicate_note}
 
+  defp revision_content(_course, nil), do: {:error, :no_revision}
+
+  defp revision_content(course, revision_id) do
+    case Curriculum.revision_by_id(course.workspace_id, revision_id) do
+      {:ok, %{content: content}} -> {:ok, content || %{}}
+      _ -> {:error, :no_revision}
+    end
+  end
+
   defp find_issue(content, issue_id) do
     content
     |> Content.issues()
@@ -322,14 +331,14 @@ defmodule Cgc2046.Learning.CourseNotes do
       Enum.all?(issue_objectives, fn objective -> objective.mastery == "mastered" end)
   end
 
-  defp retro_key(course, revision_id, issue_id) do
+  defp retro_key(course, revision_id, issue_id, user_id) do
     revision = revision_id || "unversioned"
-    "retro:#{course.workspace_id}:#{course.id}:#{revision}:#{issue_id}"
+    "retro:#{course.workspace_id}:#{course.id}:#{revision}:#{issue_id}:#{user_id}"
   end
 
-  defp find_retro(retro_key) do
+  defp find_retro(retro_key, user_id) do
     CourseNote
-    |> Ash.Query.filter(retro_key == ^retro_key and kind == :retro)
+    |> Ash.Query.filter(retro_key == ^retro_key and user_id == ^user_id and kind == :retro)
     |> Ash.read_one(authorize?: false)
     |> case do
       {:ok, %CourseNote{} = note} -> note
@@ -358,11 +367,11 @@ defmodule Cgc2046.Learning.CourseNotes do
       {:ok, note} ->
         {:ok, note}
 
-      {:error, _error} ->
-        case find_retro(retro_key) do
+      {:error, error} ->
+        case find_retro(retro_key, actor.id) do
           %CourseNote{deleted_at: %DateTime{}} -> {:ok, nil}
           %CourseNote{} = note -> {:ok, note}
-          nil -> {:error, :duplicate_note}
+          nil -> map_write_error(error)
         end
     end
   end
@@ -380,6 +389,13 @@ defmodule Cgc2046.Learning.CourseNotes do
     title = issue["title"] || issue["id"] || "Issue"
     completed_at = DateTime.utc_now() |> DateTime.to_iso8601()
 
-    "【复盘】#{title}\n已完成必修目标：#{Enum.join(titles, "、")}\n完成时间：#{completed_at}"
+    text =
+      "【复盘】#{title}\n已完成必修目标：#{Enum.join(titles, "、")}\n完成时间：#{completed_at}"
+
+    if String.length(text) > @max_text do
+      String.slice(text, 0, @max_text - 1) <> "…"
+    else
+      text
+    end
   end
 end

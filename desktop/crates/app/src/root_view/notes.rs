@@ -23,6 +23,7 @@ impl RootView {
         let epoch = self.workspace_bound_epoch();
         let session_epoch = self.session_epoch;
         let language = self.language;
+        let requested_course = course_id.clone();
         let input = NewCourseNote {
             course_id,
             issue_id,
@@ -37,7 +38,8 @@ impl RootView {
             let _ = this.update(cx, |this, cx| {
                 let stale_epoch =
                     epoch.is_some_and(|epoch| !this.workspaces.is_current_epoch(epoch));
-                if stale_epoch || this.session_epoch != session_epoch {
+                let stale_course = !this.course_is_current(&requested_course);
+                if stale_epoch || this.session_epoch != session_epoch || stale_course {
                     return;
                 }
 
@@ -105,6 +107,8 @@ impl RootView {
         let epoch = self.workspace_bound_epoch();
         let session_epoch = self.session_epoch;
         let language = self.language;
+        let requested_course = self.notes.course_id().map(str::to_string);
+        let result_note_id = note_id.clone();
         let task = cx
             .background_executor()
             .spawn(async move { api.update_note(token.as_deref(), &note_id, text.trim()) });
@@ -113,13 +117,20 @@ impl RootView {
             let _ = this.update(cx, |this, cx| {
                 let stale_epoch =
                     epoch.is_some_and(|epoch| !this.workspaces.is_current_epoch(epoch));
-                if stale_epoch || this.session_epoch != session_epoch {
+                let stale_course = this.notes.course_id() != requested_course.as_deref();
+                if stale_epoch || this.session_epoch != session_epoch || stale_course {
                     return;
                 }
                 match result {
                     Ok(note) => {
                         this.notes.upsert(note);
-                        this.note_edit = None;
+                        if this
+                            .note_edit
+                            .as_ref()
+                            .is_some_and(|edit| edit.note_id == result_note_id)
+                        {
+                            this.note_edit = None;
+                        }
                         this.notes_notice =
                             Some(translate(language, Key::CoursesLearningNotesSaved).into());
                     }
@@ -159,11 +170,13 @@ impl RootView {
         cx: &mut Context<Self>,
     ) {
         let note_id = note_id.to_string();
+        let result_note_id = note_id.clone();
         let api = self.notes.api_handle();
         let token = self.session_token();
         let epoch = self.workspace_bound_epoch();
         let session_epoch = self.session_epoch;
         let language = self.language;
+        let requested_course = self.notes.course_id().map(str::to_string);
         let task = cx
             .background_executor()
             .spawn(async move { api.delete_note(token.as_deref(), &note_id) });
@@ -172,13 +185,15 @@ impl RootView {
             let _ = this.update(cx, |this, cx| {
                 let stale_epoch =
                     epoch.is_some_and(|epoch| !this.workspaces.is_current_epoch(epoch));
-                if stale_epoch || this.session_epoch != session_epoch {
+                let stale_course = this.notes.course_id() != requested_course.as_deref();
+                if stale_epoch || this.session_epoch != session_epoch || stale_course {
                     return;
                 }
                 match result {
                     Ok(()) => {
-                        if let Some(note_id) = this.note_pending_delete.take() {
-                            this.notes.remove(&note_id);
+                        this.notes.remove(&result_note_id);
+                        if this.note_pending_delete.as_deref() == Some(result_note_id.as_str()) {
+                            this.note_pending_delete = None;
                         }
                         this.notes_notice =
                             Some(translate(language, Key::CoursesLearningNotesDeleted).into());
@@ -277,6 +292,7 @@ impl RootView {
         let token = self.session_token();
         let epoch = self.workspace_bound_epoch();
         let session_epoch = self.session_epoch;
+        let requested_course = course_id.clone();
         let task = cx.background_executor().spawn(async move {
             issue_ids
                 .into_iter()
@@ -292,7 +308,8 @@ impl RootView {
             let _ = this.update(cx, |this, cx| {
                 let stale_epoch =
                     epoch.is_some_and(|epoch| !this.workspaces.is_current_epoch(epoch));
-                if stale_epoch || this.session_epoch != session_epoch {
+                let stale_course = !this.course_is_current(&requested_course);
+                if stale_epoch || this.session_epoch != session_epoch || stale_course {
                     return;
                 }
                 for note in notes {
@@ -311,6 +328,20 @@ impl RootView {
         self.panel_memory.open = true;
         self.persist_current_workspace_state();
         cx.notify();
+    }
+
+    fn current_course_id(&self) -> Option<String> {
+        self.current
+            .as_ref()
+            .and_then(|route| route.params.get("id"))
+            .cloned()
+    }
+
+    fn course_is_current(&self, course_id: &str) -> bool {
+        match self.current_course_id() {
+            Some(current) => current == course_id,
+            None => self.notes.course_id() == Some(course_id),
+        }
     }
 
     pub(in crate::root_view) fn retry_notes(&mut self, cx: &mut Context<Self>) {
