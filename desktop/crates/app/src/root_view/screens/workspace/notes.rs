@@ -14,6 +14,12 @@ pub(in crate::root_view) fn issue_notes_section(
     palette: &theme::Palette,
     cx: &mut Context<RootView>,
 ) -> AnyElement {
+    // Notes panel 打开时由 panel 统一承载笔记与编辑框；Issue 卡再渲染一份会让
+    // 同一个 InputState 同时挂到两个视图，聚焦时 GPUI 触发重复 set_focus。
+    if ctx.right_panel_open && ctx.right_panel == RightPanel::Notes {
+        return div().into_any_element();
+    }
+
     let notes = ctx
         .notes
         .notes_for_issue(issue_id)

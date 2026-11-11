@@ -397,6 +397,10 @@ fn notes_panel_opens_and_filters_retro(cx: &mut TestAppContext) {
         root.update(cx, |root, cx| root.open_notes_panel(cx));
         window.render_frame(cx);
         assert!(window.try_find("course-notes-panel").is_some());
+        assert!(
+            window.try_find("issue-notes").is_none(),
+            "issue-card notes section must yield to the open Notes panel"
+        );
         assert!(window.try_find("issue-note-n1").is_some());
         assert!(window.try_find("issue-note-r1").is_some());
 
@@ -404,6 +408,16 @@ fn notes_panel_opens_and_filters_retro(cx: &mut TestAppContext) {
         window.render_frame(cx);
         assert!(window.try_find("issue-note-r1").is_some());
         assert!(window.try_find("issue-note-n1").is_none());
+
+        window.click("notes-filter-all", cx);
+        window.render_frame(cx);
+        window.click("note-edit-n1", cx);
+        window.render_frame(cx);
+        assert!(
+            window.try_find("note-save-n1").is_some(),
+            "panel owns the only note editor"
+        );
+        assert!(window.try_find("issue-notes").is_none());
     })
     .unwrap();
 }
