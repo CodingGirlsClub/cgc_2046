@@ -327,6 +327,7 @@ courses.learning.materials = 材料 / MATERIALS
 courses.learning.materials_completed = {done}/{total} 已完成
 courses.learning.practice = 实践 / PRACTICE
 courses.learning.practice_mastered = {done}/{total} 已掌握
+courses.learning.practice_mastered_required = 必修已掌握 {done}/{total}
 courses.learning.answer_prompt = 答什么
 courses.learning.rubric_toggle = 怎么算通过
 courses.learning.objective_materials = 本任务材料

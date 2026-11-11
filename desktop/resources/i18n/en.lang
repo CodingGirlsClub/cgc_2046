@@ -327,6 +327,7 @@ courses.learning.materials = Materials / MATERIALS
 courses.learning.materials_completed = {done}/{total} completed
 courses.learning.practice = Practice / PRACTICE
 courses.learning.practice_mastered = {done}/{total} mastered
+courses.learning.practice_mastered_required = {done}/{total} required mastered
 courses.learning.answer_prompt = What to answer
 courses.learning.rubric_toggle = How it is assessed
 courses.learning.objective_materials = Task materials

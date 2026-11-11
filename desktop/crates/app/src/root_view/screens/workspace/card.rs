@@ -247,25 +247,24 @@ pub(in crate::root_view) fn render_issue_card(
 
     if !issue.objectives.is_empty() {
         let root = cx.entity().downgrade();
-        let mastered = issue
-            .objectives
-            .iter()
-            .filter(|objective| {
-                objective
-                    .id
-                    .as_deref()
-                    .and_then(|id| {
-                        ctx.projection.projection().and_then(|projection| {
-                            projection.objectives.iter().find(|state| state.id == id)
-                        })
-                    })
-                    .is_some_and(|state| state.mastery == "mastered")
-            })
-            .count();
-        let total = issue.objectives.len();
-        let practice_count = translate(language, Key::CoursesLearningPracticeMastered)
-            .replace("{done}", &mastered.to_string())
-            .replace("{total}", &total.to_string());
+        let (required_mastered, required_total) =
+            required_mastery_counts(issue, ctx.projection.projection());
+        let practice_count = if required_total > 0 {
+            translate(language, Key::CoursesLearningPracticeMasteredRequired)
+                .replace("{done}", &required_mastered.to_string())
+                .replace("{total}", &required_total.to_string())
+        } else {
+            // 内容边界：issue 全部为选修时没有可报的必修数，退回全部目标掌握数。
+            let mastered = issue
+                .objectives
+                .iter()
+                .filter(|objective| objective_mastered(objective, ctx.projection.projection()))
+                .count();
+            let total = issue.objectives.len();
+            translate(language, Key::CoursesLearningPracticeMastered)
+                .replace("{done}", &mastered.to_string())
+                .replace("{total}", &total.to_string())
+        };
         let mode_label = match issue.kind.as_deref() {
             Some("thoughtwork") => Some(Key::CoursesLearningBySpeaking),
             Some("handwork") => Some(Key::CoursesLearningByDoing),
@@ -791,6 +790,41 @@ pub(in crate::root_view) fn render_issue_card(
         .gap(space(2))
         .children(children)
         .into_any_element()
+}
+
+/// 必修目标的掌握计数。课程完成判定只按 required（后端
+/// `Mastery.all_required_ever_mastered?/2`），卡片头部必须同源，
+/// 否则「必修全掌握 + 选修未做」会显示成未完成。
+pub(in crate::root_view) fn required_mastery_counts(
+    issue: &CourseIssue,
+    projection: Option<&cgc_courses::projection::LearningProjection>,
+) -> (usize, usize) {
+    let required_total = issue
+        .objectives
+        .iter()
+        .filter(|objective| objective.required)
+        .count();
+    let required_mastered = issue
+        .objectives
+        .iter()
+        .filter(|objective| objective.required)
+        .filter(|objective| objective_mastered(objective, projection))
+        .count();
+    (required_mastered, required_total)
+}
+
+fn objective_mastered(
+    objective: &CourseObjective,
+    projection: Option<&cgc_courses::projection::LearningProjection>,
+) -> bool {
+    objective
+        .id
+        .as_deref()
+        .and_then(|id| {
+            projection
+                .and_then(|projection| projection.objectives.iter().find(|state| state.id == id))
+        })
+        .is_some_and(|state| state.mastery == "mastered")
 }
 
 fn effective_agent_actions(

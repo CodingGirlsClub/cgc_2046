@@ -328,6 +328,7 @@ courses.learning.materials
 courses.learning.materials_completed
 courses.learning.practice
 courses.learning.practice_mastered
+courses.learning.practice_mastered_required
 courses.learning.answer_prompt
 courses.learning.rubric_toggle
 courses.learning.objective_materials

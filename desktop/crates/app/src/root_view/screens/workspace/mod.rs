@@ -2,7 +2,7 @@
 //! 目前先落右侧 Dock；Site Tree / Outline 由同目录下的渲染函数扩展。
 
 pub(super) mod agent_registry;
-pub(super) mod card;
+pub(in crate::root_view) mod card;
 pub(super) mod media;
 pub(in crate::root_view) mod outline_tree;
 pub(super) mod pane;

@@ -2,6 +2,7 @@
 
 use super::RootView;
 use crate::i18n::Language;
+use crate::root_view::screens::workspace::card::required_mastery_counts;
 use crate::root_view::state::MediaState;
 use crate::theme::ThemePreference;
 use cgc_courses::catalog::{CourseCatalogService, CoursesApi, FakeCoursesApi};
@@ -479,4 +480,66 @@ fn issue_card_user_story_falls_back_to_goal_only(cx: &mut TestAppContext) {
         assert!(window.try_find("issue-card-story-given").is_none());
     })
     .unwrap();
+}
+
+/// #22：选修不计入「必修掌握」计数；必修全掌握 + 选修未做时头部显示 1/1。
+#[test]
+fn practice_mastery_counts_required_only() {
+    use cgc_courses::content::CourseIssue;
+
+    let objective = |id: &str, required: bool| CourseObjective {
+        id: Some(id.into()),
+        title: Some(id.into()),
+        required,
+        prereq_ids: Vec::new(),
+        activity: None,
+        assessment: None,
+        rubric: Vec::new(),
+        materials: Vec::new(),
+        agent_actions: Vec::new(),
+    };
+    let state = |id: &str, mastery: &str, required: bool| ObjectiveState {
+        id: id.into(),
+        title: id.into(),
+        required,
+        mastery: mastery.into(),
+        locked: false,
+        attempt_count: 0,
+        missing_prereq_ids: Vec::new(),
+    };
+    let issue = CourseIssue {
+        id: Some("issue-1".into()),
+        title: Some("t".into()),
+        chapter_id: None,
+        kind: Some("handwork".into()),
+        goal: None,
+        as_a: None,
+        given: Vec::new(),
+        checklist: Vec::new(),
+        objectives: vec![
+            objective("obj-required", true),
+            objective("obj-elective", false),
+        ],
+        story_materials: Vec::new(),
+        objective_materials: Vec::new(),
+    };
+    let projection = LearningProjection {
+        course_id: "crs-000".into(),
+        title: "Course".into(),
+        revision_number: Some(1),
+        stale_revision: false,
+        run: None,
+        next_action: None,
+        progress: None,
+        objectives: vec![
+            state("obj-required", "mastered", true),
+            state("obj-elective", "unassessed", false),
+        ],
+        review_queue: Vec::new(),
+    };
+    assert_eq!(
+        required_mastery_counts(&issue, Some(&projection)),
+        (1, 1),
+        "electives must not dilute required completion"
+    );
 }

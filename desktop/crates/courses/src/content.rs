@@ -301,10 +301,14 @@ fn parse_objective(value: &Value) -> Option<CourseObjective> {
     Some(CourseObjective {
         id: string_field(value, "id"),
         title: string_field(value, "title"),
-        required: value
-            .get("required")
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
+        // 后端契约（Content.required_objective?/1）：缺省 = 必修；显式 false =
+        // 选修；非法值按选修。客户端必须同源，否则旧内容 UI 显示选修、后端
+        // 却按必算计完成。
+        required: match value.get("required") {
+            None => true,
+            Some(Value::Bool(required)) => *required,
+            Some(_) => false,
+        },
         prereq_ids: value
             .get("prereq_ids")
             .and_then(Value::as_array)
@@ -1030,6 +1034,30 @@ mod tests {
         });
 
         assert_eq!(service.state(), &CourseContentState::Empty);
+    }
+
+    #[test]
+    fn objective_missing_required_defaults_to_required_and_invalid_to_elective() {
+        let raw = r#"{
+            "issues": [{
+                "id": "issue-1",
+                "title": "t",
+                "objectives": [
+                    {"id": "obj-missing", "title": "missing", "rubric": [{"id": "r1", "text": "x"}]},
+                    {"id": "obj-elective", "title": "elective", "required": false, "rubric": [{"id": "r2", "text": "x"}]},
+                    {"id": "obj-invalid", "title": "invalid", "required": "yes", "rubric": [{"id": "r3", "text": "x"}]}
+                ]
+            }]
+        }"#;
+        let document = parse_course_content(raw);
+        let required = document.issues[0]
+            .objectives
+            .iter()
+            .map(|objective| objective.required)
+            .collect::<Vec<_>>();
+        // 后端契约（Content.required_objective?/1）：缺省 = 必修；显式 false = 选修；
+        // 非法值按选修。客户端必须同源，否则旧内容 UI 显示选修、后端按必算计完成。
+        assert_eq!(required, vec![true, false, false]);
     }
 
     #[test]
