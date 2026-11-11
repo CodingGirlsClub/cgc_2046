@@ -5302,6 +5302,9 @@ type RootQueryType {
   "Tutor\/Owner\/Admin 课程学习聚合（不含 learner evidence）"
   courseLearningAnalytics(courseId: ID!): CourseLearningAnalytics
 
+  "当前用户在课程下的 Notes（服务端真源；可按 issue 过滤）"
+  myCourseNotes(courseId: ID!, issueId: String): [CourseNote!]!
+
   "Placeholder query until the first resource is added"
   ping: String
 
@@ -5992,6 +5995,14 @@ type PublicInitiativeDeposit {
 }
 
 type RootMutationType {
+  createCourseNote(input: CreateCourseNoteInput!): CourseNote!
+
+  updateCourseNote(id: ID!, input: UpdateCourseNoteInput!): CourseNote!
+
+  ensureCourseRetro(courseId: ID!, issueId: String!): CourseNote
+
+  deleteCourseNote(id: ID!): Boolean!
+
   "账号密码登录（plan 002 U2：login 含 @ 走邮箱，否则手机号归一化；token 经 httpOnly cookie 交付）"
   signIn(login: String!, password: String!): SignInResult
 
@@ -7989,6 +8000,28 @@ input SignUpWithPhoneInput {
   phone: String!
   code: String!
   password: String!
+}
+
+type CourseNote {
+  id: ID!
+  courseId: ID!
+  issueId: String!
+  sourceMaterialId: String
+  kind: String!
+  text: String!
+  insertedAt: DateTime!
+  updatedAt: DateTime
+}
+
+input CreateCourseNoteInput {
+  courseId: ID!
+  issueId: String!
+  sourceMaterialId: String
+  text: String!
+}
+
+input UpdateCourseNoteInput {
+  text: String!
 }
 
 type Enrollment {

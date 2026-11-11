@@ -254,6 +254,7 @@ defmodule Cgc2046Web.GraphqlSchema do
   end
 
   mutation do
+    import_fields(:learning_mutations)
     import_fields(:auth_mutations)
     import_fields(:mini_web_login_mutations)
     @desc "Owner/Admin 创建一次性工作台邀请小程序码"

@@ -98,7 +98,120 @@ defmodule Cgc2046Web.GraphqlSchema.Learning do
         end)
       end)
     end
+
+    @desc "当前用户在课程下的 Notes（服务端真源；可按 issue 过滤）"
+    field :my_course_notes, non_null(list_of(non_null(:course_note))) do
+      arg(:course_id, non_null(:id))
+      arg(:issue_id, :string)
+
+      resolve(fn _, args, %{context: context} ->
+        with_actor(context, fn actor ->
+          Cgc2046.Learning.CourseNotes.list(actor, args.course_id, args[:issue_id])
+        end)
+      end)
+    end
   end
+
+  object :course_note do
+    field(:id, non_null(:id))
+    field(:course_id, non_null(:id))
+    field(:issue_id, non_null(:string))
+    field(:source_material_id, :string)
+
+    field(:kind, non_null(:string),
+      resolve: fn note, _, _ -> {:ok, Atom.to_string(note.kind)} end
+    )
+
+    field(:text, non_null(:string))
+    field(:inserted_at, non_null(:datetime))
+    field(:updated_at, :datetime)
+  end
+
+  input_object :create_course_note_input do
+    field(:course_id, non_null(:id))
+    field(:issue_id, non_null(:string))
+    field(:source_material_id, :string)
+    field(:text, non_null(:string))
+  end
+
+  input_object :update_course_note_input do
+    field(:text, non_null(:string))
+  end
+
+  object :learning_mutations do
+    field :create_course_note, non_null(:course_note) do
+      arg(:input, non_null(:create_course_note_input))
+
+      resolve(fn _, %{input: input}, %{context: context} ->
+        with_actor(context, fn actor ->
+          Cgc2046.Learning.CourseNotes.create(actor, input)
+          |> note_result()
+        end)
+      end)
+    end
+
+    field :update_course_note, non_null(:course_note) do
+      arg(:id, non_null(:id))
+      arg(:input, non_null(:update_course_note_input))
+
+      resolve(fn _, %{id: id, input: input}, %{context: context} ->
+        with_actor(context, fn actor ->
+          Cgc2046.Learning.CourseNotes.update(actor, id, input.text)
+          |> note_result()
+        end)
+      end)
+    end
+
+    field :ensure_course_retro, :course_note do
+      arg(:course_id, non_null(:id))
+      arg(:issue_id, non_null(:string))
+
+      resolve(fn _, %{course_id: course_id, issue_id: issue_id}, %{context: context} ->
+        with_actor(context, fn actor ->
+          Cgc2046.Learning.CourseNotes.ensure_retro(actor, course_id, issue_id)
+          |> case do
+            {:ok, nil} -> {:ok, nil}
+            {:ok, note} -> {:ok, note}
+            {:error, error} -> note_error(error)
+          end
+        end)
+      end)
+    end
+
+    field :delete_course_note, non_null(:boolean) do
+      arg(:id, non_null(:id))
+
+      resolve(fn _, %{id: id}, %{context: context} ->
+        with_actor(context, fn actor ->
+          Cgc2046.Learning.CourseNotes.delete(actor, id)
+          |> case do
+            {:ok, true} -> {:ok, true}
+            {:error, error} -> note_error(error)
+          end
+        end)
+      end)
+    end
+  end
+
+  defp note_result({:ok, note}), do: {:ok, note}
+  defp note_result({:error, error}), do: note_error(error)
+
+  defp note_error(:course_not_accessible),
+    do: {:error, message: "Course not accessible", code: "course_not_accessible"}
+
+  defp note_error(:invalid_text),
+    do: {:error, message: "Invalid note text", code: "invalid_text"}
+
+  defp note_error(:invalid_issue),
+    do: {:error, message: "Invalid issue id", code: "invalid_issue"}
+
+  defp note_error(:duplicate_note),
+    do: {:error, message: "Duplicate note", code: "duplicate_note"}
+
+  defp note_error(:not_found),
+    do: {:error, message: "Not found", code: "not_found"}
+
+  defp note_error(_error), do: {:error, message: "Note operation failed", code: "note_failed"}
 
   object :enrollment do
     field(:id, non_null(:id))
