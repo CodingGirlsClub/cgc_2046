@@ -21,6 +21,7 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 ### Added
 - [Desktop][Backend] 课程 Notes 跨设备持久化：PostgreSQL `learning_course_notes` + GraphQL API；课程页划选材料可「加入笔记」，Issue 卡支持 Notes 列表、行内编辑、复制、二次确认删除与发给 Agent；右侧 Dock 新增课程级 `Notes` 面板（按 Issue 分组/筛选），并在必修目标全部掌握后由服务端幂等写入 Retro。
 - [Desktop] 材料动作行（展开/打开/重试）补齐 `Role::Button`、持久焦点与 Enter/Space 激活。
+- [Desktop] 图片/视频/网页材料不可用、链接无效、未知材料类型以及缺少学习动作时显示明确失败态，不再静默无入口。
 
 ### Fixed
 - [Desktop] 课程 Notes 面板打开时，Issue 卡不再重复渲染同一笔记的编辑框，避免 GPUI 重复 `set_focus` 导致崩溃。

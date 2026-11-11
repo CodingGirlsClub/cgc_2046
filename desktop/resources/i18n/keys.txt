@@ -453,6 +453,10 @@ courses.learning.notes_filter_notes
 courses.learning.notes_filter_retro
 courses.learning.notes_count
 courses.learning.notes_agent_status
+courses.learning.material_unavailable
+courses.learning.material_invalid_url
+courses.learning.material_unsupported
+courses.learning.agent_actions_missing
 courses.learning.notes_today
 courses.learning.notes_yesterday
 courses.learning.notes_earlier

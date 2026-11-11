@@ -678,6 +678,18 @@ pub(in crate::root_view) fn render_issue_card(
                     .children(buttons)
                     .into_any_element(),
             );
+        } else {
+            card.push(
+                div()
+                    .id(SharedString::from(format!(
+                        "issue-agent-actions-missing-{objective_key}"
+                    )))
+                    .test_support()
+                    .text_size(px(11.0))
+                    .text_color(palette.danger)
+                    .child(translate(language, Key::CoursesLearningAgentActionsMissing))
+                    .into_any_element(),
+            );
         }
 
         if !objective.rubric.is_empty() {

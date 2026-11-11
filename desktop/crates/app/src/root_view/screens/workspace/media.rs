@@ -96,6 +96,21 @@ fn completed_count(keys: &[String], completed: &BTreeSet<String>) -> usize {
     keys.iter().filter(|key| completed.contains(*key)).count()
 }
 
+fn material_error(
+    id: String,
+    key: Key,
+    language: Language,
+    palette: &theme::Palette,
+) -> AnyElement {
+    div()
+        .id(SharedString::from(id))
+        .test_support()
+        .text_size(px(10.0))
+        .text_color(palette.danger)
+        .child(translate(language, key))
+        .into_any_element()
+}
+
 fn image_action_label(state: Option<&MediaState>, language: Language) -> &'static str {
     match state {
         Some(MediaState::Ready(_)) => translate(language, Key::CoursesLearningMaterialOpen),
@@ -294,7 +309,18 @@ pub(in crate::root_view) fn material_section(
                         })
                         .into_any_element()
                 } else {
-                    title_base().into_any_element()
+                    title_base()
+                        .child(material_error(
+                            format!("material-error-{issue_id}-{index}"),
+                            if material.url.is_some() {
+                                Key::CoursesLearningMaterialInvalidUrl
+                            } else {
+                                Key::CoursesLearningMaterialUnavailable
+                            },
+                            language,
+                            palette,
+                        ))
+                        .into_any_element()
                 }
             }
             MaterialKind::Video => {
@@ -316,8 +342,41 @@ pub(in crate::root_view) fn material_section(
                         .test_support()
                         .on_click(move |_, _, cx| cx.open_url(&url))
                         .into_any_element()
+                } else if let Some(url) = material
+                    .url
+                    .as_deref()
+                    .filter(|url| url.starts_with("https://"))
+                {
+                    let url = url.to_string();
+                    title_base()
+                        .child(
+                            Icon::default()
+                                .path(AssetIcon::ArrowUpRight.path())
+                                .text_color(palette.accent)
+                                .small(),
+                        )
+                        .id(SharedString::from(format!(
+                            "material-open-{issue_id}-{index}"
+                        )))
+                        .role(Role::Button)
+                        .aria_label(accessible_title.clone())
+                        .track_focus(&action_focus)
+                        .test_support()
+                        .on_click(move |_, _, cx| cx.open_url(&url))
+                        .into_any_element()
                 } else {
-                    title_base().into_any_element()
+                    title_base()
+                        .child(material_error(
+                            format!("material-error-{issue_id}-{index}"),
+                            if material.url.is_some() {
+                                Key::CoursesLearningMaterialInvalidUrl
+                            } else {
+                                Key::CoursesLearningMaterialUnavailable
+                            },
+                            language,
+                            palette,
+                        ))
+                        .into_any_element()
                 }
             }
             MaterialKind::Web => {
@@ -344,9 +403,28 @@ pub(in crate::root_view) fn material_section(
                         .on_click(move |_, _, cx| cx.open_url(&url))
                         .into_any_element()
                 } else {
-                    title_base().into_any_element()
+                    title_base()
+                        .child(material_error(
+                            format!("material-error-{issue_id}-{index}"),
+                            if material.url.is_some() {
+                                Key::CoursesLearningMaterialInvalidUrl
+                            } else {
+                                Key::CoursesLearningMaterialUnavailable
+                            },
+                            language,
+                            palette,
+                        ))
+                        .into_any_element()
                 }
             }
+            MaterialKind::Unknown(_) => title_base()
+                .child(material_error(
+                    format!("material-error-{issue_id}-{index}"),
+                    Key::CoursesLearningMaterialUnsupported,
+                    language,
+                    palette,
+                ))
+                .into_any_element(),
             _ => title_base().into_any_element(),
         };
 
@@ -552,7 +630,13 @@ pub(in crate::root_view) fn material_element(
         MaterialKind::Text | MaterialKind::Markdown => text_material(material, index, palette, cx),
         MaterialKind::Image => image_material(ctx, material, index, palette, cx),
         MaterialKind::Video => video_material(material, index, language, palette),
-        MaterialKind::Web | MaterialKind::Unknown(_) => link_material(material, index, palette),
+        MaterialKind::Web => Some(link_material(material, index, language, palette)),
+        MaterialKind::Unknown(_) => Some(material_error(
+            format!("material-error-objective-{index}"),
+            Key::CoursesLearningMaterialUnsupported,
+            language,
+            palette,
+        )),
     }
 }
 
@@ -619,10 +703,22 @@ fn image_material(
     palette: &theme::Palette,
     cx: &mut Context<RootView>,
 ) -> Option<AnyElement> {
-    let url = material
+    let Some(url) = material
         .url
         .as_deref()
-        .filter(|url| cgc_platform::api::media::is_allowed_media_url(url))?;
+        .filter(|url| cgc_platform::api::media::is_allowed_media_url(url))
+    else {
+        return Some(material_error(
+            format!("material-error-objective-{index}"),
+            if material.url.is_some() {
+                Key::CoursesLearningMaterialInvalidUrl
+            } else {
+                Key::CoursesLearningMaterialUnavailable
+            },
+            ctx.language,
+            palette,
+        ));
+    };
     let alt = material
         .alt_text
         .as_deref()
@@ -739,41 +835,52 @@ fn video_material(
                 .into_any_element(),
         );
     }
-    link_material(material, index, palette)
+    Some(link_material(material, index, language, palette))
 }
 
 fn link_material(
     material: &TypedMaterial,
     index: usize,
+    language: Language,
     palette: &theme::Palette,
-) -> Option<AnyElement> {
-    let url = material
+) -> AnyElement {
+    let Some(url) = material
         .url
         .as_deref()
-        .filter(|url| url.starts_with("https://"))?;
+        .filter(|url| url.starts_with("https://"))
+    else {
+        return material_error(
+            format!("material-error-objective-{index}"),
+            if material.url.is_some() {
+                Key::CoursesLearningMaterialInvalidUrl
+            } else {
+                Key::CoursesLearningMaterialUnavailable
+            },
+            language,
+            palette,
+        );
+    };
     let title = material
         .title
         .clone()
         .filter(|title| !title.trim().is_empty())
         .unwrap_or_else(|| url.to_string());
     let open_url = url.to_string();
-    Some(
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(4.0))
-            .child(
-                div()
-                    .id(SharedString::from(format!("issue-link-{index}")))
-                    .test_support()
-                    .text_size(px(12.0))
-                    .text_color(palette.accent)
-                    .child(title)
-                    .on_click(move |_, _, cx| cx.open_url(&open_url)),
-            )
-            .children(caption_element(material, palette))
-            .into_any_element(),
-    )
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(4.0))
+        .child(
+            div()
+                .id(SharedString::from(format!("issue-link-{index}")))
+                .test_support()
+                .text_size(px(12.0))
+                .text_color(palette.accent)
+                .child(title)
+                .on_click(move |_, _, cx| cx.open_url(&open_url)),
+        )
+        .children(caption_element(material, palette))
+        .into_any_element()
 }
 
 fn caption_element(material: &TypedMaterial, palette: &theme::Palette) -> Option<AnyElement> {

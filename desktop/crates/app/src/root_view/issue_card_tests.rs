@@ -710,6 +710,61 @@ fn issue_card_objective_row_activates_with_keyboard(cx: &mut TestAppContext) {
 
 /// 材料动作行可聚焦并用 Enter/Space 展开/收起（#40：open/retry/expand 不能只有鼠标）。
 #[gpui_kit::test]
+fn issue_card_shows_missing_agent_action_state(cx: &mut TestAppContext) {
+    let (handle, root) = issue_card_window(cx);
+    root.update(cx, |root, _| {
+        root.courses = CourseCatalogService::new(Arc::new(FakeCoursesApi::with_seed(5)));
+        let mut content = card_content();
+        content.document.issues[0].kind = Some("unknown-kind".into());
+        content.document.issues[0].objectives[0]
+            .agent_actions
+            .clear();
+        root.content.adopt(content);
+    });
+
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(
+            window
+                .try_find("issue-agent-actions-missing-obj-1")
+                .is_some(),
+            "unknown kind without authored actions must show a failure state"
+        );
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn issue_card_shows_invalid_material_url_state(cx: &mut TestAppContext) {
+    let (handle, root) = issue_card_window(cx);
+    root.update(cx, |root, _| {
+        root.courses = CourseCatalogService::new(Arc::new(FakeCoursesApi::with_seed(5)));
+        let mut content = card_content();
+        content.document.issues[0].story_materials = vec![TypedMaterial {
+            id: Some("mat-bad".into()),
+            kind: MaterialKind::Web,
+            title: Some("坏链接".into()),
+            body: None,
+            url: Some("http://insecure.example/a".into()),
+            alt_text: None,
+            caption: None,
+            provider: None,
+            external_id: None,
+        }];
+        root.content.adopt(content);
+    });
+
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(
+            window.try_find("material-error-issue-1-0").is_some(),
+            "invalid material URL must render an explicit failure state"
+        );
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
 fn issue_card_material_action_activates_with_keyboard(cx: &mut TestAppContext) {
     let (handle, root) = issue_card_window(cx);
     root.update(cx, |root, _| {
