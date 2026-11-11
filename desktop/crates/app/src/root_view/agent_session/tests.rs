@@ -1,10 +1,23 @@
 use super::after_authorization;
 use crate::conversation_session::ConnectionPhase;
+use crate::i18n::Language;
+use crate::theme::ThemePreference;
+use cgc_platform::session::{FakeAuthApi, MemoryStore, SessionService};
 use futures::{channel::oneshot, FutureExt};
 use std::sync::{Arc, Mutex};
 
 fn test_view() -> crate::root_view::RootView {
-    crate::root_view::RootView::new(crate::registration::build_registry().expect("registry builds"))
+    // 不读本机 Keychain：这个测试只验证 lease 状态机，使用固定 fake session。
+    crate::root_view::RootView::with_session_from(
+        crate::registration::build_registry().expect("registry builds"),
+        Language::Zh,
+        ThemePreference::Light,
+        SessionService::new(
+            Box::new(FakeAuthApi::demo()),
+            Box::new(MemoryStore::default()),
+        ),
+        "/w/2046/courses",
+    )
 }
 
 #[test]
