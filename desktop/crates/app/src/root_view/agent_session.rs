@@ -95,6 +95,7 @@ impl RootView {
         cx: &mut Context<Self>,
     ) {
         if matches!(self.projection.state(), ProjectionState::Loading) {
+            self.projection_refresh_pending = true;
             return;
         }
         let Some(course_id) = self

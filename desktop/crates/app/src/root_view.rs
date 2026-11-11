@@ -249,6 +249,8 @@ struct ChatUi {
     composer_context: crate::composer_context::ComposerContext,
     /// 课程 CTA 在 ACP composer 上的 pending action；发送成功或手动移除即清除。
     pending_agent_call: Option<crate::agent_call::PendingAgentCall>,
+    /// submit_learning_attempt 成功信号；drain 后触发学习投影刷新。
+    learning_mutation: crate::learning_mutation::LearningMutationTracker,
     focused: bool,
     auto_prompted: bool,
     config_search: String,

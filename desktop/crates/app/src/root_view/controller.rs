@@ -1387,6 +1387,9 @@ impl RootView {
             if !replayed && !self.chat.session.ingest_external(generation, &event) {
                 continue;
             }
+            if !replayed {
+                self.chat.learning_mutation.observe(&event);
+            }
             self.page_context
                 .observe_event(&self.chat.conversation_scope(), &event);
             match &event {
@@ -1494,6 +1497,9 @@ impl RootView {
                 | HostEvent::UserMessage(_)
                 | HostEvent::ToolCallUpdated { .. } => {}
             }
+        }
+        if self.chat.learning_mutation.take_changed() {
+            self.refresh_projection_after_learning_mutation(cx);
         }
         if matches!(self.chat.session.phase, ConnectionPhase::Ready)
             && std::env::var("CGC_AUTO_HISTORY").as_deref() == Ok("1")

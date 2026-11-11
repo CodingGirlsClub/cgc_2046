@@ -614,7 +614,7 @@ fn submit_tool_completion_marks_learning_state_changed() {
             },
         },
     );
-    assert!(!state.learning_state_changed);
+    assert!(!state.take_learning_state_changed());
     state.ingest(
         0,
         &HostEvent::ToolCallUpdated {
@@ -625,7 +625,7 @@ fn submit_tool_completion_marks_learning_state_changed() {
         },
     );
     assert!(
-        state.learning_state_changed,
+        state.take_learning_state_changed(),
         "successful submit must trigger a projection refresh"
     );
 }

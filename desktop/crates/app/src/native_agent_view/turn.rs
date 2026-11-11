@@ -148,7 +148,7 @@ impl NativeAgentView {
                 self.expanded_thinking.insert(index);
             }
         }
-        if std::mem::take(&mut self.state.learning_state_changed) {
+        if self.state.take_learning_state_changed() {
             cx.emit(NativeAgentViewEvent::LearningStateChanged);
         }
         self.state.pair_unlinked_subagents();

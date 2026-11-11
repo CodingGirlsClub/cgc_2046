@@ -1,19 +1,17 @@
 //! Native-only presentation state; protocol lifecycle belongs to ConversationSession.
 use crate::{
-    agent_ingest, conversation_session::ConversationSession, native_panel_host::SubagentCard,
+    agent_ingest, conversation_session::ConversationSession,
+    learning_mutation::LearningMutationTracker, native_panel_host::SubagentCard,
 };
 use cgc_agent_host::AgentEvent;
 use cgc_platform::acp::connection::HostEvent;
-use std::collections::HashSet;
 
 pub struct NativeThreadState {
     pub session: ConversationSession,
     pub subagents: Vec<SubagentCard>,
     pub last_tool_call_id: Option<String>,
-    /// 已发起但尚未完成的 `submit_learning_attempt` 调用 id。
-    submit_tool_ids: HashSet<String>,
-    /// 一次提交成功后置位；drain 后发 `LearningStateChanged` 并清空。
-    pub learning_state_changed: bool,
+    /// 学习状态变更（submit_learning_attempt 成功）；由 drain 消费。
+    learning_mutation: LearningMutationTracker,
 }
 
 impl Default for NativeThreadState {
@@ -28,8 +26,7 @@ impl NativeThreadState {
             session: ConversationSession::native(),
             subagents: Vec::new(),
             last_tool_call_id: None,
-            submit_tool_ids: HashSet::new(),
-            learning_state_changed: false,
+            learning_mutation: LearningMutationTracker::default(),
         }
     }
     pub fn retry_available(&self) -> bool {
@@ -42,17 +39,10 @@ impl NativeThreadState {
         if !self.session.ingest(generation, event) {
             return false;
         }
+        self.learning_mutation.observe(event);
         match event {
             HostEvent::ToolCall { call } => {
                 self.last_tool_call_id = Some(call.tool_call_id.clone());
-                if call
-                    .name
-                    .as_deref()
-                    .is_some_and(|name| name.contains("submit_learning_attempt"))
-                    || call.title.contains("submit_learning_attempt")
-                {
-                    self.submit_tool_ids.insert(call.tool_call_id.clone());
-                }
             }
             HostEvent::ToolCallUpdated {
                 tool_call_id,
@@ -64,11 +54,6 @@ impl NativeThreadState {
                 {
                     self.last_tool_call_id = None;
                 }
-                if matches!(status.as_deref(), Some("completed"))
-                    && self.submit_tool_ids.remove(tool_call_id)
-                {
-                    self.learning_state_changed = true;
-                }
             }
             HostEvent::TurnEnd { .. } | HostEvent::Error { .. } | HostEvent::Exited => {
                 self.last_tool_call_id = None;
@@ -76,6 +61,11 @@ impl NativeThreadState {
             _ => {}
         }
         true
+    }
+
+    /// 取走一次“提交成功、需要刷新学习投影”的信号。
+    pub(crate) fn take_learning_state_changed(&mut self) -> bool {
+        self.learning_mutation.take_changed()
     }
     pub fn apply_subagent_event(&mut self, event: &AgentEvent) {
         match event {

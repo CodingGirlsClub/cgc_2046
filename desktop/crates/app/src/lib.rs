@@ -24,6 +24,7 @@ pub mod i18n;
 pub mod icon_theme;
 pub mod icons;
 pub mod image_viewer;
+pub(crate) mod learning_mutation;
 pub mod mention;
 pub mod mention_chip;
 pub mod native_agent_view;

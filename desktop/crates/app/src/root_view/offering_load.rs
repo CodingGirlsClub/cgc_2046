@@ -67,12 +67,13 @@ impl RootView {
                 if stale_epoch || stale_session || !still_wanted {
                     // 丢弃后必须复位：render 闸门要求 `Idle` 才会重发，否则投影永久
                     // 停在加载态且没有重试入口（R1）。
+                    this.projection_refresh_pending = false;
                     if still_wanted {
                         this.projection.reset();
                     }
                     return;
                 }
-                match result {
+                let loaded = match result {
                     Ok(projection) => {
                         let user_id = this
                             .session
@@ -95,10 +96,26 @@ impl RootView {
                                 });
                             }
                         }
-                        this.projection.adopt(projection)
+                        this.projection.adopt(projection);
+                        true
                     }
-                    Err(error) if error.is_unauthorized() => this.force_sign_out(cx),
-                    Err(error) => this.projection.fail(&error),
+                    Err(error) if error.is_unauthorized() => {
+                        this.projection_refresh_pending = false;
+                        this.force_sign_out(cx);
+                        false
+                    }
+                    Err(error) => {
+                        this.projection.fail(&error);
+                        false
+                    }
+                };
+                if this.projection_refresh_pending
+                    && this.projection.course_id() == Some(requested_course.as_str())
+                {
+                    this.projection_refresh_pending = false;
+                    if loaded {
+                        this.start_projection_load(cx, requested_course.clone());
+                    }
                 }
                 cx.notify();
             });
