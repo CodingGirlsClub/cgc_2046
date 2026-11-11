@@ -191,11 +191,20 @@ MVP 不扩展 native runtime 协议，使用现有 prompt 通道承载结构化�
 - 未来若需要 typed runtime channel，再扩展 `PreparedNativeTurn` / host 协议；不在本 ADR
   范围内，也不通过 `MessageDraft` 附件代替。
 
-### 6a. 执行语义（#45）
+### 6a. 执行语义（#45/#46）
 
 执行类 intent 在装配时注入行动指令（`agent_call::execution_instruction` 映射表），
 envelope 保留为 reference 视图。指令是模板文本，不是工具调用；副作用由
 `toolPermissions` 审批兜底。回答类（answer/hint/explain/summarize）不注入。
+
+手工作业（#46）的证据纪律写进同一指令：
+
+- `inspect_artifact`：定位真实产物 → 逐条对照 rubric → 报「criterion id + 通过/不通过 +
+  证据（路径:行 / 命令输出）」；不提交、不记录掌握；找不到如实报告；无本地工具时明说。
+- `submit`：先完成检查再调 `submit_learning_attempt`；`rubric_results` 精确覆盖每个
+  criterion id；`evidence` 引用真实路径/输出；证据不足不报 passed、不写高 confidence。
+- 这是软约束（模型遵循度），不是运行时强制；若实测不达标，后续再评估 runtime gate
+  （同一 turn 内需出现读文件/运行工具才允许提交）。
 
 ### 7. 投递与生命周期
 

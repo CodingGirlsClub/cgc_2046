@@ -229,17 +229,41 @@ impl Serialize for AgentCall {
 
 /// 把 action 数据块放在用户 prompt 前面；页面上下文仍由既有 page context
 /// 前缀负责，二者不互相覆盖。
-/// #45：执行类 intent 的指令模板（客户端代码；作者只能选 intent，不能
+/// #45/#46：执行类 intent 的指令模板（客户端代码；作者只能选 intent，不能
 /// 构造工具参数）。回答类（answer/hint/explain/summarize）不注入。
+///
+/// 手工作业的核心纪律：结论必须来自真实本地产物（读文件/跑命令），
+/// 逐条对照 rubric 并给出证据；submit 只在检查完成后发生。
 fn execution_instruction(intent: &AgentIntent) -> Option<&'static str> {
     let template = match intent {
         AgentIntent::Answer | AgentIntent::Hint | AgentIntent::Explain | AgentIntent::Summarize => {
             return None;
         }
-        AgentIntent::InspectWorkspace => "用可用工具检查工作区/项目，并报告发现",
-        AgentIntent::InspectArtifact => "用可用工具检查产物，并报告发现",
-        AgentIntent::CreateFile | AgentIntent::Run | AgentIntent::Submit | AgentIntent::Review => {
-            "按动作执行（有副作用，受工具审批规则约束）"
+        AgentIntent::InspectWorkspace => {
+            "用工具检查工作区/项目环境（根目录见系统提示），报告检查了什么、是否满足任务要求、还缺什么；不要臆测不存在的结果。"
+        }
+        AgentIntent::InspectArtifact => {
+            "按以下程序检查产物：\n\
+             1. 在工作区定位该目标要求的产物（list_directory/read_file/run_command；根目录见系统提示）；找不到就先问用户一次，然后如实报告缺失。\n\
+             2. 逐条对照当前目标的 rubric（见页面上下文），给出每个 criterion id 的结论：通过/不通过，以及证据（文件路径:行、命令输出）。\n\
+             3. 只报告检查结果，不提交、不记录掌握。\n\
+             4. 没有本地工具时明确说明无法读取本地文件，不要假装检查过。"
+        }
+        AgentIntent::Submit => {
+            "按以下程序提交：\n\
+             1. 先按 inspect_artifact 的流程定位并检查真实产物；没有检查不得提交。\n\
+             2. 调用 submit_learning_attempt 时，rubric_results 必须精确覆盖该目标 rubric 的每个 criterion id（不多不少）；evidence 写明真实文件路径与关键片段/命令输出；confidence 与证据强度一致。\n\
+             3. 任一 criterion 无法验证或未通过时，不报 passed、不写高 confidence；如实说明缺什么。\n\
+             4. 没有本地工具时明确说明无法检查，不要凭用户描述提交。"
+        }
+        AgentIntent::CreateFile => {
+            "按任务创建所需文件：先确认工作区与目标路径，写出文件，然后读回或列目录确认结果；副作用受工具审批约束。"
+        }
+        AgentIntent::Run => {
+            "运行任务并在工作区检查真实输出：报告命令、退出码与关键输出；失败时展示错误，不臆测成功。"
+        }
+        AgentIntent::Review => {
+            "基于本次学习过程与当前页面上下文复盘：指出已完成/未完成、rubric 未覆盖的点与下一步；不提交掌握记录。"
         }
     };
     Some(template)
@@ -378,16 +402,70 @@ mod tests {
             result.contains("跑一下测试"),
             "user prompt retained: {result}"
         );
-        assert!(result.contains("副作用"), "side-effecting note included");
+        assert!(result.contains("退出码"), "run procedure included");
+    }
+
+    /// #46：检查产物必须逐条对照 rubric、给出证据、且不提交。
+    #[test]
+    fn prompt_with_agent_call_requires_artifact_evidence() {
+        let call = AgentCall::from_action(
+            &action(AgentIntent::InspectArtifact, "a-inspect"),
+            objective_target(),
+        );
+        let result = prompt_with_agent_call("请检查", &call);
+        for needle in [
+            "逐条对照",
+            "criterion id",
+            "证据",
+            "不提交",
+            "找不到",
+            "没有本地工具",
+        ] {
+            assert!(
+                result.contains(needle),
+                "artifact inspection instruction missing `{needle}`: {result}"
+            );
+        }
+    }
+
+    /// #46：提交前必须先检查真实产物，rubric_results 精确覆盖，证据引用真实路径。
+    #[test]
+    fn prompt_with_agent_call_requires_inspection_before_submit() {
+        let call =
+            AgentCall::from_action(&action(AgentIntent::Submit, "a-submit"), objective_target());
+        let result = prompt_with_agent_call("请提交", &call);
+        for needle in [
+            "没有检查不得提交",
+            "submit_learning_attempt",
+            "rubric_results",
+            "每个 criterion id",
+            "evidence",
+            "不报 passed",
+        ] {
+            assert!(
+                result.contains(needle),
+                "submit instruction missing `{needle}`: {result}"
+            );
+        }
     }
 
     /// #45：回答类 intent 不注入指令，装配保持原样（envelope + prompt）。
     #[test]
     fn prompt_with_agent_call_leaves_answer_intents_unchanged() {
-        let call =
-            AgentCall::from_action(&action(AgentIntent::Answer, "a-answer"), objective_target());
-        let result = prompt_with_agent_call("帮我回答", &call);
-        assert_eq!(result, format!("{}\n\n帮我回答", call.prompt_block()));
+        for intent in [
+            AgentIntent::Answer,
+            AgentIntent::Hint,
+            AgentIntent::Explain,
+            AgentIntent::Summarize,
+        ] {
+            let call = AgentCall::from_action(&action(intent, "a-answer"), objective_target());
+            let result = prompt_with_agent_call("帮我回答", &call);
+            assert_eq!(
+                result,
+                format!("{}\n\n帮我回答", call.prompt_block()),
+                "answer-class intent {intent:?} must stay unchanged"
+            );
+        }
     }
 
     #[test]
