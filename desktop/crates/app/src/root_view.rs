@@ -1345,8 +1345,13 @@ impl Render for RootView {
                                         .id("content-scroll")
                                         .on_mouse_down(
                                             MouseButton::Left,
-                                            cx.listener(|this, _, _, _| {
+                                            cx.listener(|this, _, window, cx| {
                                                 this.page_context.begin_selection();
+                                                // 页面正文接管焦点：否则聊天输入框保持 focused，
+                                                // 选中正文时会被 build_selection_popover 的守卫吞掉。
+                                                this.chat.focused = false;
+                                                let focus = this.ensure_key_focus(cx);
+                                                window.focus(&focus, cx);
                                             }),
                                         )
                                         .on_key_up(cx.listener(|this, _, window, cx| {
