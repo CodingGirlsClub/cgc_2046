@@ -214,6 +214,13 @@ impl cgc_agent_core::TurnObserver for EventSink {
         self.emit(AgentEvent::UsageUpdated { usage, total });
     }
 
+    fn on_notice(&mut self, text: &str) {
+        // 软提示/上限收尾说明属于可见过程信息；作为文本 chunk 进入转录。
+        self.emit(AgentEvent::TextDelta {
+            text: format!("\n\n{text}"),
+        });
+    }
+
     fn on_finished(&mut self, outcome: &cgc_agent_core::ToolTurnOutcome) {
         self.emit(AgentEvent::TurnFinished {
             text: outcome.text.clone(),

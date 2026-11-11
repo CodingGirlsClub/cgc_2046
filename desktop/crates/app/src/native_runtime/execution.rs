@@ -301,6 +301,9 @@ impl TurnObserver for Observed {
     fn on_context_estimate(&mut self, tokens: usize, images: bool) {
         self.inner.on_context_estimate(tokens, images);
     }
+    fn on_notice(&mut self, text: &str) {
+        self.inner.on_notice(text);
+    }
     fn on_finished(&mut self, result: &ToolTurnOutcome) {
         self.inner.on_finished(result);
     }

@@ -91,6 +91,12 @@ impl TurnObserver for EventCollector {
         self.events.push(AgentEvent::UsageUpdated { usage, total });
     }
 
+    fn on_notice(&mut self, text: &str) {
+        self.events.push(AgentEvent::TextDelta {
+            text: format!("\n\n{text}"),
+        });
+    }
+
     fn on_finished(&mut self, outcome: &ToolTurnOutcome) {
         self.events.push(AgentEvent::TurnFinished {
             text: outcome.text.clone(),
@@ -174,6 +180,12 @@ impl TurnObserver for ChannelObserver {
 
     fn on_usage(&mut self, usage: TokenUsage, total: TokenUsage) {
         let _ = self.sender.send(AgentEvent::UsageUpdated { usage, total });
+    }
+
+    fn on_notice(&mut self, text: &str) {
+        let _ = self.sender.send(AgentEvent::TextDelta {
+            text: format!("\n\n{text}"),
+        });
     }
 
     fn on_finished(&mut self, outcome: &ToolTurnOutcome) {

@@ -30,8 +30,13 @@ pub use events::{
 use stream::{run_stream, StreamOutcome};
 pub use subagent::run_subagent;
 
-/// 单轮工具循环的上限，防止模型无限调工具。
-pub const MAX_TOOL_STEPS: usize = 8;
+/// 单轮工具循环的保险丝：正常任务不触发；到上限时优雅收尾而不是报错。
+/// Zed 的 native agent 没有轮次上限（模型不再调工具/用户取消才停）；
+/// 这里保留一个远高于实际需要的安全阀，防止模型卡死无限消耗。
+pub const MAX_TOOL_STEPS: usize = 64;
+
+/// 长循环的软提示轮次（不阻塞，只提醒用户可以停止或缩小范围）。
+const TOOL_STEP_SOFT_NOTICES: [usize; 2] = [16, 32];
 
 /// 一次 prompt 内最多连续跟进（follow-up）的轮数。
 pub const MAX_FOLLOW_UP_TURNS: usize = 4;
@@ -113,8 +118,8 @@ pub enum AgentError {
     Cancelled,
     #[error("selected model does not match the model being used")]
     ModelMismatch,
-    #[error("tool loop exceeded {MAX_TOOL_STEPS} steps")]
-    StepLimitExceeded,
+    #[error("interrupt limit exceeded {MAX_STEERS} times")]
+    SteerLimitExceeded,
     #[error("context too large: estimated {estimated_tokens} tokens, window {context_window}; image cost unknown: {image_cost_unknown}")]
     ContextTooLarge {
         estimated_tokens: usize,
@@ -369,7 +374,7 @@ impl Agent {
                         self.push_steer(message);
                         steers += 1;
                         if steers >= MAX_STEERS {
-                            return Err(AgentError::StepLimitExceeded);
+                            return Err(AgentError::SteerLimitExceeded);
                         }
                         continue;
                     }
@@ -475,7 +480,7 @@ impl Agent {
                         self.push_steer(message);
                         steers += 1;
                         if steers >= MAX_STEERS {
-                            return Err(AgentError::StepLimitExceeded);
+                            return Err(AgentError::SteerLimitExceeded);
                         }
                         continue 'turns;
                     }
@@ -506,11 +511,28 @@ impl Agent {
                     observer.on_tool_result(&summary);
                     tool_results.push(summary);
                 }
-                if step + 1 == MAX_TOOL_STEPS {
-                    return Err(AgentError::StepLimitExceeded);
+                let completed_steps = step + 1;
+                if TOOL_STEP_SOFT_NOTICES.contains(&completed_steps) {
+                    observer.on_notice(&format!(
+                        "已连续进行 {completed_steps} 轮工具调用；可以继续，也可以随时停止或缩小范围。"
+                    ));
+                }
+                if completed_steps == MAX_TOOL_STEPS {
+                    observer.on_notice(&format!(
+                        "本轮工具调用达到上限（{MAX_TOOL_STEPS} 轮），已停止继续探索。以下是已经收集到的证据；请缩小范围或分步继续。"
+                    ));
+                    let outcome = ToolTurnOutcome {
+                        text: all_text,
+                        usage: total_usage,
+                        stop_reason: StopReason::EndTurn,
+                        tool_calls: all_tool_calls,
+                        tool_results,
+                    };
+                    observer.on_finished(&outcome);
+                    return Ok(outcome);
                 }
             }
-            return Err(AgentError::StepLimitExceeded);
+            unreachable!("tool loop must return within MAX_TOOL_STEPS")
         }
     }
 
