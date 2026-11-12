@@ -1280,12 +1280,8 @@ impl RootView {
                     detected: guidance.clone(),
                     node_found: node_found.clone(),
                 })?;
-                LaunchOptions {
-                    // 决策 A：DSH Desktop 仅检测展示，openma 统一使用自带 bundled dsh。
-                    dsh_path: Some("bundled".to_string()),
-                    dsh_home: Some(dsh_home),
-                    extra_env: crate::dsh_agent::dsh_launch_env(),
-                }
+                // 决策 A：DSH Desktop 仅检测展示，openma 统一使用自带 bundled dsh。
+                crate::dsh_agent::dsh_launch_options(dsh_home, crate::dsh_agent::dsh_launch_env())
             } else {
                 LaunchOptions::default()
             };

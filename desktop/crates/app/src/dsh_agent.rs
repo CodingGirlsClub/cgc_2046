@@ -9,10 +9,23 @@ use std::collections::BTreeMap;
 
 use cgc_agent_provider::ProviderProtocol;
 use cgc_agent_store::{provider_key_account, AgentPrefs, PrefsStore};
+use cgc_platform::agent::launch::LaunchOptions;
 use cgc_platform::paths::AppPaths;
 use cgc_platform::session::KeychainStore;
 
 pub(crate) const DEEPSEEK_PROVIDER_ID: &str = "deepseek";
+
+/// DSH 启动装配：固定 bundled 运行时、隔离 DSH_HOME、只带 keychain 注入的 env。
+pub(crate) fn dsh_launch_options(
+    dsh_home: std::path::PathBuf,
+    extra_env: BTreeMap<String, String>,
+) -> LaunchOptions {
+    LaunchOptions {
+        dsh_path: Some("bundled".to_string()),
+        dsh_home: Some(dsh_home),
+        extra_env,
+    }
+}
 
 /// 生产入口：读取当前用户 prefs 与系统 keychain。密钥只在内存与子进程环境中。
 pub(crate) fn dsh_launch_env() -> BTreeMap<String, String> {
@@ -163,5 +176,25 @@ mod tests {
             "https://api.deepseek.com",
         ));
         assert!(dsh_launch_env_from(&prefs, &keychain).is_empty());
+    }
+
+    #[test]
+    fn dsh_launch_options_pin_bundled_and_isolated_home() {
+        let options = dsh_launch_options(
+            std::path::PathBuf::from("/data/dsh-home"),
+            BTreeMap::from([("DEEPSEEK_API_KEY".to_string(), "sk-test".to_string())]),
+        );
+        assert_eq!(options.dsh_path.as_deref(), Some("bundled"));
+        assert_eq!(
+            options.dsh_home.as_deref(),
+            Some(std::path::Path::new("/data/dsh-home"))
+        );
+        assert_eq!(
+            options
+                .extra_env
+                .get("DEEPSEEK_API_KEY")
+                .map(String::as_str),
+            Some("sk-test")
+        );
     }
 }

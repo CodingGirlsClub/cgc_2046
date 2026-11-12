@@ -37,14 +37,18 @@ struct MockLlm {
 
 impl MockLlm {
     fn start(file_path: PathBuf) -> Self {
-        Self::start_with(file_path, false)
+        Self::start_with(file_path, false, false)
     }
 
     fn start_text_only(file_path: PathBuf) -> Self {
-        Self::start_with(file_path, true)
+        Self::start_with(file_path, true, false)
     }
 
-    fn start_with(file_path: PathBuf, text_only: bool) -> Self {
+    fn start_slow_text(file_path: PathBuf) -> Self {
+        Self::start_with(file_path, true, true)
+    }
+
+    fn start_with(file_path: PathBuf, text_only: bool, slow_text: bool) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock llm");
         listener
             .set_nonblocking(true)
@@ -61,7 +65,9 @@ impl MockLlm {
                         let requests = Arc::clone(&requests_for_thread);
                         let file_path = file_path.clone();
                         std::thread::spawn(move || {
-                            let _ = handle_connection(stream, &requests, &file_path, text_only);
+                            let _ = handle_connection(
+                                stream, &requests, &file_path, text_only, slow_text,
+                            );
                         });
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
@@ -94,6 +100,7 @@ fn handle_connection(
     requests: &std::sync::Mutex<Vec<String>>,
     file_path: &Path,
     text_only: bool,
+    slow_text: bool,
 ) -> std::io::Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut request_line = String::new();
@@ -116,6 +123,47 @@ fn handle_connection(
     reader.read_exact(&mut body)?;
     let body = String::from_utf8_lossy(&body).to_string();
     requests.lock().expect("requests").push(body.clone());
+    if slow_text {
+        let headers = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n";
+        stream.write_all(headers.as_bytes())?;
+        stream.write_all(
+            sse(
+                "message_start",
+                serde_json::json!({
+                    "type":"message_start",
+                    "message":{"id":"msg_slow","type":"message","role":"assistant","content":[],
+                        "model":"deepseek-flash","stop_reason":null,"stop_sequence":null,
+                        "usage":{"input_tokens":10,"output_tokens":0}}
+                }),
+            )
+            .as_bytes(),
+        )?;
+        stream.write_all(
+            sse(
+                "content_block_start",
+                serde_json::json!({
+                    "type":"content_block_start","index":0,
+                    "content_block":{"type":"text","text":""}
+                }),
+            )
+            .as_bytes(),
+        )?;
+        for index in 0..200 {
+            let delta = sse(
+                "content_block_delta",
+                serde_json::json!({
+                    "type":"content_block_delta","index":0,
+                    "delta":{"type":"text_delta","text":format!("chunk-{index} ")}
+                }),
+            );
+            if stream.write_all(delta.as_bytes()).is_err() {
+                break;
+            }
+            stream.flush()?;
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        return Ok(());
+    }
     let (content_type, payload) = if !text_only && body.contains("\"tools\":") {
         scenario_response(&body, file_path)
     } else {
@@ -463,6 +511,14 @@ fn real_openma_0_4_41_full_conversation() {
 }
 
 fn real_plan(tag: &str, text_only: bool) -> Option<(MockLlm, LaunchPlan)> {
+    real_plan_with(tag, text_only, false)
+}
+
+fn real_plan_slow(tag: &str) -> Option<(MockLlm, LaunchPlan)> {
+    real_plan_with(tag, true, true)
+}
+
+fn real_plan_with(tag: &str, text_only: bool, slow_text: bool) -> Option<(MockLlm, LaunchPlan)> {
     let adapter = adapter_bin()?;
     let node = std::env::var_os("CGC_DSH_ACP_NODE")
         .map(PathBuf::from)
@@ -475,7 +531,9 @@ fn real_plan(tag: &str, text_only: bool) -> Option<(MockLlm, LaunchPlan)> {
     std::fs::create_dir_all(&dsh_home).expect("dsh home");
     std::fs::create_dir_all(&cwd).expect("workspace");
     let output = cwd.join("mock-output.txt");
-    let mock = if text_only {
+    let mock = if slow_text {
+        MockLlm::start_slow_text(output)
+    } else if text_only {
         MockLlm::start_text_only(output)
     } else {
         MockLlm::start(output)
@@ -589,4 +647,47 @@ fn real_openma_session_list_and_resume() {
     assert!(resumed.prompt("第二轮"));
     wait_turn_end(&resumed, Duration::from_secs(240));
     resumed.shutdown();
+}
+
+#[test]
+fn real_openma_cancel_interrupts_stream() {
+    let Some((_mock, plan)) = real_plan_slow("cancel") else {
+        eprintln!("skip dsh cancel e2e: set CGC_DSH_ACP_BIN");
+        return;
+    };
+    let host = AcpHost::start(AcpHostConfig::from_launch_plan(plan).with_name("dsh"))
+        .expect("start dsh adapter");
+    let _session_id = wait_ready(&host, Duration::from_secs(240));
+    assert!(host.prompt("请持续输出，直到我取消"));
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let mut saw_delta = false;
+    while Instant::now() < deadline && !saw_delta {
+        if let Some(event) = host.recv_timeout(Duration::from_millis(200)) {
+            match event {
+                HostEvent::Delta(text) => saw_delta |= !text.is_empty(),
+                HostEvent::Error { message } => {
+                    panic!("dsh stream failed before cancel: {message}")
+                }
+                _ => {}
+            }
+        }
+    }
+    assert!(saw_delta, "slow stream produced no delta before cancel");
+    assert!(host.stop());
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let mut cancelled = false;
+    while Instant::now() < deadline {
+        if let Some(HostEvent::TurnEnd {
+            cancelled: value, ..
+        }) = host.recv_timeout(Duration::from_millis(200))
+        {
+            cancelled = value;
+            break;
+        }
+    }
+    host.shutdown();
+    assert!(
+        cancelled,
+        "session/cancel did not end the turn as cancelled"
+    );
 }
