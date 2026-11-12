@@ -2,8 +2,9 @@
 //! 只放进子进程环境（`DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL`），不写 settings/日志/文件。
 //!
 //! 选择规则：优先使用内置 `deepseek`（DeepSeek）provider 已保存的 key；否则回退到
-//! 当前选中的 OpenAI-compatible provider。都没有 key 时返回空环境，由适配器走
-//! `auth_required` 登录路径（P3）。
+//! 当前选中的、已配置 base URL 的 OpenAI-compatible provider（空 base URL 不注入，
+//! 否则 key 会被发到 adapter 默认的 DeepSeek 端点）。都没有可用 key 时返回空环境，
+//! 由适配器走 `auth_required` 登录路径（P3）。
 
 use std::collections::BTreeMap;
 
@@ -42,8 +43,12 @@ pub(crate) fn dsh_launch_env_from(
         .provider(DEEPSEEK_PROVIDER_ID)
         .filter(|provider| provider.has_key)
         .or_else(|| {
+            // 非 DeepSeek provider 的 key 只能用在该 provider 自己的端点上：base_url 为空时
+            // adapter 会回落到 DeepSeek 官方端点，等于把别人的 key 发给 DeepSeek。
             prefs.active_provider().filter(|provider| {
-                provider.has_key && provider.protocol == ProviderProtocol::OpenAiCompatible
+                provider.has_key
+                    && provider.protocol == ProviderProtocol::OpenAiCompatible
+                    && !provider.base_url.trim().is_empty()
             })
         });
     let Some(provider) = provider else {
@@ -176,6 +181,43 @@ mod tests {
             "https://api.deepseek.com",
         ));
         assert!(dsh_launch_env_from(&prefs, &keychain).is_empty());
+    }
+
+    #[test]
+    fn active_provider_without_base_url_does_not_inject_key() {
+        let backend = Arc::new(MemoryBackend::default());
+        let keychain = KeychainStore::new(backend);
+        keychain
+            .save_secret(&provider_key_account("custom"), "sk-custom")
+            .expect("save key");
+        let mut prefs = AgentPrefs::default();
+        prefs.upsert_provider(provider("custom", true, ""));
+        prefs.selected_provider = Some("custom".into());
+        assert!(
+            dsh_launch_env_from(&prefs, &keychain).is_empty(),
+            "empty base_url would send the key to the DeepSeek default endpoint"
+        );
+    }
+
+    #[test]
+    fn active_provider_with_base_url_routes_key_to_its_endpoint() {
+        let backend = Arc::new(MemoryBackend::default());
+        let keychain = KeychainStore::new(backend);
+        keychain
+            .save_secret(&provider_key_account("custom"), "sk-custom")
+            .expect("save key");
+        let mut prefs = AgentPrefs::default();
+        prefs.upsert_provider(provider("custom", true, "https://api.example.test/"));
+        prefs.selected_provider = Some("custom".into());
+        let env = dsh_launch_env_from(&prefs, &keychain);
+        assert_eq!(
+            env.get("DEEPSEEK_API_KEY").map(String::as_str),
+            Some("sk-custom")
+        );
+        assert_eq!(
+            env.get("DEEPSEEK_BASE_URL").map(String::as_str),
+            Some("https://api.example.test")
+        );
     }
 
     #[test]
