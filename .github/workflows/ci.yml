@@ -476,7 +476,8 @@ jobs:
             archive: tar.gz
             artifact_arch: ""
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    # 首次构建要先由 Zig 编译 ghostty 的 C 库；缓存命中后才会回落。
+    timeout-minutes: 90
     env:
       # universal 时产物命名带 _macos-universal、verify 断言 lipo 双架构；
       # 其它平台留空 → name-artifacts.sh 回落到 uname -m。
@@ -493,6 +494,57 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: "desktop -> target"
+      # libghostty-vt 的 build.rs 会调用 `zig build` 编译 ghostty 的 C 库；
+      # 版本必须与 crates/terminal/README.md 记录的 0.17.1 一致。
+      # 官方 tarball 解到 runner 临时目录，再用 job 级 `ZIG` 指过去：
+      # 不写 GITHUB_PATH/GITHUB_ENV，避开 Windows 上 bash 与 Windows 路径混用的坑。
+      - name: 安装 Zig 0.17.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=0.17.1
+          # 每个 tarball 的 SHA-256 来自官方 https://ziglang.org/download/index.json；
+          # 升级 Zig 版本时必须同步更新（本地用 index.json 或实际下载核对）。
+          case "${RUNNER_OS}-${RUNNER_ARCH}" in
+            macOS-ARM64) asset="aarch64-macos"; sha256="75f1bc7a1e9852f17ec9a0c1895f767c4ec56d46bc8a834920eece1d0359dd8d" ;;
+            macOS-X64)   asset="x86_64-macos";   sha256="9af07b20319fbd0c92ee46ad23e81d6a782b1aaea2cfb8dcbff35f1d2c7ddbb7" ;;
+            Linux-X64)   asset="x86_64-linux";   sha256="3581863e3cbcfd0fce0efc682ce7e9e93da96668a977791d356a26d2a7e9b17a" ;;
+            Windows-X64) asset="x86_64-windows"; sha256="b03f477a1943673e02aca0f570e8030dffd536ce1f45cbc4d3326ec31159562e" ;;
+            *)
+              echo "不支持的 runner：${RUNNER_OS}-${RUNNER_ARCH}" >&2
+              exit 1
+              ;;
+          esac
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            archive="zig-${asset}-${version}.zip"
+          else
+            archive="zig-${asset}-${version}.tar.xz"
+          fi
+          dest="${RUNNER_TEMP}/zig"
+          mkdir -p "$dest"
+          curl -fsSL "https://ziglang.org/download/${version}/${archive}" \
+            -o "${RUNNER_TEMP}/${archive}"
+          if command -v sha256sum >/dev/null 2>&1; then
+            actual_sha256=$(sha256sum "${RUNNER_TEMP}/${archive}" | awk '{print $1}' | tr -d '\\')
+          else
+            actual_sha256=$(shasum -a 256 "${RUNNER_TEMP}/${archive}" | awk '{print $1}' | tr -d '\\')
+          fi
+          if [ "${actual_sha256}" != "${sha256}" ]; then
+            echo "Zig 校验失败：期望 ${sha256}，实际 ${actual_sha256}" >&2
+            exit 1
+          fi
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            7z x -y "${RUNNER_TEMP}/${archive}" -o"$dest" > /dev/null
+          else
+            tar -xf "${RUNNER_TEMP}/${archive}" -C "$dest"
+          fi
+          rm -rf "${dest}/zig"
+          mv "${dest}/zig-${asset}-${version}" "${dest}/zig"
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            "${dest}/zig/zig.exe" version
+          else
+            "${dest}/zig/zig" version
+          fi
       - name: Linux 系统依赖
         if: runner.os == 'Linux'
         run: |
@@ -502,6 +554,10 @@ jobs:
             libssl-dev libzstd-dev libasound2-dev vulkan-validationlayers libvulkan1 \
             fuse libfuse2t64
       - name: 格式与 lint
+        # `runner` context 只在 step 级可用；job 级 env 里写 `${{ runner.temp }}`
+        # 会让整个 workflow 被判为无效（GitHub: invalid workflow file）。
+        env:
+          ZIG: ${{ runner.temp }}/zig/zig/zig
         run: |
           cargo fmt --all -- --check
           cargo clippy --workspace --all-targets -- -D warnings
@@ -516,6 +572,8 @@ jobs:
           python3 scripts/check_licenses.py --self-test
           python3 scripts/check_licenses.py
       - name: 测试
+        env:
+          ZIG: ${{ runner.temp }}/zig/zig/zig
         run: cargo test --workspace
       # UI 测试默认不编译：crates/app/build.rs 只在 CGC_UI_TESTS=1 时打开
       # cfg(cgc_ui_tests)。启用 Kit test-support 依赖 Cargo.lock 对
@@ -525,6 +583,7 @@ jobs:
         if: runner.os == 'macOS'
         env:
           CGC_UI_TESTS: "1"
+          ZIG: ${{ runner.temp }}/zig/zig/zig
         # 必须串行：UI 用例共享进程级全局（主题/原生 runtime）。并行时
         # native_composer_uses_shared_editor_growth 在 expect("runtime snapshot") 处超时。
         run: cargo test -p cgc-desktop-app --features gpui-kit/test-support --lib -- --test-threads=1
@@ -550,6 +609,7 @@ jobs:
           # 的 rerun-if-env-changed 保证改这里会重编）。本地 cargo run 不受影响。
           CGC_DEFAULT_API_URL: https://api.codingirlsclub.com/api/graphql
           CGC_DEFAULT_ENV: prod
+          ZIG: ${{ runner.temp }}/zig/zig/zig
         run: cargo packager -p cgc-desktop-app --release -f ${{ matrix.formats }}
       # cargo-packager 不做 lipo：两个架构各编一次，合并成 universal 再打包，
       # 产物路径正好是 packager 对 universal-apple-darwin 期望的 binaries_dir。
@@ -558,6 +618,7 @@ jobs:
         env:
           CGC_DEFAULT_API_URL: https://api.codingirlsclub.com/api/graphql
           CGC_DEFAULT_ENV: prod
+          ZIG: ${{ runner.temp }}/zig/zig/zig
         run: |
           rustup target add x86_64-apple-darwin
           cargo build --release -p cgc-desktop-app --target aarch64-apple-darwin

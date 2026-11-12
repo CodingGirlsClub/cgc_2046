@@ -47,6 +47,8 @@ pub struct Preferences {
     pub close_to_tray: bool,
     pub tray_hint_shown: bool,
     pub native_agent_enabled: bool,
+    /// 课程 CTA 的投递模式；与 composer Zap / Settings 共享。
+    pub course_action_delivery: crate::agent_call::DeliveryMode,
     /// Stage 3.2b：settings 级审批规则（`toolPermissions`），缺省 = 全部询问。
     pub tool_permissions: ToolPermissionSettings,
     /// Stage 3.3：历史侧栏开关状态（重启后恢复；Zed threads_sidebar 语义）。
@@ -113,6 +115,7 @@ impl Default for Preferences {
             close_to_tray: true,
             tray_hint_shown: false,
             native_agent_enabled: true,
+            course_action_delivery: crate::agent_call::DeliveryMode::FillOnly,
             tool_permissions: ToolPermissionSettings::default(),
             history_sidebar_open: false,
             cursor_blink: CursorBlinkPreference::default(),
@@ -173,6 +176,9 @@ fn parse(value: &Value) -> Preferences {
             .get("nativeAgentEnabled")
             .and_then(Value::as_bool)
             .unwrap_or(true),
+        course_action_delivery: crate::agent_call::DeliveryMode::from_value(
+            value.get("courseActionDelivery").and_then(Value::as_str),
+        ),
         tool_permissions,
         history_sidebar_open: value
             .get("historySidebarOpen")
@@ -239,6 +245,7 @@ pub fn save(preferences: Preferences) {
         "closeToTray": preferences.close_to_tray,
         "trayHintShown": preferences.tray_hint_shown,
         "nativeAgentEnabled": preferences.native_agent_enabled,
+        "courseActionDelivery": preferences.course_action_delivery.as_str(),
         "historySidebarOpen": preferences.history_sidebar_open,
         "cursorBlink": preferences.cursor_blink.as_str(),
         "agentPanelWidth": preferences.agent_panel_width,
@@ -281,6 +288,22 @@ mod tests {
         assert!(!Preferences::default().history_sidebar_open);
         assert!(!parse(&json!({"closeToTray": true})).history_sidebar_open);
         assert!(parse(&json!({"historySidebarOpen": true})).history_sidebar_open);
+    }
+
+    #[test]
+    fn course_action_delivery_defaults_fill_only_and_parses_auto_send() {
+        assert_eq!(
+            Preferences::default().course_action_delivery,
+            crate::agent_call::DeliveryMode::FillOnly
+        );
+        assert_eq!(
+            parse(&json!({"courseActionDelivery": "auto_send"})).course_action_delivery,
+            crate::agent_call::DeliveryMode::AutoSend
+        );
+        assert_eq!(
+            parse(&json!({"courseActionDelivery": "unknown"})).course_action_delivery,
+            crate::agent_call::DeliveryMode::FillOnly
+        );
     }
 
     #[test]

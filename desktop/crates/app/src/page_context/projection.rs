@@ -340,8 +340,23 @@ fn push_material(sections: &mut Vec<String>, material: &cgc_courses::content::Ty
 
 fn issue_sections(issue: &cgc_courses::content::CourseIssue) -> Vec<String> {
     let mut sections = Vec::new();
+    let has_story = issue.as_a.is_some() || !issue.given.is_empty();
+    if let Some(as_a) = issue
+        .as_a
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        sections.push(format!("作为：{as_a}"));
+    }
+    if !issue.given.is_empty() {
+        sections.push(format!("前提：{}", issue.given.join("、")));
+    }
     if let Some(goal) = issue.goal.as_deref().filter(|goal| !goal.trim().is_empty()) {
-        sections.push(goal.to_string());
+        sections.push(if has_story {
+            format!("我能：{goal}")
+        } else {
+            goal.to_string()
+        });
     }
     if !issue.checklist.is_empty() {
         sections.push(
@@ -370,6 +385,22 @@ fn issue_sections(issue: &cgc_courses::content::CourseIssue) -> Vec<String> {
             instructions.push_str(&format!(" · {activity}"));
         }
         sections.push(instructions);
+        if let Some(assessment) = objective
+            .assessment
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            sections.push(format!("答什么：{assessment}"));
+        }
+        if !objective.rubric.is_empty() {
+            let rubric = objective
+                .rubric
+                .iter()
+                .map(|item| format!("- {}", item.text))
+                .collect::<Vec<_>>()
+                .join("\n");
+            sections.push(format!("怎么算通过：\n{rubric}"));
+        }
         for material in &objective.materials {
             push_material(&mut sections, material);
         }
@@ -388,7 +419,7 @@ pub(crate) fn project_issue(
         .unwrap_or_else(|| "unversioned".into());
     project_body(
         tab_id,
-        &format!("issue-context-v2\0{revision}"),
+        &format!("issue-context-v4\0{revision}"),
         issue_sections(issue),
     )
 }

@@ -1132,6 +1132,25 @@ impl SettingsWindowView {
         .description(
             "默认开启；关闭后 Agent Panel 使用 External Agent 运行时（Native 工具/MCP 不可用）",
         );
+        let course_action_delivery = SettingItem::new(
+            "课程动作自动发送",
+            SettingField::switch(
+                |_cx: &App| {
+                    preferences::load().course_action_delivery
+                        == crate::agent_call::DeliveryMode::AutoSend
+                },
+                |value: bool, _cx: &mut App| {
+                    preferences::update(|preferences| {
+                        preferences.course_action_delivery = if value {
+                            crate::agent_call::DeliveryMode::AutoSend
+                        } else {
+                            crate::agent_call::DeliveryMode::FillOnly
+                        };
+                    });
+                },
+            ),
+        )
+        .description("开启后课程 CTA 直接发送并保留已有草稿；回答类动作始终填充");
         // Stage 3.3：清空 ACP 对话历史（二次确认；只清 conversations.db，
         // native threads.db 完全不碰）。
         let clear_armed = self.clear_acp_history_armed.clone();
@@ -1546,6 +1565,7 @@ impl SettingsWindowView {
                     SettingGroup::new().title("通用").items(vec![
                         llm_link,
                         native_agent,
+                        course_action_delivery,
                         clear_acp_history,
                     ]),
                 ]),

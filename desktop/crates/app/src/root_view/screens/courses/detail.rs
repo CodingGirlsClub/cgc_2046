@@ -1,5 +1,6 @@
 use super::super::super::*;
 use super::super::ScreenContext;
+use gpui_kit::component::button::ButtonVariants as _;
 
 pub(in crate::root_view) fn render_course_detail(
     ctx: &mut ScreenContext<'_>,
@@ -303,9 +304,26 @@ pub(in crate::root_view) fn render_course_detail(
                     .gap(space(2))
                     .child(
                         div()
-                            .text_size(px(24.0))
-                            .text_color(palette.ink)
-                            .child(detail.title.clone()),
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .justify_between()
+                            .gap(space(2))
+                            .child(
+                                div()
+                                    .text_size(px(24.0))
+                                    .text_color(palette.ink)
+                                    .child(detail.title.clone()),
+                            )
+                            .child(
+                                Button::new("course-notes-open")
+                                    .xsmall()
+                                    .ghost()
+                                    .label(translate(language, Key::CoursesLearningNotesPanelTitle))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.open_notes_panel(cx);
+                                    })),
+                            ),
                     )
                     .children(super::super::render_workspace_badge(
                         ctx.workspaces.workspaces(),

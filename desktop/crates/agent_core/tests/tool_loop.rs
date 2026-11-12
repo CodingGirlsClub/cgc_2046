@@ -4,7 +4,7 @@ use std::sync::{
 };
 
 use cgc_agent_core::{
-    Agent, AgentError, ApprovalRequest, Approver, AutoApprover, DenyApprover, MAX_TOOL_STEPS,
+    Agent, ApprovalRequest, Approver, AutoApprover, DenyApprover, MAX_TOOL_STEPS,
 };
 use cgc_agent_provider::{
     CompletionEvent, FakeProvider, Model, ModelId, ModelLimits, ProviderError, ProviderId,
@@ -90,6 +90,27 @@ fn model() -> Model {
         "m1",
         ModelLimits::new(8_000, 1_000),
     )
+}
+
+fn large_model() -> Model {
+    Model::new(
+        ProviderId::new("fake"),
+        "Fake",
+        "m1",
+        "m1",
+        ModelLimits::new(200_000, 1_000),
+    )
+}
+
+#[derive(Default)]
+struct NoticeObserver {
+    notices: Vec<String>,
+}
+
+impl cgc_agent_core::TurnObserver for NoticeObserver {
+    fn on_notice(&mut self, text: &str) {
+        self.notices.push(text.to_string());
+    }
 }
 
 fn agent() -> Agent {
@@ -279,8 +300,8 @@ fn policy_denial_does_not_call_approver() {
 }
 
 #[test]
-fn tool_loop_stops_at_step_limit() {
-    let fake = FakeProvider::new(ProviderId::new("fake"), "Fake", vec![model()]);
+fn tool_loop_stops_gracefully_at_step_limit() {
+    let fake = FakeProvider::new(ProviderId::new("fake"), "Fake", vec![large_model()]);
     for index in 0..MAX_TOOL_STEPS + 2 {
         fake.push_script(vec![
             tool_use(&format!("call_{index}"), "ask_tool", serde_json::json!({})),
@@ -291,17 +312,44 @@ fn tool_loop_stops_at_step_limit() {
     registry.register(Arc::new(AskTool));
     let workspace = temp_workspace("limit");
     let mut agent = agent();
-    let error = futures::executor::block_on(agent.prompt_with_tools(
+    let mut observer = NoticeObserver::default();
+    let outcome = futures::executor::block_on(agent.prompt_with_tools_observed(
         &fake,
-        &model(),
+        &large_model(),
         "loop",
         &registry,
         &ToolContext::new(&workspace),
         &AutoApprover,
+        &mut observer,
     ))
-    .unwrap_err();
-    assert!(matches!(error, AgentError::StepLimitExceeded));
+    .expect("step limit must end the turn gracefully");
+    assert_eq!(outcome.stop_reason, StopReason::EndTurn);
+    assert_eq!(outcome.tool_results.len(), MAX_TOOL_STEPS);
     assert_eq!(fake.requests().len(), MAX_TOOL_STEPS);
+    assert!(
+        observer
+            .notices
+            .iter()
+            .any(|notice| notice.contains("16 轮")),
+        "soft notice at 16 rounds: {:?}",
+        observer.notices
+    );
+    assert!(
+        observer
+            .notices
+            .iter()
+            .any(|notice| notice.contains("32 轮")),
+        "soft notice at 32 rounds: {:?}",
+        observer.notices
+    );
+    assert!(
+        observer
+            .notices
+            .iter()
+            .any(|notice| notice.contains("上限（64 轮）")),
+        "limit notice: {:?}",
+        observer.notices
+    );
     let _ = std::fs::remove_dir_all(&workspace);
 }
 

@@ -45,7 +45,7 @@ pub enum RestoredFrom {
     Execution,
 }
 /// 当前 schema 版本；迁移只增不改（v3：可恢复会话投影表）。
-pub const SCHEMA_VERSION: i64 = 3;
+pub const SCHEMA_VERSION: i64 = 4;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConversationStoreError {
@@ -96,6 +96,41 @@ impl SidebarThread {
                     .as_deref()
                     .filter(|title| !title.trim().is_empty())
             })
+    }
+}
+
+/// 一次终端会话（历史侧栏的 terminal 行）。
+///
+/// 只记录元数据：标题、工作目录、时间与退出码；不保存 scrollback。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TerminalSession {
+    pub terminal_id: String,
+    /// 程序通过 OSC 设置的最后一次标题。
+    pub title: Option<String>,
+    /// 用户重命名，优先于 `title`。
+    pub custom_title: Option<String>,
+    pub working_directory: Option<String>,
+    pub created_at: String,
+    pub closed_at: Option<String>,
+    pub exit_code: Option<i64>,
+}
+
+impl TerminalSession {
+    /// 列表展示标题：用户重命名优先，其次程序标题。
+    pub fn display_title(&self) -> Option<&str> {
+        self.custom_title
+            .as_deref()
+            .filter(|title| !title.trim().is_empty())
+            .or_else(|| {
+                self.title
+                    .as_deref()
+                    .filter(|title| !title.trim().is_empty())
+            })
+    }
+
+    /// 最近活动时间（关闭时间优先）。
+    pub fn updated_at(&self) -> &str {
+        self.closed_at.as_deref().unwrap_or(&self.created_at)
     }
 }
 
@@ -215,6 +250,25 @@ impl ConversationStore {
             self.conn.execute(
                 "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
                 params![3_i64, now_utc_rfc3339()],
+            )?;
+        }
+        if applied < 4 {
+            // v4：终端会话日志（历史侧栏的 terminal 行）。只存元数据，不存
+            // scrollback；重开时按 `working_directory` 起一个新 shell。
+            self.conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS sidebar_terminal_sessions (
+                    terminal_id TEXT PRIMARY KEY,
+                    title TEXT,
+                    custom_title TEXT,
+                    working_directory TEXT,
+                    created_at TEXT NOT NULL,
+                    closed_at TEXT,
+                    exit_code INTEGER
+                );",
+            )?;
+            self.conn.execute(
+                "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
+                params![4_i64, now_utc_rfc3339()],
             )?;
         }
         Ok(())
@@ -458,6 +512,93 @@ impl ConversationStore {
             threads.push(row?);
         }
         Ok(threads)
+    }
+
+    /// 记录一次新终端会话（打开终端时插入；重复 id 只更新元数据）。
+    pub fn upsert_terminal_session(
+        &self,
+        session: &TerminalSession,
+    ) -> Result<(), ConversationStoreError> {
+        self.conn.execute(
+            "INSERT INTO sidebar_terminal_sessions
+                (terminal_id, title, custom_title, working_directory, created_at, closed_at, exit_code)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(terminal_id) DO UPDATE SET
+                title = excluded.title,
+                custom_title = COALESCE(excluded.custom_title, sidebar_terminal_sessions.custom_title),
+                working_directory = COALESCE(excluded.working_directory, sidebar_terminal_sessions.working_directory)",
+            params![
+                session.terminal_id,
+                session.title,
+                session.custom_title,
+                session.working_directory,
+                session.created_at,
+                session.closed_at,
+                session.exit_code
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// 终端关闭/进程退出时回填：最终标题、关闭时间与退出码。
+    pub fn finish_terminal_session(
+        &self,
+        terminal_id: &str,
+        title: Option<&str>,
+        closed_at: &str,
+        exit_code: Option<i64>,
+    ) -> Result<(), ConversationStoreError> {
+        self.conn.execute(
+            "UPDATE sidebar_terminal_sessions
+             SET title = COALESCE(?2, title), closed_at = ?3, exit_code = ?4
+             WHERE terminal_id = ?1",
+            params![terminal_id, title, closed_at, exit_code],
+        )?;
+        Ok(())
+    }
+
+    /// 重命名终端会话（`None`/空白清除自定义标题，回退到程序标题）。
+    pub fn rename_terminal_session(
+        &self,
+        terminal_id: &str,
+        custom_title: Option<&str>,
+    ) -> Result<(), ConversationStoreError> {
+        let custom_title = custom_title.filter(|title| !title.trim().is_empty());
+        self.conn.execute(
+            "UPDATE sidebar_terminal_sessions SET custom_title = ?2 WHERE terminal_id = ?1",
+            params![terminal_id, custom_title],
+        )?;
+        Ok(())
+    }
+
+    /// 终端会话列表（按最近活动倒序）。
+    pub fn list_terminal_sessions(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<TerminalSession>, ConversationStoreError> {
+        let mut statement = self.conn.prepare(
+            "SELECT terminal_id, title, custom_title, working_directory,
+                    created_at, closed_at, exit_code
+             FROM sidebar_terminal_sessions
+             ORDER BY COALESCE(closed_at, created_at) DESC, terminal_id DESC
+             LIMIT ?1",
+        )?;
+        let rows = statement.query_map(params![limit as i64], |row| {
+            Ok(TerminalSession {
+                terminal_id: row.get(0)?,
+                title: row.get(1)?,
+                custom_title: row.get(2)?,
+                working_directory: row.get(3)?,
+                created_at: row.get(4)?,
+                closed_at: row.get(5)?,
+                exit_code: row.get(6)?,
+            })
+        })?;
+        let mut sessions = Vec::new();
+        for row in rows {
+            sessions.push(row?);
+        }
+        Ok(sessions)
     }
 
     /// 归档 / 取消归档（不动 updated_at，避免历史重排）；返回是否命中。
@@ -714,6 +855,89 @@ mod tests {
     use cgc_agent_conversation::conversation::{
         ConversationThread, Entry, ThreadCapabilities, ThreadStatus, Usage,
     };
+
+    #[test]
+    fn terminal_sessions_round_trip() {
+        let store = ConversationStore::open_in_memory().expect("store");
+        let session = TerminalSession {
+            terminal_id: "term-1".into(),
+            title: Some("vim".into()),
+            custom_title: None,
+            working_directory: Some("/tmp/project".into()),
+            created_at: "2026-01-01T00:00:00Z".into(),
+            closed_at: None,
+            exit_code: None,
+        };
+        store.upsert_terminal_session(&session).expect("insert");
+
+        let list = store.list_terminal_sessions(10).expect("list");
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].display_title(), Some("vim"));
+        assert_eq!(list[0].working_directory.as_deref(), Some("/tmp/project"));
+
+        store
+            .finish_terminal_session("term-1", Some("build"), "2026-01-01T00:10:00Z", Some(2))
+            .expect("finish");
+        let list = store.list_terminal_sessions(10).expect("list");
+        assert_eq!(list[0].display_title(), Some("build"));
+        assert_eq!(list[0].exit_code, Some(2));
+        assert_eq!(list[0].updated_at(), "2026-01-01T00:10:00Z");
+
+        // 用户重命名优先；空白重命名清除覆盖、回退到程序标题。
+        store
+            .rename_terminal_session("term-1", Some("部署"))
+            .expect("rename");
+        assert_eq!(
+            store.list_terminal_sessions(10).unwrap()[0].display_title(),
+            Some("部署")
+        );
+        store
+            .rename_terminal_session("term-1", Some("   "))
+            .expect("clear rename");
+        let stored: Option<String> = store
+            .conn
+            .query_row(
+                "SELECT custom_title FROM sidebar_terminal_sessions WHERE terminal_id = ?1",
+                params!["term-1"],
+                |row| row.get(0),
+            )
+            .expect("read custom_title");
+        assert_eq!(stored, None, "空白重命名应把覆盖列清成 NULL");
+        assert_eq!(
+            store.list_terminal_sessions(10).unwrap()[0].display_title(),
+            Some("build")
+        );
+    }
+
+    #[test]
+    fn terminal_sessions_list_is_newest_first_and_limited() {
+        let store = ConversationStore::open_in_memory().expect("store");
+        for (id, closed) in [
+            ("old", "2026-01-01T00:00:00Z"),
+            ("mid", "2026-01-02T00:00:00Z"),
+            ("new", "2026-01-03T00:00:00Z"),
+        ] {
+            let session = TerminalSession {
+                terminal_id: id.into(),
+                title: Some(id.into()),
+                custom_title: None,
+                working_directory: None,
+                created_at: closed.into(),
+                closed_at: Some(closed.into()),
+                exit_code: Some(0),
+            };
+            store.upsert_terminal_session(&session).expect("insert");
+        }
+
+        let list = store.list_terminal_sessions(10).expect("list");
+        assert_eq!(
+            list.iter()
+                .map(|session| session.terminal_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["new", "mid", "old"]
+        );
+        assert_eq!(store.list_terminal_sessions(2).expect("limit").len(), 2);
+    }
 
     #[test]
     fn thread_digest_does_not_leak_raw_thread_id() {

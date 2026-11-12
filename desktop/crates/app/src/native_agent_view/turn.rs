@@ -148,6 +148,9 @@ impl NativeAgentView {
                 self.expanded_thinking.insert(index);
             }
         }
+        if self.state.take_learning_state_changed() {
+            cx.emit(NativeAgentViewEvent::LearningStateChanged);
+        }
         self.state.pair_unlinked_subagents();
         if terminal {
             let snapshot = self.snapshot.clone();
@@ -222,6 +225,13 @@ impl NativeAgentView {
         .detach();
     }
     pub(super) fn steer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.pending_agent_call.is_some() {
+            // steer_with_context has no Submission/agent_call channel. Queue via
+            // send instead of silently dropping the structured action.
+            self.status = "带学习动作的消息会进入发送队列".into();
+            cx.notify();
+            return;
+        }
         let content = self.input.read(cx).content();
         let text = crate::composer_context::user_text(&content);
         if text.is_empty() {

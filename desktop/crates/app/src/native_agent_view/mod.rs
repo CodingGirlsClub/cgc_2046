@@ -302,11 +302,13 @@ mod widgets;
 pub use state::NativeThreadState;
 pub(crate) use widgets::*;
 
-/// 面板向外（RootView header）暴露的粗粒度事件；目前只有标题状态。
+/// 面板向外（RootView header）暴露的粗粒度事件。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NativeAgentViewEvent {
     /// 标题文本、生成中或失败状态发生变化。
     TitleChanged,
+    /// `submit_learning_attempt` 成功写入掌握；RootView 需要重拉学习投影。
+    LearningStateChanged,
 }
 
 impl EventEmitter<NativeAgentViewEvent> for NativeAgentView {}
@@ -358,6 +360,8 @@ pub struct NativeAgentView {
     /// 每行的高度签名；与下一帧比对，只 remeasure 变化的那一行。
     message_row_signatures: Vec<u64>,
     pending_images: Vec<PendingImage>,
+    /// 从课程 CTA 预填的结构化动作；发送成功或手动移除即清除。
+    pending_agent_call: Option<crate::agent_call::PendingAgentCall>,
     /// 已发送用户消息 index → 图片预览（仅当前进程内显示，不持久化）。
     sent_images: HashMap<usize, Vec<SentImage>>,
     _input_subscription: Option<Subscription>,

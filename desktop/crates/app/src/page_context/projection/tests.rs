@@ -88,11 +88,13 @@ fn course_learning_projection_contains_goals_chapters_and_issue_materials() {
     };
 
     let material = TypedMaterial {
+        id: None,
         kind: MaterialKind::Markdown,
         title: None,
         body: Some("Ownership rules".into()),
         url: None,
         alt_text: None,
+        caption: None,
         provider: None,
         external_id: None,
     };
@@ -335,11 +337,13 @@ fn issue_projection_uses_active_issue_body_and_versions_the_payload() {
 
     fn material(kind: MaterialKind, body: &str) -> TypedMaterial {
         TypedMaterial {
+            id: None,
             kind,
             title: None,
             body: Some(body.into()),
             url: None,
             alt_text: None,
+            caption: None,
             provider: None,
             external_id: None,
         }
@@ -347,6 +351,8 @@ fn issue_projection_uses_active_issue_body_and_versions_the_payload() {
 
     let issue = CourseIssue {
         goal: Some("Understand ownership".into()),
+        as_a: Some("学习 Rust 的学员".into()),
+        given: vec!["读完第一章".into()],
         checklist: vec![CourseChecklistItem {
             id: Some("check-1".into()),
             text: "Explain borrowing".into(),
@@ -361,9 +367,13 @@ fn issue_projection_uses_active_issue_body_and_versions_the_payload() {
             required: false,
             prereq_ids: Vec::new(),
             activity: None,
-            assessment: None,
-            rubric: Vec::new(),
+            assessment: Some("Explain the ownership rule".into()),
+            rubric: vec![CourseChecklistItem {
+                id: Some("rubric-1".into()),
+                text: "Explains move vs borrow".into(),
+            }],
             materials: vec![material(MaterialKind::Text, "Move one value")],
+            agent_actions: Vec::new(),
         }],
         ..Default::default()
     };
@@ -373,10 +383,15 @@ fn issue_projection_uses_active_issue_body_and_versions_the_payload() {
         panic!("issue with content must have a ready body");
     };
     assert!(body.contains("Understand ownership"));
+    assert!(body.contains("作为：学习 Rust 的学员"));
+    assert!(body.contains("前提：读完第一章"));
+    assert!(body.contains("我能：Understand ownership"));
     assert!(body.contains("Explain borrowing"));
     assert!(body.contains("Ownership"));
     assert!(body.contains("Memory rules"));
     assert!(body.contains("Move one value"));
+    assert!(body.contains("答什么：Explain the ownership rule"));
+    assert!(body.contains("怎么算通过：\n- Explains move vs borrow"));
     assert_eq!(
         version,
         project_issue(&issue, Some(7), "issue:course-1:issue-1").1

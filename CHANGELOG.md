@@ -18,6 +18,29 @@ develop→main 发布时把该段改名为 `## [发布日期]` 并重新立一�
 commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `miniprogram`）。
 ## [Unreleased]
 
+## [2026-11-12]
+
+### Added
+- [Desktop][Backend] 课程 Notes 跨设备持久化：PostgreSQL `learning_course_notes` + GraphQL API；课程页划选材料可「加入笔记」，Issue 卡支持 Notes 列表、行内编辑、复制、二次确认删除与发给 Agent；右侧 Dock 新增课程级 `Notes` 面板（按 Issue 分组/筛选），并在必修目标全部掌握后由服务端幂等写入 Retro。
+
+### Fixed
+- [Backend] Retro 的幂等键按 learner 隔离；同一课程 revision 下不同学员各自拥有自己的 Retro，不再互相读取或删除。
+- [Backend] Notes GraphQL 统一暴露 `createdAt`，与桌面查询对齐。
+- [Backend] Retro 使用 run 对应的 revision 内容，不再用最新 revision 校验旧掌握度。
+
+## [Desktop v0.1.0-dev.20261112]
+
+> 桌面客户端内测版由 tag `desktop-v*` 触发发布，不走 develop→main 的 Web/后端发布流程。
+
+### Added
+- [Desktop] 材料动作行（展开/打开/重试）补齐 `Role::Button`、持久焦点与 Enter/Space 激活。
+- [Desktop] 图片/视频/网页材料不可用、链接无效、未知材料类型以及缺少学习动作时显示明确失败态，不再静默无入口。
+
+### Fixed
+- [Desktop] 课程 Notes 面板打开时，Issue 卡不再重复渲染同一笔记的编辑框，避免 GPUI 重复 `set_focus` 导致崩溃。
+- [Desktop] 切换课程后丢弃旧的 Notes 写入响应；删除结果只移除被删除的笔记。
+- [Desktop] Notes 面板补操作提示/筛选计数/独立滚动位置；native note status 接入 i18n。
+
 ## [2026-11-09]
 
 ### Changed

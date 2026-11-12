@@ -68,11 +68,17 @@ impl RootView {
             self.native_agent_view_subscription = Some(cx.subscribe_in(
                 &view,
                 window,
-                |_this,
+                |this,
                  _view,
-                 _event: &crate::native_agent_view::NativeAgentViewEvent,
+                 event: &crate::native_agent_view::NativeAgentViewEvent,
                  _window,
                  cx| {
+                    if matches!(
+                        event,
+                        crate::native_agent_view::NativeAgentViewEvent::LearningStateChanged
+                    ) {
+                        this.refresh_projection_after_learning_mutation(cx);
+                    }
                     // header 的标题/生成态读的是 view 快照；子实体重绘不会带父级。
                     cx.notify();
                 },
@@ -81,6 +87,31 @@ impl RootView {
         self.native_scope = Some(scope);
         self.native_runtime = Some(runtime);
         self.prepare_agent_authorization(cx);
+    }
+
+    /// `submit_learning_attempt` 成功后，重新拉取学习投影，让卡片的掌握态立即更新。
+    pub(in crate::root_view) fn refresh_projection_after_learning_mutation(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) {
+        if matches!(self.projection.state(), ProjectionState::Loading) {
+            self.projection_refresh_pending = true;
+            return;
+        }
+        let Some(course_id) = self
+            .current
+            .as_ref()
+            .filter(|route| {
+                matches!(
+                    route.route.id,
+                    "courses.learning" | "courses.public_learning"
+                )
+            })
+            .and_then(|route| route.params.get("id").cloned())
+        else {
+            return;
+        };
+        self.start_projection_load(cx, course_id);
     }
 
     pub(in crate::root_view) fn prepare_agent_authorization(&mut self, cx: &mut Context<Self>) {

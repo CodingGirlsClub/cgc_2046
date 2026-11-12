@@ -223,6 +223,8 @@ pub fn render_markdown_with_math(
                         format!("{id_prefix}-md-{text_index}"),
                         &text,
                     )
+                    .flex_1()
+                    .min_w(px(0.0))
                     .into_any_element(),
                 );
             }
@@ -231,6 +233,8 @@ pub fn render_markdown_with_math(
                     if !inline_row.is_empty() {
                         elements.push(
                             div()
+                                .w_full()
+                                .min_w(px(0.0))
                                 .flex()
                                 .flex_row()
                                 .flex_wrap()
@@ -257,6 +261,8 @@ pub fn render_markdown_with_math(
     if !inline_row.is_empty() {
         elements.push(
             div()
+                .w_full()
+                .min_w(px(0.0))
                 .flex()
                 .flex_row()
                 .flex_wrap()

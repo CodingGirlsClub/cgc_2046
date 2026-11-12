@@ -119,9 +119,11 @@ impl NativeAgentView {
                     }
                     if *secondary
                         && this.is_generating()
+                        && this.pending_agent_call.is_none()
                         && this.state.session.thread.capabilities.steer_available()
                     {
-                        // ⌘↩：生成中立即打断并发送。
+                        // ⌘↩：生成中立即打断并发送；带 pending action 时改走队列，
+                        // 避免 steer 丢失结构化 AgentCall。
                         this.steer(window, cx);
                     } else {
                         this.send(window, cx);
@@ -167,6 +169,7 @@ impl NativeAgentView {
             show_checkpoint_panel: false,
             pending_restart_confirm: None,
             pending_images: Vec::new(),
+            pending_agent_call: None,
             sent_images: HashMap::new(),
             _input_subscription: input_subscription,
             _key_interceptor: Some(key_interceptor),
@@ -197,6 +200,7 @@ impl NativeAgentView {
                 self.state.session.thread.status = cgc_agent_ui::conversation::ThreadStatus::Idle;
                 self.state.session.thread.pending_permission = None;
                 self.sent_images.clear();
+                self.pending_agent_call = None;
                 self.state.session.last_error = None;
                 self.status = "对话显示已清空".to_string();
             }
@@ -254,6 +258,7 @@ impl NativeAgentView {
         if !self.ensure_model_configured(true, cx) {
             return;
         }
+        let pending_agent_call = self.pending_agent_call.take();
         self.input
             .update(cx, |state, cx| state.set_value("", window, cx));
         let (draft, prompt, context) = self.composer_context.freeze(
@@ -278,6 +283,7 @@ impl NativeAgentView {
                 .session
                 .submission(draft.text.clone(), prompt, context, images, false);
         submission.draft = Some(draft);
+        submission.agent_call = pending_agent_call.map(|pending| pending.call);
         self.state.session.queue_mode = QueueMode::Auto;
         self.state.session.queue.push(submission);
         self.dispatch_queued(cx);

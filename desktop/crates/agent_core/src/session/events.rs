@@ -56,6 +56,8 @@ pub trait TurnObserver: Send {
     fn on_tool_result(&mut self, _summary: &ToolResultSummary) {}
     fn on_usage(&mut self, _usage: TokenUsage, _total: TokenUsage) {}
     fn on_context_estimate(&mut self, _tokens: usize, _image_cost_unknown: bool) {}
+    /// 非错误的用户可见提示（工具轮次软提示/达到上限后的收尾说明）。
+    fn on_notice(&mut self, _text: &str) {}
     fn on_finished(&mut self, _outcome: &ToolTurnOutcome) {}
 }
 

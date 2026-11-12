@@ -3,6 +3,20 @@ use super::*;
 use crate::native_runtime::NativeRuntimeError;
 use std::future::Future;
 
+fn should_clear_pending_action(
+    change: RuntimeChange,
+    previous_thread_id: Option<&str>,
+    next_thread_id: &str,
+) -> bool {
+    match change {
+        RuntimeChange::Opened | RuntimeChange::Rewound => true,
+        RuntimeChange::Initialized => {
+            previous_thread_id.is_some_and(|previous| previous != next_thread_id)
+        }
+        _ => false,
+    }
+}
+
 impl NativeAgentView {
     pub(super) fn metadata(&self) -> &NativeRuntimeSnapshot {
         self.snapshot
@@ -172,7 +186,16 @@ impl NativeAgentView {
                 current.title_generation_error.clone(),
             )
         });
+        let previous_thread_id = self
+            .snapshot
+            .as_ref()
+            .map(|current| current.thread.id.clone());
         if reset {
+            let clear_pending = should_clear_pending_action(
+                change,
+                previous_thread_id.as_deref(),
+                &snapshot.thread.id,
+            );
             self.begin_operation(cx);
             let scope =
                 crate::page_context::ConversationScope::new(snapshot.thread.id.clone(), "native");
@@ -207,6 +230,9 @@ impl NativeAgentView {
             self.pending_restart_confirm = None;
             self.show_checkpoint_panel = false;
             self.pending_images.clear();
+            if clear_pending {
+                self.pending_agent_call = None;
+            }
             self.state.session.queue.clear();
             self.workspace_files = collect_workspace_files(&snapshot.workspace);
             self.skills = mention::load_skills(&snapshot.workspace);
@@ -257,5 +283,49 @@ impl NativeAgentView {
             self.dispatch_queued(cx);
         }
         cx.notify();
+    }
+}
+
+#[cfg(test)]
+mod pending_action_tests {
+    use super::should_clear_pending_action;
+    use crate::native_runtime::RuntimeChange;
+
+    #[test]
+    fn initial_load_preserves_pending_action_before_first_snapshot() {
+        assert!(!should_clear_pending_action(
+            RuntimeChange::Initialized,
+            None,
+            "thread-1"
+        ));
+        assert!(!should_clear_pending_action(
+            RuntimeChange::Initialized,
+            Some("thread-1"),
+            "thread-1"
+        ));
+    }
+
+    #[test]
+    fn thread_changes_clear_pending_action() {
+        assert!(should_clear_pending_action(
+            RuntimeChange::Initialized,
+            Some("thread-1"),
+            "thread-2"
+        ));
+        assert!(should_clear_pending_action(
+            RuntimeChange::Opened,
+            Some("thread-1"),
+            "thread-1"
+        ));
+        assert!(should_clear_pending_action(
+            RuntimeChange::Rewound,
+            Some("thread-1"),
+            "thread-1"
+        ));
+        assert!(!should_clear_pending_action(
+            RuntimeChange::Activity,
+            Some("thread-1"),
+            "thread-1"
+        ));
     }
 }

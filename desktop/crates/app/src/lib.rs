@@ -2,6 +2,7 @@
 
 #![recursion_limit = "512"]
 pub mod acp_history;
+pub mod agent_call;
 pub mod agent_ingest;
 pub mod approval_rules;
 pub mod attachment;
@@ -18,11 +19,13 @@ pub(crate) mod agent_scope;
 pub(crate) mod composer_context;
 pub mod conversation_session;
 pub mod deep_link;
+pub mod fonts;
 pub mod formula;
 pub mod i18n;
 pub mod icon_theme;
 pub mod icons;
 pub mod image_viewer;
+pub(crate) mod learning_mutation;
 pub mod mention;
 pub mod mention_chip;
 pub mod native_agent_view;

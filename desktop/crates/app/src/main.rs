@@ -75,6 +75,7 @@ fn main() {
     }
     application.run(move |cx| {
         gpui_kit::init(cx);
+        cgc_desktop_app::fonts::register(cx);
         assets.install_resolver(cx);
         cx.set_app_identity("com.codingirlsclub.cgc2046.desktop", "程序媛汇");
         cx.set_quit_mode(gpui_kit::QuitMode::Explicit);
