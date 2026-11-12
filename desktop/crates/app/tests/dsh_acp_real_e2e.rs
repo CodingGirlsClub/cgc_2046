@@ -5,7 +5,7 @@
 //!
 //! ```bash
 //! CGC_DSH_ACP_BIN=/path/to/@openma/deepseek-harness-acp/dist/bin.js \
-//!   cargo test -p cgc-desktop-app --test dsh_acp_e2e -- --nocapture
+//!   cargo test -p cgc-desktop-app --test dsh_acp_real_e2e -- --nocapture
 //! ```
 //!
 //! mock 走 Anthropic Messages streaming（adapter 0.4.41 的 DeepSeek route 使用
@@ -329,7 +329,7 @@ fn adapter_bin() -> Option<PathBuf> {
 fn real_openma_0_4_41_full_conversation() {
     let Some(adapter) = adapter_bin() else {
         eprintln!(
-            "skip dsh_acp_e2e: set CGC_DSH_ACP_BIN to @openma/deepseek-harness-acp/dist/bin.js"
+            "skip dsh_acp_real_e2e: set CGC_DSH_ACP_BIN to @openma/deepseek-harness-acp/dist/bin.js"
         );
         return;
     };
