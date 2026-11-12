@@ -37,6 +37,14 @@ struct MockLlm {
 
 impl MockLlm {
     fn start(file_path: PathBuf) -> Self {
+        Self::start_with(file_path, false)
+    }
+
+    fn start_text_only(file_path: PathBuf) -> Self {
+        Self::start_with(file_path, true)
+    }
+
+    fn start_with(file_path: PathBuf, text_only: bool) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock llm");
         listener
             .set_nonblocking(true)
@@ -53,7 +61,7 @@ impl MockLlm {
                         let requests = Arc::clone(&requests_for_thread);
                         let file_path = file_path.clone();
                         std::thread::spawn(move || {
-                            let _ = handle_connection(stream, &requests, &file_path);
+                            let _ = handle_connection(stream, &requests, &file_path, text_only);
                         });
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
@@ -85,6 +93,7 @@ fn handle_connection(
     mut stream: std::net::TcpStream,
     requests: &std::sync::Mutex<Vec<String>>,
     file_path: &Path,
+    text_only: bool,
 ) -> std::io::Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut request_line = String::new();
@@ -107,7 +116,7 @@ fn handle_connection(
     reader.read_exact(&mut body)?;
     let body = String::from_utf8_lossy(&body).to_string();
     requests.lock().expect("requests").push(body.clone());
-    let (content_type, payload) = if body.contains("\"tools\":") {
+    let (content_type, payload) = if !text_only && body.contains("\"tools\":") {
         scenario_response(&body, file_path)
     } else {
         (
@@ -451,4 +460,133 @@ fn real_openma_0_4_41_full_conversation() {
                     && output.as_deref().is_some_and(|output| output.contains("+++ new")))),
         "tool card lost diff/location: {thread:?}"
     );
+}
+
+fn real_plan(tag: &str, text_only: bool) -> Option<(MockLlm, LaunchPlan)> {
+    let adapter = adapter_bin()?;
+    let node = std::env::var_os("CGC_DSH_ACP_NODE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("node"));
+    let root = temp_dir(tag);
+    let cache = root.join("cache");
+    let dsh_home = root.join("dsh-home");
+    let cwd = root.join("workspace");
+    std::fs::create_dir_all(&cache).expect("cache");
+    std::fs::create_dir_all(&dsh_home).expect("dsh home");
+    std::fs::create_dir_all(&cwd).expect("workspace");
+    let output = cwd.join("mock-output.txt");
+    let mock = if text_only {
+        MockLlm::start_text_only(output)
+    } else {
+        MockLlm::start(output)
+    };
+    let mut env = BTreeMap::new();
+    for key in [
+        "PATH",
+        "HOME",
+        "LANG",
+        "TERM",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "NO_PROXY",
+    ] {
+        if let Ok(value) = std::env::var(key) {
+            env.insert(key.to_string(), value);
+        }
+    }
+    env.insert(
+        "XDG_CACHE_HOME".into(),
+        cache.to_string_lossy().into_owned(),
+    );
+    env.insert("DSH_HOME".into(), dsh_home.to_string_lossy().into_owned());
+    env.insert("DEEPSEEK_API_KEY".into(), "sk-mock".into());
+    env.insert("DEEPSEEK_BASE_URL".into(), format!("http://{}", mock.addr));
+    let plan = LaunchPlan {
+        program: node,
+        args: vec![adapter.to_string_lossy().into_owned()],
+        env,
+        cwd,
+    };
+    Some((mock, plan))
+}
+
+fn wait_ready(host: &AcpHost, timeout: Duration) -> String {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        let Some(event) = host.recv_timeout(Duration::from_millis(200)) else {
+            continue;
+        };
+        match event {
+            HostEvent::Ready { session_id, .. } => return session_id,
+            HostEvent::Error { message } => panic!("dsh adapter failed before ready: {message}"),
+            HostEvent::Exited => panic!("dsh adapter exited before ready"),
+            _ => {}
+        }
+    }
+    panic!("dsh adapter did not become ready");
+}
+
+fn wait_turn_end(host: &AcpHost, timeout: Duration) {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        let Some(event) = host.recv_timeout(Duration::from_millis(200)) else {
+            continue;
+        };
+        match event {
+            HostEvent::TurnEnd { cancelled, .. } => {
+                assert!(!cancelled, "turn unexpectedly cancelled");
+                return;
+            }
+            HostEvent::Error { message } => panic!("dsh turn failed: {message}"),
+            _ => {}
+        }
+    }
+    panic!("dsh turn did not finish");
+}
+
+#[test]
+fn real_openma_session_list_and_resume() {
+    let Some((_mock, plan)) = real_plan("list-resume", true) else {
+        eprintln!("skip dsh list/resume e2e: set CGC_DSH_ACP_BIN");
+        return;
+    };
+    let host = AcpHost::start(
+        AcpHostConfig::from_launch_plan(plan.clone())
+            .with_name("dsh")
+            .with_list_sessions_after_ready(false),
+    )
+    .expect("start dsh adapter");
+    let session_id = wait_ready(&host, Duration::from_secs(240));
+    assert!(host.prompt("第一轮"));
+    wait_turn_end(&host, Duration::from_secs(240));
+    assert!(host.list_sessions());
+    let mut sessions = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while Instant::now() < deadline {
+        let Some(event) = host.recv_timeout(Duration::from_millis(200)) else {
+            continue;
+        };
+        if let HostEvent::Sessions { sessions: list } = event {
+            sessions = list;
+            break;
+        }
+    }
+    assert!(
+        sessions
+            .iter()
+            .any(|session| session.session_id == session_id),
+        "session/list did not return {session_id}: {sessions:?}"
+    );
+    host.shutdown();
+
+    let resumed = AcpHost::start(
+        AcpHostConfig::from_launch_plan(plan)
+            .with_name("dsh")
+            .with_resume_session(session_id.clone()),
+    )
+    .expect("start dsh adapter for resume");
+    assert_eq!(wait_ready(&resumed, Duration::from_secs(240)), session_id);
+    assert!(resumed.prompt("第二轮"));
+    wait_turn_end(&resumed, Duration::from_secs(240));
+    resumed.shutdown();
 }

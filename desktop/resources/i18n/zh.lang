@@ -414,7 +414,6 @@ agent.registry.loading = 检测本机 agent…
 agent.registry.error = 检测失败
 agent.registry.retry = 重试
 agent.registry.native_hint = 需先用系统包管理器安装该命令
-agent.registry.runtime_missing = 未检测到 DSH Desktop
 agent.registry.runtime_download = 下载 DSH Desktop
 agent.registry.dsh_desktop_detected = 检测到 DSH Desktop {version}；本次使用内置运行时 {bundled}
 agent.registry.dsh_runtime_detected = 检测到 dsh {version}（{source}）；本次使用内置运行时 {bundled}

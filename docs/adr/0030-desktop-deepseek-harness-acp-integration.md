@@ -43,7 +43,7 @@ CGC 托管的 DeepSeek Key 以本机 keychain 为唯一真源。启动 ACP 子�
 
 ### D4 DSH Desktop 缺失不阻断安装/启动
 
-DSH Desktop 不是 openma adapter 的运行时前置：`detect` 始终按适配器安装与版本判定 `Ready`，DSH Desktop 缺失只作为信息提示（`detect` 不返回阻断性的 `RuntimeMissing`；即使保留该状态，也仅用于适配器尚未安装时的提示）。`registry.json` 的 `deepseek` 条目不再声明 blocking 的 `requires`，`download_hint` 只用于 UI 展示可选下载入口。
+DSH Desktop 不是 openma adapter 的运行时前置：`detect` 始终按适配器安装与版本判定 `Ready`，DSH Desktop 缺失只作为信息提示（`detect` 不返回阻断性的运行时状态）。`registry.json` 的 `deepseek` 条目不再声明 blocking 的 `requires`，`download_hint` 只用于 UI 展示可选下载入口。
 
 安装、启动和对话始终使用 adapter 自带 bundled dsh；生产构建不因缺少 DSH Desktop 阻断，开发/自测也不需要额外准备。
 

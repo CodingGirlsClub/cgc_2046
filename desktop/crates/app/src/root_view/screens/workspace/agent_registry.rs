@@ -106,9 +106,6 @@ pub(in crate::root_view) fn render_agent_registry(
                     "Node {required} 不可用（当前 {}）",
                     found.as_deref().unwrap_or("missing")
                 ),
-                AgentStatus::RuntimeMissing { .. } => {
-                    translate(language, Key::AgentRegistryRuntimeMissing).to_string()
-                }
                 AgentStatus::Error(error) => format!("检测失败：{error}"),
             };
             let is_npx = matches!(
@@ -123,7 +120,6 @@ pub(in crate::root_view) fn render_agent_registry(
                 AgentStatus::Outdated { .. } | AgentStatus::NodeUnavailable { .. } => {
                     Tag::warning()
                 }
-                AgentStatus::RuntimeMissing { .. } => Tag::info(),
                 AgentStatus::Error(_) => Tag::danger(),
             };
             let is_installing = installing.as_deref() == Some(entry.id.as_str());
@@ -392,7 +388,7 @@ fn dsh_runtime_info(
     } else {
         let base = translate(language, Key::AgentRegistryDshDesktopMissing).to_string();
         match runtime.bundled_version.as_deref() {
-            Some(version) => format!("{base}（{version}）"),
+            Some(version) => format!("{base} ({version})"),
             None => base,
         }
     };

@@ -53,8 +53,8 @@ pub struct AcpHostConfig {
     pub mcp_servers: Vec<McpServer>,
     /// 若设置则 `session/load`（历史恢复），否则 `session/new`。
     pub load_session: Option<String>,
-    /// 若设置则 `session/resume`（历史恢复）。用于只实现 resume、不实现 load 的
-    /// agent（如 openma DSH adapter）。与 `load_session` 互斥，优先 load。
+    /// 若设置则 `session/resume`（历史恢复）。用于不支持 `session/load` 的
+    /// agent；与 `load_session` 互斥，优先 load。
     pub resume_session: Option<String>,
     /// 打开连接后拉取历史列表。
     pub list_sessions_after_ready: bool,
@@ -644,9 +644,9 @@ async fn run_connection(
                             SessionId::new(load_id.clone()),
                             response.config_options.unwrap_or_default(),
                         ),
-                        // 旧 agent / DSH adapter 只实现 session/resume：load 报
-                        // method-not-found 时自动改走 resume（同一 session id / cwd）。
-                        Err(failure) if session_method_unsupported(&failure.to_string()) => {
+                        // 旧 agent 未实现 session/load（-32601）时自动改走
+                        // session/resume（同一 session id / cwd）。
+                        Err(failure) if session_method_unsupported(&failure) => {
                             match resume_session(&connection, &config, load_id).await {
                                 Ok(session) => session,
                                 Err(failure) => {
@@ -800,14 +800,14 @@ async fn run_connection(
     Ok(())
 }
 
-/// `session/load` 不可用（未实现该方法）时是否可降级到 `session/resume`。
-fn session_method_unsupported(message: &str) -> bool {
-    let lower = message.to_ascii_lowercase();
-    lower.contains("method not found")
-        || lower.contains("-32601")
-        || lower.contains("method_not_found")
-        || lower.contains("not supported")
-        || lower.contains("unsupported")
+/// `session/load` 不可用（JSON-RPC -32601 method not found）时是否可降级到 `session/resume`。
+fn session_method_unsupported(failure: &RequestFailure) -> bool {
+    failure.code == Some(-32601)
+        || (failure.code.is_none()
+            && failure
+                .message
+                .to_ascii_lowercase()
+                .contains("method not found"))
 }
 
 /// 恢复既有会话（`session/resume`，不回放历史通知）。
@@ -860,10 +860,12 @@ async fn send_sessions(
         ),
         Err(failure) => {
             if !send_auth_required(&failure, events) {
+                // session/list 只是历史辅助数据；失败不能让主对话进入 Failed。
+                log::warn!("session/list failed: {}", failure);
                 send_event(
                     events,
-                    HostEvent::Error {
-                        message: failure.into_message(),
+                    HostEvent::Sessions {
+                        sessions: Vec::new(),
                     },
                 );
             }

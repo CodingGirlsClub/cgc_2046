@@ -414,7 +414,6 @@ agent.registry.loading = Detecting local agents…
 agent.registry.error = Detection failed
 agent.registry.retry = Retry
 agent.registry.native_hint = Install this command with your system package manager first
-agent.registry.runtime_missing = DSH Desktop not detected
 agent.registry.runtime_download = Download DSH Desktop
 agent.registry.dsh_desktop_detected = DSH Desktop {version} detected; using the bundled runtime {bundled}
 agent.registry.dsh_runtime_detected = dsh {version} detected ({source}); using the bundled runtime {bundled}

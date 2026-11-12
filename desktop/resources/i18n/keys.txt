@@ -377,7 +377,6 @@ agent.registry.loading
 agent.registry.error
 agent.registry.retry
 agent.registry.native_hint
-agent.registry.runtime_missing
 agent.registry.runtime_download
 agent.registry.dsh_desktop_detected
 agent.registry.dsh_runtime_detected

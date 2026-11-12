@@ -36,11 +36,6 @@ pub enum AgentStatus {
         required: String,
         found: Option<String>,
     },
-    /// 仅用于未安装适配器的信息提示；正常检测不返回此状态（DSH Desktop 不阻断）。
-    RuntimeMissing {
-        runtime: String,
-        download_url: String,
-    },
     Error(String),
 }
 

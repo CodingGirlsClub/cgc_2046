@@ -3212,7 +3212,11 @@ impl RootView {
             return;
         };
         self.agent_installing = Some(id.to_string());
-        self.agent_install_stage = Some("准备运行环境".to_string());
+        self.agent_install_stage = Some(if entry.id == "deepseek" {
+            "下载约 176 MB，首次安装较慢…".to_string()
+        } else {
+            "准备运行环境".to_string()
+        });
         self.agent_install_error = None;
         let installed_id = id.to_string();
         let installed_version = entry.minimum_version.clone();
