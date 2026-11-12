@@ -5,6 +5,7 @@ use super::super::ScreenContext;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::skeleton::Skeleton;
 use gpui_kit::component::tag::Tag;
+use gpui_kit::component::Disableable;
 
 pub(in crate::root_view) fn render_agent_registry(
     ctx: &mut ScreenContext<'_>,
@@ -16,6 +17,7 @@ pub(in crate::root_view) fn render_agent_registry(
     let loading = ctx.agent_registry_loading;
     let error = ctx.agent_registry_error.clone();
     let installing = ctx.agent_installing.clone();
+    let uninstalling = ctx.agent_uninstalling.clone();
     let install_error = ctx.agent_install_error.clone();
     let install_stage = ctx.agent_install_stage.clone();
     let query = ctx.agent_registry_query.clone();
@@ -104,12 +106,16 @@ pub(in crate::root_view) fn render_agent_registry(
                     "Node {required} 不可用（当前 {}）",
                     found.as_deref().unwrap_or("missing")
                 ),
+                AgentStatus::RuntimeMissing { .. } => {
+                    translate(language, Key::AgentRegistryRuntimeMissing).to_string()
+                }
                 AgentStatus::Error(error) => format!("检测失败：{error}"),
             };
             let is_npx = matches!(
                 entry.distribution,
                 cgc_platform::registry::manifest::Distribution::Npx { .. }
             );
+            // DSH Desktop 仅做检测与信息提示：缺失时仍用内置运行时，不阻断安装。
             let can_install = !matches!(row.status, AgentStatus::Ready { .. }) && is_npx;
             let status_tag = match &row.status {
                 AgentStatus::Ready { .. } => Tag::success(),
@@ -117,15 +123,19 @@ pub(in crate::root_view) fn render_agent_registry(
                 AgentStatus::Outdated { .. } | AgentStatus::NodeUnavailable { .. } => {
                     Tag::warning()
                 }
+                AgentStatus::RuntimeMissing { .. } => Tag::info(),
                 AgentStatus::Error(_) => Tag::danger(),
             };
             let is_installing = installing.as_deref() == Some(entry.id.as_str());
+            let is_uninstalling = uninstalling.as_deref() == Some(entry.id.as_str());
             let install_label = if is_installing {
                 "安装中…"
             } else {
                 translate(language, Key::AgentRegistryInstall)
             };
             let id = entry.id.clone();
+            let uninstall_id = entry.id.clone();
+            let is_ready = matches!(row.status, AgentStatus::Ready { .. });
             cards.push(
                 div()
                     .id(SharedString::from(format!("agent-card-{}", entry.id)))
@@ -169,6 +179,26 @@ pub(in crate::root_view) fn render_agent_registry(
                                         this.install_agent(&id, cx);
                                     });
                                 })
+                            }))
+                            .children((is_ready && is_npx).then(|| {
+                                let root = cx.entity().downgrade();
+                                Button::new(SharedString::from(format!(
+                                    "agent-uninstall-{}",
+                                    entry.id
+                                )))
+                                .label(if is_uninstalling {
+                                    "卸载中…"
+                                } else {
+                                    "卸载"
+                                })
+                                .ghost()
+                                .with_size(gpui_kit::component::Size::Small)
+                                .disabled(is_uninstalling)
+                                .on_click(move |_, _, cx| {
+                                    let _ = root.update(cx, |this, cx| {
+                                        this.uninstall_agent(&uninstall_id, cx);
+                                    });
+                                })
                             })),
                     )
                     .child(
@@ -177,6 +207,13 @@ pub(in crate::root_view) fn render_agent_registry(
                             .text_color(palette.ink_3)
                             .child(entry.login_hint.clone()),
                     )
+                    .children(dsh_runtime_info(
+                        &entry,
+                        &row.runtime,
+                        entry.download_hint.as_deref(),
+                        language,
+                        palette,
+                    ))
                     .children(if is_installing {
                         install_stage.clone().map(|stage| {
                             div()
@@ -324,6 +361,85 @@ pub(in crate::root_view) fn render_agent_registry(
         }))
         .child(body)
         .into_any_element()
+}
+
+/// DSH Desktop / dsh 运行时探测信息：仅对 openma 条目展示来源与版本。
+///
+/// 决策 A：DSH Desktop 只做检测展示，不参与启动；无论是否检测到都提示
+/// “本次使用内置运行时”，检测不到时再给可选下载入口（不阻断安装/启动）。
+fn dsh_runtime_info(
+    entry: &cgc_platform::registry::manifest::AgentEntry,
+    runtime: &cgc_platform::agent::dsh_runtime::RuntimeProbe,
+    download_hint: Option<&str>,
+    language: Language,
+    palette: &theme::Palette,
+) -> Option<AnyElement> {
+    use cgc_platform::agent::dsh_runtime::{RuntimeSource, DSH_DOWNLOAD_URL};
+    if !entry.uses_dsh_runtime() {
+        return None;
+    }
+    let bundled = runtime.bundled_version.as_deref().unwrap_or("unknown");
+    let detected_desktop = runtime.source == RuntimeSource::DshDesktop && runtime.found;
+    let text = if detected_desktop {
+        translate(language, Key::AgentRegistryDshDesktopDetected)
+            .replace("{version}", runtime.version.as_deref().unwrap_or("unknown"))
+            .replace("{bundled}", bundled)
+    } else if runtime.source == RuntimeSource::Explicit || runtime.source == RuntimeSource::Path {
+        translate(language, Key::AgentRegistryDshRuntimeDetected)
+            .replace("{version}", runtime.version.as_deref().unwrap_or("unknown"))
+            .replace("{source}", runtime.source.as_str())
+            .replace("{bundled}", bundled)
+    } else {
+        let base = translate(language, Key::AgentRegistryDshDesktopMissing).to_string();
+        match runtime.bundled_version.as_deref() {
+            Some(version) => format!("{base}（{version}）"),
+            None => base,
+        }
+    };
+    let download = (!runtime.external_found())
+        .then(|| download_hint.unwrap_or(DSH_DOWNLOAD_URL))
+        .filter(|url| url.starts_with("https://"))
+        .map(str::to_string);
+    let id = SharedString::from(format!("agent-dsh-runtime-{}", entry.id));
+    let hint_id = SharedString::from(format!("agent-dsh-runtime-hint-{}", entry.id));
+    let mut children: Vec<AnyElement> = vec![div()
+        .id(hint_id)
+        .test_support()
+        .role(Role::Status)
+        .aria_label(text.clone())
+        .text_size(px(11.0))
+        .text_color(if detected_desktop {
+            palette.ink_3
+        } else {
+            palette.warning
+        })
+        .child(text)
+        .into_any_element()];
+    if let Some(url) = download {
+        children.push(
+            Button::new(SharedString::from(format!(
+                "agent-runtime-download-{}",
+                entry.id
+            )))
+            .label(translate(language, Key::AgentRegistryRuntimeDownload))
+            .link()
+            .with_size(gpui_kit::component::Size::Small)
+            .on_click(move |_, _, cx| cx.open_url(&url))
+            .into_any_element(),
+        );
+    }
+    Some(
+        div()
+            .id(id)
+            .test_support()
+            .role(Role::Status)
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(space(2))
+            .children(children)
+            .into_any_element(),
+    )
 }
 
 fn is_registry_installable(entry: &cgc_platform::registry::manifest::AgentEntry) -> bool {

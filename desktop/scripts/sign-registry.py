@@ -25,6 +25,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "crates/platform/resources/registry.json"
 SIGNATURE = ROOT / "crates/platform/resources/registry.sig"
+PUBLIC = ROOT / "crates/platform/resources/registry.pub"
 MANIFEST_RS = ROOT / "crates/platform/src/registry/manifest.rs"
 PUBLIC_KEY_RE = re.compile(r'(pub const BUILTIN_PUBLIC_KEY: &str = ")([^"]+)(";)')
 
@@ -47,10 +48,12 @@ def main() -> None:
         serialization.Encoding.Raw, serialization.PublicFormat.Raw
     )
     signature = key.sign(payload)
+    public_b64 = base64.b64encode(public).decode()
     SIGNATURE.write_text(base64.b64encode(signature).decode() + "\n")
+    PUBLIC.write_text(public_b64 + "\n")
     source = MANIFEST_RS.read_text()
     source, count = PUBLIC_KEY_RE.subn(
-        lambda match: match.group(1) + base64.b64encode(public).decode() + match.group(3),
+        lambda match: match.group(1) + public_b64 + match.group(3),
         source,
         count=1,
     )

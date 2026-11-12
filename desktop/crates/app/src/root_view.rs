@@ -39,7 +39,10 @@ use cgc_platform::acp::connection::{
     AcpHost, AcpHostConfig, CommandView, HostEvent, SessionSummary,
 };
 use cgc_platform::agent::detect::{detect_all, AgentStatus, DetectedAgent};
-use cgc_platform::agent::launch::{build_launch, LaunchPlan, NodeRuntime};
+use cgc_platform::agent::dsh_runtime::ensure_dsh_home;
+use cgc_platform::agent::launch::{
+    build_launch_with_options, LaunchOptions, LaunchPlan, NodeRuntime,
+};
 use cgc_platform::agent::node_runtime::{HttpDownloader, NodeRuntimeManager};
 use cgc_platform::events::{AppEvent, EventPublisher, MemoryEventBus};
 use cgc_platform::mcp::credential::{
@@ -249,6 +252,10 @@ struct ChatUi {
     replay: Option<ReplayState>,
     /// 外部 agent 无法恢复历史（load 失败 / 无回放）：展示本地记录 + 新建会话入口。
     resumed_without_history: bool,
+    /// 本次历史恢复是否走 session/resume（不回放 UI 历史，本地记录即预期视图）。
+    restore_via_resume: bool,
+    /// DSH 运行时版本与测试矩阵的偏差（version, status）；仅 dsh 条目有值。
+    dsh_version_info: Option<(String, cgc_platform::agent::dsh_runtime::DshVersionStatus)>,
     /// ACP transcript 防抖保存的世代号。
     acp_save_generation: u64,
     session: ConversationSession,
@@ -453,6 +460,9 @@ struct PreparedChat {
     agent_name: String,
     plan: LaunchPlan,
     server: McpServerConfig,
+    /// 条目使用 openma DSH 运行时：恢复走 session/resume，并提示 dsh 版本偏差。
+    dsh_required: bool,
+    dsh_version_info: Option<(String, cgc_platform::agent::dsh_runtime::DshVersionStatus)>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

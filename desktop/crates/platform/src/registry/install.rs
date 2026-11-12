@@ -184,3 +184,161 @@ fn verify_version(
     }
     Ok(())
 }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UninstallResult {
+    pub id: String,
+    pub removed_package: bool,
+    pub removed_dsh_home: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum UninstallError {
+    NodeRuntimeMissing,
+    NativeUninstallUnsupported { command: String },
+    RemoveFailed { path: PathBuf, message: String },
+}
+
+impl std::fmt::Display for UninstallError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NodeRuntimeMissing => {
+                formatter.write_str("managed node runtime is not installed")
+            }
+            Self::NativeUninstallUnsupported { command } => {
+                write!(
+                    formatter,
+                    "native agent `{command}` must be removed by the user"
+                )
+            }
+            Self::RemoveFailed { path, message } => {
+                write!(formatter, "failed to remove {}: {message}", path.display())
+            }
+        }
+    }
+}
+
+impl std::error::Error for UninstallError {}
+
+/// 卸载 npx agent：删除固定版本安装目录；DSH 条目同时删除隔离的 DSH_HOME
+/// （ADR-0030 D3：学员会话数据不残留）。
+///
+/// `dsh_home` 由调用方注入（AppPaths::dsh_home_root），保持本函数可单测。
+pub fn uninstall_entry(
+    entry: &AgentEntry,
+    node: Option<&NodeRuntime>,
+    dsh_home: Option<&std::path::Path>,
+) -> Result<UninstallResult, UninstallError> {
+    let Distribution::Npx { .. } = &entry.distribution else {
+        let Distribution::Native { command } = &entry.distribution else {
+            unreachable!()
+        };
+        return Err(UninstallError::NativeUninstallUnsupported {
+            command: command.clone(),
+        });
+    };
+    let runtime = node.ok_or(UninstallError::NodeRuntimeMissing)?;
+    let directory = install_dir(entry, runtime);
+    let removed_package = if directory.exists() {
+        std::fs::remove_dir_all(&directory).map_err(|error| UninstallError::RemoveFailed {
+            path: directory.clone(),
+            message: error.to_string(),
+        })?;
+        true
+    } else {
+        false
+    };
+    let removed_dsh_home = if entry.uses_dsh_runtime() {
+        match dsh_home {
+            Some(path) if path.exists() => {
+                std::fs::remove_dir_all(path).map_err(|error| UninstallError::RemoveFailed {
+                    path: path.to_path_buf(),
+                    message: error.to_string(),
+                })?;
+                true
+            }
+            _ => false,
+        }
+    } else {
+        false
+    };
+    Ok(UninstallResult {
+        id: entry.id.clone(),
+        removed_package,
+        removed_dsh_home,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::launch::NodeRuntime;
+    use crate::registry::manifest::Distribution;
+
+    fn entry(id: &str, package: &str, requires_dsh: bool) -> AgentEntry {
+        AgentEntry {
+            id: id.to_string(),
+            display_name: id.to_string(),
+            distribution: Distribution::Npx {
+                package: package.to_string(),
+                version: "1.0.0".to_string(),
+                node: "24".to_string(),
+            },
+            launch_args: Vec::new(),
+            version_args: Vec::new(),
+            minimum_version: "1.0.0".to_string(),
+            mcp_server_name: "mcp".to_string(),
+            login_hint: "login".to_string(),
+            requires: if requires_dsh {
+                vec!["dsh-runtime".to_string()]
+            } else {
+                Vec::new()
+            },
+            download_hint: None,
+        }
+    }
+
+    #[test]
+    fn uninstalls_package_and_isolated_dsh_home_idempotently() {
+        let root = std::env::temp_dir().join(format!(
+            "cgc-uninstall-{}-{}",
+            std::process::id(),
+            NEXT_INSTALL.fetch_add(1, Ordering::Relaxed)
+        ));
+        let runtime = NodeRuntime::new(root.join("node24"));
+        let dsh_entry = entry("dsh-test", "@openma/deepseek-harness-acp", true);
+        let package_dir = install_dir(&dsh_entry, &runtime);
+        std::fs::create_dir_all(package_dir.join("node_modules")).unwrap();
+        let dsh_home = root.join("dsh-home");
+        std::fs::create_dir_all(&dsh_home).unwrap();
+        std::fs::write(dsh_home.join("session.lock"), b"").unwrap();
+
+        let result = uninstall_entry(&dsh_entry, Some(&runtime), Some(&dsh_home)).unwrap();
+        assert!(result.removed_package);
+        assert!(result.removed_dsh_home);
+        assert!(!package_dir.exists(), "package directory removed");
+        assert!(!dsh_home.exists(), "isolated DSH_HOME removed");
+
+        let again = uninstall_entry(&dsh_entry, Some(&runtime), Some(&dsh_home)).unwrap();
+        assert!(!again.removed_package);
+        assert!(!again.removed_dsh_home);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn non_dsh_uninstall_keeps_dsh_home() {
+        let root = std::env::temp_dir().join(format!(
+            "cgc-uninstall-plain-{}-{}",
+            std::process::id(),
+            NEXT_INSTALL.fetch_add(1, Ordering::Relaxed)
+        ));
+        let runtime = NodeRuntime::new(root.join("node24"));
+        let plain = entry("codex-test", "@agentclientprotocol/codex-acp", false);
+        let dsh_home = root.join("dsh-home");
+        std::fs::create_dir_all(&dsh_home).unwrap();
+        let result = uninstall_entry(&plain, Some(&runtime), Some(&dsh_home)).unwrap();
+        assert!(!result.removed_dsh_home);
+        assert!(dsh_home.exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+}

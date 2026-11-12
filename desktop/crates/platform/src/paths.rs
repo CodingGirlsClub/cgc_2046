@@ -194,6 +194,11 @@ impl AppPaths {
     pub fn node_runtime_root(&self) -> PathBuf {
         self.data_root.join("node24")
     }
+
+    /// DSH ACP 外部 agent 的隔离会话根（ADR-0030 D3）：不复用用户自己的 `~/.dsh`。
+    pub fn dsh_home_root(&self) -> PathBuf {
+        self.data_root.join("dsh-home")
+    }
 }
 
 #[cfg(test)]
@@ -223,6 +228,8 @@ mod tests {
         assert!(dev.data_root.to_string_lossy().contains("dev"));
         assert!(staging.data_root.to_string_lossy().contains("staging"));
         assert!(!prod.data_root.to_string_lossy().contains("staging"));
+        assert_eq!(dev.dsh_home_root(), dev.data_root.join("dsh-home"));
+        assert_ne!(dev.dsh_home_root(), dev.data_root);
     }
 
     #[test]

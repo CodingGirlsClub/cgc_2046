@@ -3,12 +3,16 @@ use crate::agent_ingest;
 use cgc_agent_store::SessionStore;
 use cgc_agent_ui::conversation::{ConversationThread, ThreadCapabilities};
 use cgc_platform::notifications::NotificationsApi as _;
-use cgc_platform::registry::install::install_entry;
+use cgc_platform::registry::install::{install_entry, uninstall_entry};
 use state::SiteTreeSection;
 
 #[cfg(all(test, cgc_ui_tests))]
 #[path = "workspace_layout_tests.rs"]
 mod workspace_layout_tests;
+
+#[cfg(all(test, cgc_ui_tests))]
+#[path = "agent_registry_tests.rs"]
+mod agent_registry_tests;
 
 #[cfg(all(test, cgc_ui_tests))]
 #[path = "breadcrumb_tests.rs"]
@@ -1258,13 +1262,40 @@ impl RootView {
                         node_found: node_found.clone(),
                     })?,
             };
-            let plan = build_launch(&chosen.entry, Some(&managed), &cwd).map_err(|error| {
-                ChatStartError {
-                    message: error.to_string(),
-                    detected: guidance,
-                    node_found,
+            let dsh_required = chosen.entry.uses_dsh_runtime();
+            let dsh_version_info = if dsh_required {
+                // 决策 A：启动恒用 bundled，版本偏差提示必须以 bundled 版本为准；
+                // runtime.version 是外部 DSH Desktop/PATH 的展示版本，不能用于兼容判定。
+                chosen.runtime.bundled_version.clone().map(|version| {
+                    let status = cgc_platform::agent::dsh_runtime::dsh_version_status(&version);
+                    (version, status)
+                })
+            } else {
+                None
+            };
+            let launch_options = if dsh_required {
+                let dsh_home = cgc_platform::paths::AppPaths::from_env().dsh_home_root();
+                ensure_dsh_home(&dsh_home).map_err(|error| ChatStartError {
+                    message: format!("cannot prepare DSH_HOME: {error}"),
+                    detected: guidance.clone(),
+                    node_found: node_found.clone(),
+                })?;
+                LaunchOptions {
+                    // 决策 A：DSH Desktop 仅检测展示，openma 统一使用自带 bundled dsh。
+                    dsh_path: Some("bundled".to_string()),
+                    dsh_home: Some(dsh_home),
+                    extra_env: crate::dsh_agent::dsh_launch_env(),
                 }
-            })?;
+            } else {
+                LaunchOptions::default()
+            };
+            let plan =
+                build_launch_with_options(&chosen.entry, Some(&managed), &cwd, &launch_options)
+                    .map_err(|error| ChatStartError {
+                        message: error.to_string(),
+                        detected: guidance,
+                        node_found,
+                    })?;
             // `None`：用当前生效端点（env > settings.json > 编译期默认值），与 GraphQL 同源。
             let endpoint = mcp_endpoint(None);
             let server = build_mcp_server(&chosen.entry, &lease, &endpoint);
@@ -1273,6 +1304,8 @@ impl RootView {
                 agent_name: chosen.entry.display_name.clone(),
                 plan,
                 server,
+                dsh_required,
+                dsh_version_info,
             })
         });
         cx.spawn(async move |this, cx| {
@@ -1286,13 +1319,26 @@ impl RootView {
                 }
                 match result {
                     Ok(prepared) => {
-                        let plan = prepared.plan;
-                        let server = prepared.server.clone();
+                        let PreparedChat {
+                            agent_id,
+                            agent_name,
+                            plan,
+                            server,
+                            dsh_required,
+                            dsh_version_info,
+                        } = prepared;
+                        let server = server.clone();
                         let make_config = |load_session: Option<&str>| {
                             let config = AcpHostConfig::from_launch_plan(plan.clone())
                                 .with_name("agent")
-                                .with_mcp_servers(vec![server.clone()]);
+                                .with_mcp_servers(vec![server.clone()])
+                                // DSH adapter 开 Ready 后拉取 session/list（cwd 由请求携带）。
+                                .with_list_sessions_after_ready(dsh_required);
                             match load_session {
+                                // DSH adapter 只有 session/resume；其他 agent 仍用 load 回放历史。
+                                Some(session_id) if dsh_required => {
+                                    config.with_resume_session(session_id)
+                                }
                                 Some(session_id) => config.with_load_session(session_id),
                                 None => config,
                             }
@@ -1310,8 +1356,9 @@ impl RootView {
                         match started {
                             Ok(host) => {
                                 let generation = this.chat.session.attach(host);
-                                this.chat.selected_agent = Some(prepared.agent_id.clone());
-                                this.chat.agent = prepared.agent_name;
+                                this.chat.selected_agent = Some(agent_id.clone());
+                                this.chat.agent = agent_name;
+                                this.chat.dsh_version_info = dsh_version_info.clone();
                                 this.chat.npx_cache_retry = false;
                                 this.spawn_chat_poller(cx, generation);
                             }
@@ -1462,14 +1509,27 @@ impl RootView {
                     turn_ended = true;
                 }
                 HostEvent::Error { message } => {
+                    // session.lock 跨进程冲突：DSH 会报 “already owned by an active
+                    // write handle”，换成用户能理解的「该会话正被另一窗口使用」。
+                    if let Some(friendly) = crate::acp_history::friendly_session_error(message) {
+                        self.chat.replay = None;
+                        self.chat.session.host.take();
+                        self.chat.load_retry_available = false;
+                        self.chat.restore_id = None;
+                        self.chat.resumed_without_history = false;
+                        self.chat.session.phase = ConnectionPhase::Failed(friendly);
+                        cx.notify();
+                        return false;
+                    }
                     // Stage 3.3：本地历史恢复失败（session/load 不可用）→ 保留本地
                     // 记录并提示，不再清指针重开新会话（用户可点「新建会话」）。
                     if self.chat.replay.is_some() {
                         let replay = self.chat.replay.take().expect("replay state");
-                        if crate::acp_history::resume_decision(
+                        if crate::acp_history::resume_decision_with_replay(
                             true,
                             replay.has_local_content,
                             replay.saw_events,
+                            !self.chat.restore_via_resume,
                         ) == crate::acp_history::ResumeDecision::KeepLocalRecord
                         {
                             self.chat.session.host.take();
@@ -1500,7 +1560,7 @@ impl RootView {
                     }
                     self.chat.session.phase = ConnectionPhase::Failed(message.clone());
                 }
-                HostEvent::Exited => {}
+                HostEvent::AuthRequired { .. } | HostEvent::Exited => {}
                 HostEvent::ModeUpdated { .. }
                 | HostEvent::PlanUpdated { .. }
                 | HostEvent::UsageUpdated { .. }
@@ -1551,10 +1611,11 @@ impl RootView {
         // 回放成功也不证明某个 tab 的完整正文仍在模型历史里；下一次提交保守重载。
         self.page_context
             .invalidate_loaded(&self.chat.conversation_scope());
-        match crate::acp_history::resume_decision(
+        match crate::acp_history::resume_decision_with_replay(
             false,
             replay.has_local_content,
             replay.saw_events,
+            !self.chat.restore_via_resume,
         ) {
             crate::acp_history::ResumeDecision::UseReplay => {
                 let mut restored = replay.thread;
@@ -1732,7 +1793,19 @@ impl RootView {
             .as_ref()
             .and_then(|store| store.list_terminal_sessions(50).ok())
             .unwrap_or_default();
-        crate::acp_history::merge_history_with_terminals(native, acp, &native_archived, terminals)
+        let entries = crate::acp_history::merge_history_with_terminals(
+            native,
+            acp,
+            &native_archived,
+            terminals,
+        );
+        // agent 侧 session/list（已按 cwd 过滤）并入侧栏：本地 DB 没有的会话补占位行。
+        crate::acp_history::merge_agent_sessions(
+            entries,
+            &self.chat.sessions,
+            self.chat.selected_agent.as_deref(),
+            &cgc_agent_store::now_utc_rfc3339(),
+        )
     }
 
     pub(in crate::root_view) fn reset_config_search(
@@ -2261,6 +2334,13 @@ impl RootView {
                 self.chat.selected_agent = Some(agent_id);
             }
         }
+        // DSH adapter 只支持 session/resume（不回放 UI 历史），其他 agent 走 load。
+        let restore_via_resume = self.chat.selected_agent.as_deref().is_some_and(|id| {
+            Registry::builtin()
+                .ok()
+                .and_then(|registry| registry.get(id).ok().map(|entry| entry.uses_dsh_runtime()))
+                .unwrap_or(false)
+        });
         let local = crate::acp_history::load_local_transcript(&thread_id);
         let has_local_content = local
             .as_ref()
@@ -2275,6 +2355,7 @@ impl RootView {
         });
         self.chat.opened_from_history = true;
         self.chat.resumed_without_history = false;
+        self.chat.restore_via_resume = restore_via_resume;
         self.chat.restore_id = Some(session_id);
         self.chat.npx_cache_retry = false;
         self.start_chat(cx);
@@ -2340,6 +2421,8 @@ impl RootView {
         self.chat.load_retry_available = false;
         self.chat.replay = None;
         self.chat.resumed_without_history = false;
+        self.chat.restore_via_resume = false;
+        self.chat.dsh_version_info = None;
         self.chat.acp_save_generation = self.chat.acp_save_generation.wrapping_add(1);
         self.chat.session.commands.clear();
         self.chat.slash_selection = 0;
@@ -3167,6 +3250,54 @@ impl RootView {
                                     .clone()
                                     .unwrap_or_else(|| installed_version.clone()),
                             };
+                        }
+                    }
+                    Err(error) => this.agent_install_error = Some(error.to_string()),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 卸载 npx agent：删除固定版本安装目录；DSH 条目同时清理隔离的 DSH_HOME。
+    pub(in crate::root_view) fn uninstall_agent(&mut self, id: &str, cx: &mut Context<Self>) {
+        if self.agent_installing.as_deref() == Some(id)
+            || self.agent_uninstalling.as_deref() == Some(id)
+        {
+            return;
+        }
+        let Some(entry) = self
+            .agent_registry_rows
+            .iter()
+            .find(|row| row.entry.id == id)
+            .map(|row| row.entry.clone())
+        else {
+            return;
+        };
+        self.agent_uninstalling = Some(id.to_string());
+        self.agent_install_error = None;
+        let uninstalled_id = id.to_string();
+        let task = cx.background_executor().spawn(async move {
+            let manager = NodeRuntimeManager::default_manager();
+            let node = manager.installed_runtime();
+            let dsh_home = cgc_platform::paths::AppPaths::from_env().dsh_home_root();
+            uninstall_entry(&entry, node.as_ref(), Some(&dsh_home))
+                .map_err(|error| error.to_string())
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.agent_uninstalling = None;
+                match result {
+                    Ok(_) => {
+                        this.agent_install_error = None;
+                        if let Some(row) = this
+                            .agent_registry_rows
+                            .iter_mut()
+                            .find(|row| row.entry.id == uninstalled_id)
+                        {
+                            row.status = AgentStatus::Missing;
                         }
                     }
                     Err(error) => this.agent_install_error = Some(error.to_string()),

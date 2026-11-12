@@ -22,11 +22,11 @@ use agent_client_protocol::schema::v1::{
     AvailableCommand, CancelNotification, ContentBlock, InitializeRequest, ListSessionsRequest,
     LoadSessionRequest, McpServer, NewSessionRequest, PermissionOption, PermissionOptionKind,
     PromptRequest, RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
-    SelectedPermissionOutcome, SessionConfigId, SessionConfigKind, SessionConfigOption,
-    SessionConfigOptionCategory, SessionConfigOptionValue, SessionConfigSelectOptions,
-    SessionConfigValueId, SessionId, SessionNotification, SessionUpdate,
-    SetSessionConfigOptionRequest, StopReason, TextContent, ToolCall, ToolCallContent,
-    ToolCallLocation, ToolCallStatus,
+    ResumeSessionRequest, SelectedPermissionOutcome, SessionConfigId, SessionConfigKind,
+    SessionConfigOption, SessionConfigOptionCategory, SessionConfigOptionValue,
+    SessionConfigSelectOptions, SessionConfigValueId, SessionId, SessionNotification,
+    SessionUpdate, SetSessionConfigOptionRequest, StopReason, TextContent, ToolCall,
+    ToolCallContent, ToolCallLocation, ToolCallStatus,
 };
 use agent_client_protocol::schema::{MaybeUndefined, ProtocolVersion};
 use agent_client_protocol::{
@@ -53,6 +53,9 @@ pub struct AcpHostConfig {
     pub mcp_servers: Vec<McpServer>,
     /// 若设置则 `session/load`（历史恢复），否则 `session/new`。
     pub load_session: Option<String>,
+    /// 若设置则 `session/resume`（历史恢复）。用于只实现 resume、不实现 load 的
+    /// agent（如 openma DSH adapter）。与 `load_session` 互斥，优先 load。
+    pub resume_session: Option<String>,
     /// 打开连接后拉取历史列表。
     pub list_sessions_after_ready: bool,
 }
@@ -90,6 +93,7 @@ impl AcpHostConfig {
             agent_name: "agent".to_string(),
             mcp_servers: Vec::new(),
             load_session: None,
+            resume_session: None,
             list_sessions_after_ready: false,
         }
     }
@@ -106,6 +110,18 @@ impl AcpHostConfig {
 
     pub fn with_load_session(mut self, session_id: impl Into<String>) -> Self {
         self.load_session = Some(session_id.into());
+        self
+    }
+
+    /// 使用 `session/resume` 恢复会话（agent 不实现 `session/load` 时）。
+    pub fn with_resume_session(mut self, session_id: impl Into<String>) -> Self {
+        self.resume_session = Some(session_id.into());
+        self
+    }
+
+    /// Ready 后拉取 `session/list`（cwd 过滤由请求携带）。
+    pub fn with_list_sessions_after_ready(mut self, enabled: bool) -> Self {
+        self.list_sessions_after_ready = enabled;
         self
     }
 }
@@ -175,6 +191,15 @@ pub struct PermissionOptionView {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AuthMethodView {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    /// `agent`（由 adapter 处理）或 `terminal`（客户端执行命令）。
+    pub kind: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HostEvent {
     Ready {
         agent_name: String,
@@ -198,6 +223,10 @@ pub enum HostEvent {
         title: Option<String>,
         status: Option<String>,
         output: Option<String>,
+        /// 工具入参（0.4.41 的 dsh presenter 会在后续 update 中补全）。
+        args: Option<String>,
+        /// 0.4.41 起 dsh tool presenter 会转发 location 集合；None 表示本次不更新。
+        locations: Option<Vec<String>>,
     },
     PlanUpdated {
         steps: Vec<PlanStepView>,
@@ -239,6 +268,14 @@ pub enum HostEvent {
     TurnEnd {
         cancelled: bool,
         stop_reason: String,
+    },
+    /// agent 返回 `-32000 auth_required`：UI 需要收集 DeepSeek Key 后重连。
+    ///
+    /// 客户端默认不调用 ACP `authenticate`：openma 的 `api-key` 方法会把明文写入
+    /// `$DSH_HOME/.credentials.yaml`。P3 走 keychain env-only + 重启 adapter。
+    AuthRequired {
+        message: String,
+        auth_methods: Vec<AuthMethodView>,
     },
     Error {
         message: String,
@@ -562,14 +599,23 @@ async fn run_connection(
         )
         .connect_with(agent, async move |connection: ConnectionTo<Agent>| {
             let inner: Result<(), String> = async {
-                let init = with_timeout(
+                let init = match with_timeout(
                     connection
                         .send_request(InitializeRequest::new(ProtocolVersion::V1))
                         .block_task(),
                     INIT_TIMEOUT,
                     "initialize",
                 )
-                .await?;
+                .await
+                {
+                    Ok(init) => init,
+                    Err(failure) => {
+                        if send_auth_required(&failure, &events) {
+                            return Ok(());
+                        }
+                        return Err(failure.into_message());
+                    }
+                };
                 let agent_name = init
                     .agent_info
                     .as_ref()
@@ -587,25 +633,65 @@ async fn run_connection(
                         config.cwd.clone(),
                     )
                     .mcp_servers(config.mcp_servers.clone());
-                    let response = with_timeout(
+                    match with_timeout(
                         connection.send_request(request).block_task(),
                         INIT_TIMEOUT,
                         "session/load",
                     )
-                    .await?;
-                    (
-                        SessionId::new(load_id.clone()),
-                        response.config_options.unwrap_or_default(),
-                    )
+                    .await
+                    {
+                        Ok(response) => (
+                            SessionId::new(load_id.clone()),
+                            response.config_options.unwrap_or_default(),
+                        ),
+                        // 旧 agent / DSH adapter 只实现 session/resume：load 报
+                        // method-not-found 时自动改走 resume（同一 session id / cwd）。
+                        Err(failure) if session_method_unsupported(&failure.to_string()) => {
+                            match resume_session(&connection, &config, load_id).await {
+                                Ok(session) => session,
+                                Err(failure) => {
+                                    if send_auth_required(&failure, &events) {
+                                        return Ok(());
+                                    }
+                                    return Err(failure.into_message());
+                                }
+                            }
+                        }
+                        Err(failure) => {
+                            if send_auth_required(&failure, &events) {
+                                return Ok(());
+                            }
+                            return Err(failure.into_message());
+                        }
+                    }
+                } else if let Some(resume_id) = &config.resume_session {
+                    match resume_session(&connection, &config, resume_id).await {
+                        Ok(session) => session,
+                        Err(failure) => {
+                            if send_auth_required(&failure, &events) {
+                                return Ok(());
+                            }
+                            return Err(failure.into_message());
+                        }
+                    }
                 } else {
                     let session_request = NewSessionRequest::new(config.cwd.clone())
                         .mcp_servers(config.mcp_servers.clone());
-                    let session = with_timeout(
+                    let session = match with_timeout(
                         connection.send_request(session_request).block_task(),
                         INIT_TIMEOUT,
                         "session/new",
                     )
-                    .await?;
+                    .await
+                    {
+                        Ok(session) => session,
+                        Err(failure) => {
+                            if send_auth_required(&failure, &events) {
+                                return Ok(());
+                            }
+                            return Err(failure.into_message());
+                        }
+                    };
                     (
                         session.session_id.clone(),
                         session.config_options.unwrap_or_default(),
@@ -689,7 +775,16 @@ async fn run_connection(
                                         options: config_option_views(&response.config_options),
                                     },
                                 ),
-                                Err(message) => send_event(&events, HostEvent::Error { message }),
+                                Err(failure) => {
+                                    if !send_auth_required(&failure, &events) {
+                                        send_event(
+                                            &events,
+                                            HostEvent::Error {
+                                                message: failure.into_message(),
+                                            },
+                                        );
+                                    }
+                                }
                             }
                         }
                         HostCommand::Shutdown => return Ok(()),
@@ -703,6 +798,37 @@ async fn run_connection(
         .await;
     result.map_err(|error| format!("acp connection: {error}"))?;
     Ok(())
+}
+
+/// `session/load` 不可用（未实现该方法）时是否可降级到 `session/resume`。
+fn session_method_unsupported(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("method not found")
+        || lower.contains("-32601")
+        || lower.contains("method_not_found")
+        || lower.contains("not supported")
+        || lower.contains("unsupported")
+}
+
+/// 恢复既有会话（`session/resume`，不回放历史通知）。
+async fn resume_session(
+    connection: &ConnectionTo<Agent>,
+    config: &AcpHostConfig,
+    session_id: &str,
+) -> Result<(SessionId, Vec<SessionConfigOption>), RequestFailure> {
+    let request =
+        ResumeSessionRequest::new(SessionId::new(session_id.to_string()), config.cwd.clone())
+            .mcp_servers(config.mcp_servers.clone());
+    let response = with_timeout(
+        connection.send_request(request).block_task(),
+        INIT_TIMEOUT,
+        "session/resume",
+    )
+    .await?;
+    Ok((
+        SessionId::new(session_id.to_string()),
+        response.config_options.unwrap_or_default(),
+    ))
 }
 
 async fn send_sessions(
@@ -732,7 +858,16 @@ async fn send_sessions(
                     .collect(),
             },
         ),
-        Err(message) => send_event(events, HostEvent::Error { message }),
+        Err(failure) => {
+            if !send_auth_required(&failure, events) {
+                send_event(
+                    events,
+                    HostEvent::Error {
+                        message: failure.into_message(),
+                    },
+                );
+            }
+        }
     }
 }
 
@@ -758,8 +893,14 @@ fn tool_status_label(status: ToolCallStatus) -> String {
     .to_string()
 }
 
-fn tool_output_text(content: &[ToolCallContent]) -> Option<String> {
+fn tool_output_text(
+    raw_output: Option<&serde_json::Value>,
+    content: &[ToolCallContent],
+) -> Option<String> {
     let mut parts = Vec::new();
+    if let Some(raw_output) = raw_output {
+        parts.push(json_text(raw_output));
+    }
     for item in content {
         match item {
             ToolCallContent::Content(content) => {
@@ -767,7 +908,16 @@ fn tool_output_text(content: &[ToolCallContent]) -> Option<String> {
                     parts.push(text.text.clone());
                 }
             }
-            ToolCallContent::Diff(diff) => parts.push(format!("diff: {}", diff.path.display())),
+            ToolCallContent::Diff(diff) => {
+                let mut text = format!("diff: {}", diff.path.display());
+                if let Some(old_text) = &diff.old_text {
+                    text.push_str("\n--- old\n");
+                    text.push_str(old_text);
+                }
+                text.push_str("\n+++ new\n");
+                text.push_str(&diff.new_text);
+                parts.push(text);
+            }
             ToolCallContent::Terminal(terminal) => {
                 parts.push(format!("terminal: {}", terminal.terminal_id.0));
             }
@@ -795,11 +945,7 @@ fn tool_call_view(call: ToolCall) -> ToolCallView {
         kind: format!("{:?}", call.kind),
         status: tool_status_label(call.status),
         args: call.raw_input.as_ref().map(json_text),
-        output: call
-            .raw_output
-            .as_ref()
-            .map(json_text)
-            .or_else(|| tool_output_text(&call.content)),
+        output: tool_output_text(call.raw_output.as_ref(), &call.content),
         locations: tool_locations(&call.locations),
     }
 }
@@ -829,12 +975,12 @@ fn host_event_from_update(update: SessionUpdate) -> Option<HostEvent> {
             tool_call_id: update.tool_call_id.0.to_string(),
             title: update.fields.title,
             status: update.fields.status.map(tool_status_label),
-            output: update
-                .fields
-                .raw_output
-                .as_ref()
-                .map(json_text)
-                .or_else(|| update.fields.content.as_deref().and_then(tool_output_text)),
+            output: tool_output_text(
+                update.fields.raw_output.as_ref(),
+                update.fields.content.as_deref().unwrap_or(&[]),
+            ),
+            args: update.fields.raw_input.as_ref().map(json_text),
+            locations: update.fields.locations.as_deref().map(tool_locations),
         }),
         SessionUpdate::Plan(plan) => Some(HostEvent::PlanUpdated {
             steps: plan
@@ -1026,12 +1172,17 @@ async fn run_turn(
                             },
                         )
                     }
-                    Err(error) => send_event(
-                        events,
-                        HostEvent::Error {
-                            message: format!("turn: {error}"),
-                        },
-                    ),
+                    Err(error) => {
+                        let failure = RequestFailure::from_error("turn", error);
+                        if !send_auth_required(&failure, events) {
+                            send_event(
+                                events,
+                                HostEvent::Error {
+                                    message: failure.into_message(),
+                                },
+                            );
+                        }
+                    }
                 }
                 break;
             }
@@ -1107,7 +1258,112 @@ async fn run_turn(
     ControlFlow::Continue(())
 }
 
-async fn with_timeout<F, T>(future: F, timeout: Duration, phase: &str) -> Result<T, String>
+#[derive(Clone, Debug)]
+struct RequestFailure {
+    phase: &'static str,
+    message: String,
+    code: Option<i32>,
+    data: Option<serde_json::Value>,
+}
+
+impl RequestFailure {
+    fn from_error(phase: &'static str, error: agent_client_protocol::Error) -> Self {
+        Self {
+            phase,
+            message: format!("{error}"),
+            code: Some(i32::from(error.code)),
+            data: error.data,
+        }
+    }
+
+    fn timeout(phase: &'static str) -> Self {
+        Self {
+            phase,
+            message: "timeout".to_string(),
+            code: None,
+            data: None,
+        }
+    }
+
+    fn is_auth_required(&self) -> bool {
+        self.code == Some(-32000)
+    }
+
+    fn auth_event(&self) -> Option<HostEvent> {
+        if !self.is_auth_required() {
+            return None;
+        }
+        Some(HostEvent::AuthRequired {
+            message: self.message.clone(),
+            auth_methods: auth_method_views(self.data.as_ref()),
+        })
+    }
+
+    fn into_message(self) -> String {
+        format!("{}: {}", self.phase, self.message)
+    }
+}
+
+impl std::fmt::Display for RequestFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}: {}", self.phase, self.message)
+    }
+}
+
+impl From<RequestFailure> for String {
+    fn from(failure: RequestFailure) -> Self {
+        failure.into_message()
+    }
+}
+
+fn send_auth_required(failure: &RequestFailure, events: &SyncSender<HostEvent>) -> bool {
+    let Some(event) = failure.auth_event() else {
+        return false;
+    };
+    send_event(events, event);
+    true
+}
+
+fn auth_method_views(data: Option<&serde_json::Value>) -> Vec<AuthMethodView> {
+    let Some(methods) = data
+        .and_then(|data| data.get("authMethods"))
+        .and_then(serde_json::Value::as_array)
+    else {
+        return Vec::new();
+    };
+    methods
+        .iter()
+        .filter_map(|method| {
+            let id = method.get("id")?.as_str()?.to_string();
+            let name = method
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or(&id)
+                .to_string();
+            let description = method
+                .get("description")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string);
+            let kind = method
+                .get("type")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("agent")
+                .to_string();
+            Some(AuthMethodView {
+                id,
+                name,
+                description,
+                kind,
+            })
+        })
+        .collect()
+}
+
+async fn with_timeout<F, T>(
+    future: F,
+    timeout: Duration,
+    phase: &'static str,
+) -> Result<T, RequestFailure>
 where
     F: std::future::Future<Output = Result<T, agent_client_protocol::Error>>,
 {
@@ -1115,9 +1371,9 @@ where
     futures::pin_mut!(future, deadline);
     match futures::future::select(future, deadline).await {
         futures::future::Either::Left((result, _)) => {
-            result.map_err(|error| format!("{phase}: {error}"))
+            result.map_err(|error| RequestFailure::from_error(phase, error))
         }
-        futures::future::Either::Right(_) => Err(format!("{phase} timeout")),
+        futures::future::Either::Right(_) => Err(RequestFailure::timeout(phase)),
     }
 }
 
@@ -1347,6 +1603,8 @@ mod tests {
             title,
             status,
             output,
+            locations,
+            args,
         } = event
         else {
             panic!("expected ToolCallUpdated");
@@ -1355,6 +1613,38 @@ mod tests {
         assert_eq!(title.as_deref(), Some("Edited"));
         assert_eq!(status.as_deref(), Some("completed"));
         assert_eq!(output.as_deref(), Some("done"));
+        assert_eq!(locations, None);
+        assert_eq!(args, None);
+    }
+
+    #[test]
+    fn tool_call_update_forwards_locations_and_diff_content() {
+        use agent_client_protocol::schema::v1::{
+            Diff, ToolCallContent, ToolCallLocation, ToolCallStatus, ToolCallUpdate,
+            ToolCallUpdateFields,
+        };
+        let update = ToolCallUpdate::new(
+            "call-1",
+            ToolCallUpdateFields::new()
+                .status(Some(ToolCallStatus::Completed))
+                .content(vec![ToolCallContent::Diff(
+                    Diff::new("/tmp/a.rs", "new line").old_text("old line"),
+                )])
+                .locations(vec![ToolCallLocation::new("/tmp/a.rs").line(Some(2))]),
+        );
+        let event =
+            super::host_event_from_update(SessionUpdate::ToolCallUpdate(update)).expect("event");
+        let HostEvent::ToolCallUpdated {
+            output, locations, ..
+        } = event
+        else {
+            panic!("expected ToolCallUpdated");
+        };
+        assert_eq!(locations, Some(vec!["/tmp/a.rs:2".to_string()]));
+        let output = output.expect("diff output");
+        assert!(output.contains("diff: /tmp/a.rs"), "{output}");
+        assert!(output.contains("--- old\nold line"), "{output}");
+        assert!(output.contains("+++ new\nnew line"), "{output}");
     }
 
     #[test]
@@ -1474,6 +1764,101 @@ mod tests {
                 summary: Some("boom".to_string()),
             }
         );
+    }
+
+    #[test]
+    fn available_commands_config_updates_and_title_map() {
+        use agent_client_protocol::schema::v1::{
+            AvailableCommand, AvailableCommandsUpdate, ConfigOptionUpdate, SessionConfigOption,
+            SessionConfigSelectOption, SessionInfoUpdate,
+        };
+        let commands = super::host_event_from_update(SessionUpdate::AvailableCommandsUpdate(
+            AvailableCommandsUpdate::new(vec![AvailableCommand::new("compact", "Compact history")]),
+        ))
+        .expect("commands event");
+        assert_eq!(
+            commands,
+            HostEvent::AvailableCommands {
+                commands: vec![CommandView {
+                    name: "compact".to_string(),
+                    description: "Compact history".to_string(),
+                    requires_argument: false,
+                }]
+            }
+        );
+
+        let config = super::host_event_from_update(SessionUpdate::ConfigOptionUpdate(
+            ConfigOptionUpdate::new(vec![SessionConfigOption::select(
+                "mode",
+                "Permissions",
+                "workspace-write",
+                vec![
+                    SessionConfigSelectOption::new("read-only", "Read-only"),
+                    SessionConfigSelectOption::new("workspace-write", "Workspace write"),
+                ],
+            )]),
+        ))
+        .expect("config event");
+        let HostEvent::ConfigOptions { options } = config else {
+            panic!("expected ConfigOptions");
+        };
+        assert_eq!(options.len(), 1);
+        assert_eq!(options[0].id, "mode");
+        assert_eq!(options[0].current, "workspace-write");
+        assert_eq!(
+            options[0].values,
+            vec![
+                ("read-only".to_string(), "Read-only".to_string()),
+                ("workspace-write".to_string(), "Workspace write".to_string()),
+            ]
+        );
+
+        let title = super::host_event_from_update(SessionUpdate::SessionInfoUpdate(
+            SessionInfoUpdate::new().title("ACP title"),
+        ))
+        .expect("title event");
+        assert_eq!(
+            title,
+            HostEvent::TitleUpdated {
+                title: Some("ACP title".to_string())
+            }
+        );
+    }
+
+    #[test]
+    fn auth_required_error_exposes_methods_without_secret() {
+        let error = agent_client_protocol::Error::auth_required().data(serde_json::json!({
+            "authMethods": [
+                {"id": "api-key", "name": "DeepSeek API Key", "description": "paste a key"},
+                {"id": "terminal", "name": "dsh-acp login", "type": "terminal"}
+            ]
+        }));
+        let failure = super::RequestFailure::from_error("session/new", error);
+        assert!(failure.is_auth_required());
+        let event = failure.auth_event().expect("auth event");
+        let HostEvent::AuthRequired {
+            message,
+            auth_methods,
+        } = event
+        else {
+            panic!("expected AuthRequired");
+        };
+        assert!(!message.contains("sk-"));
+        assert_eq!(auth_methods.len(), 2);
+        assert_eq!(auth_methods[0].id, "api-key");
+        assert_eq!(auth_methods[0].name, "DeepSeek API Key");
+        assert_eq!(auth_methods[0].kind, "agent");
+        assert_eq!(auth_methods[1].kind, "terminal");
+    }
+
+    #[test]
+    fn non_auth_error_does_not_become_auth_required() {
+        let failure = super::RequestFailure::from_error(
+            "initialize",
+            agent_client_protocol::Error::internal_error().data("boom"),
+        );
+        assert!(!failure.is_auth_required());
+        assert!(failure.auth_event().is_none());
     }
 
     #[test]

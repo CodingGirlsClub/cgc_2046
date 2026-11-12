@@ -342,3 +342,36 @@ fn package_entry_cannot_escape_its_package_directory() {
         );
     }
 }
+
+#[test]
+fn installed_dsh_adapter_is_ready_without_dsh_desktop() {
+    let fixture = RuntimeFixture::new();
+    fixture.executable(
+        "bin/node",
+        "#!/bin/sh\nif [ \"$1\" = --version ]; then echo v24.22.0; exit; fi\nexec /bin/sh \"$@\"\n",
+    );
+    fixture.executable("lib/node_modules/npm/bin/npm-cli.js", "#!/bin/sh\n");
+    fixture.executable(
+        "agents/deepseek/0.4.41/node_modules/@openma/deepseek-harness-acp/package.json",
+        r#"{"name":"@openma/deepseek-harness-acp","version":"0.4.41","bin":"dist/bin.js"}"#,
+    );
+    fixture.executable(
+        "agents/deepseek/0.4.41/node_modules/@openma/deepseek-harness-acp/dist/bin.js",
+        "#!/bin/sh\nprintf '@openma/deepseek-harness-acp 0.4.41\\n'\n",
+    );
+    let registry = Registry::builtin().unwrap();
+    let runtime = NodeRuntime::new(&fixture.0);
+    let detected = detect_all(&registry, Some(&runtime));
+    let dsh = detected
+        .iter()
+        .find(|agent| agent.entry.id == "deepseek")
+        .expect("dsh agent");
+    assert_eq!(
+        dsh.status,
+        AgentStatus::Ready {
+            version: "0.4.41".to_string()
+        }
+    );
+    // DSH Desktop 仅展示；启动始终用 bundled。
+    assert_eq!(dsh.runtime.launch_arg(), Some("bundled"));
+}

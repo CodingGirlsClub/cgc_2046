@@ -98,6 +98,40 @@ pub(in crate::root_view) fn render_chat_panel(
             let _ = root.update(cx, |this, cx| this.start_chat(cx));
         });
     }
+    // DSH 运行时版本偏差提示（不阻断启动，只提醒兼容风险）。
+    let dsh_version_notice = ctx
+        .chat
+        .dsh_version_info
+        .as_ref()
+        .and_then(|(version, status)| {
+            let (label, color) = match status {
+                cgc_platform::agent::dsh_runtime::DshVersionStatus::AboveTested => (
+                    format!(
+                        "DSH 运行时 {version} 高于测试矩阵 {}，如遇异常请安装兼容版本",
+                        cgc_platform::agent::dsh_runtime::DSH_TESTED_MAX
+                    ),
+                    palette.warning,
+                ),
+                cgc_platform::agent::dsh_runtime::DshVersionStatus::BelowMinimum => (
+                    format!(
+                        "DSH 运行时 {version} 低于适配器最低要求 {}，请升级 DSH Desktop",
+                        cgc_platform::agent::dsh_runtime::DSH_MIN_SUPPORTED
+                    ),
+                    palette.warning,
+                ),
+                _ => return None,
+            };
+            Some(
+                div()
+                    .id("chat-dsh-version-notice")
+                    .role(Role::Status)
+                    .aria_label(label.clone())
+                    .text_size(px(11.0))
+                    .text_color(color)
+                    .child(label)
+                    .into_any_element(),
+            )
+        });
     let body: AnyElement = match &phase {
         ConnectionPhase::Idle => div()
             .flex()
@@ -227,6 +261,87 @@ pub(in crate::root_view) fn render_chat_panel(
                             this.chat.session.phase = ConnectionPhase::Idle;
                             this.start_chat(cx);
                         })),
+                )
+                .into_any_element()
+        }
+        ConnectionPhase::AuthRequired { auth_methods, .. } => {
+            let method_rows = auth_methods
+                .iter()
+                .map(|method| {
+                    let detail = method
+                        .description
+                        .as_ref()
+                        .map(|description| format!(" — {description}"))
+                        .unwrap_or_default();
+                    div()
+                        .text_size(px(11.0))
+                        .text_color(palette.ink_2)
+                        .child(format!("{} ({}){detail}", method.name, method.id))
+                        .into_any_element()
+                })
+                .collect::<Vec<_>>();
+            div()
+                .flex()
+                .flex_col()
+                .gap(space(2))
+                .child(
+                    div()
+                        .text_size(px(12.0))
+                        .text_color(palette.warning)
+                        .child(translate(language, Key::AgentChatAuthRequired)),
+                )
+                .child(
+                    div()
+                        .text_size(px(11.0))
+                        .text_color(palette.ink_2)
+                        .child(translate(language, Key::AgentChatAuthHint)),
+                )
+                .child(
+                    div()
+                        .text_size(px(11.0))
+                        .text_color(palette.ink_3)
+                        .child(translate(language, Key::AgentChatAuthMethods)),
+                )
+                .children(method_rows)
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .gap(space(2))
+                        .child(
+                            div()
+                                .id("chat-auth-open-settings")
+                                .role(Role::Button)
+                                .aria_label(translate(language, Key::AgentChatAuthOpenSettings))
+                                .px(space(2))
+                                .py(px(5.0))
+                                .rounded(px(RADIUS_MEDIUM))
+                                .bg(palette.accent)
+                                .text_color(palette.canvas)
+                                .text_size(px(11.0))
+                                .child(translate(language, Key::AgentChatAuthOpenSettings))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.open_settings_ai_window(cx);
+                                })),
+                        )
+                        .child(
+                            div()
+                                .id("chat-auth-retry")
+                                .role(Role::Button)
+                                .aria_label(translate(language, Key::AgentChatAuthRetry))
+                                .px(space(2))
+                                .py(px(5.0))
+                                .rounded(px(RADIUS_MEDIUM))
+                                .border_1()
+                                .border_color(palette.line)
+                                .text_color(palette.ink)
+                                .text_size(px(11.0))
+                                .child(translate(language, Key::AgentChatAuthRetry))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.chat.session.phase = ConnectionPhase::Idle;
+                                    this.start_chat(cx);
+                                })),
+                        ),
                 )
                 .into_any_element()
         }
@@ -1247,6 +1362,7 @@ pub(in crate::root_view) fn render_chat_panel(
                 .min_w(px(0.0))
                 .flex_col()
                 .gap(space(1))
+                .children(dsh_version_notice)
                 .child(body),
         )
         .into_any_element()

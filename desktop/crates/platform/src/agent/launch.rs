@@ -6,6 +6,7 @@
 //! - 环境变量白名单：保留 PATH/HOME/临时目录/语言、标准 HTTP 代理与 npm 缓存，不携带 API 密钥。
 
 use std::collections::BTreeMap;
+use std::fmt;
 use std::path::{Path, PathBuf};
 
 use crate::registry::manifest::{AgentEntry, Distribution};
@@ -36,12 +37,48 @@ pub const ALLOWED_ENV: &[&str] = &[
     "no_proxy",
 ];
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct LaunchPlan {
     pub program: PathBuf,
     pub args: Vec<String>,
     pub env: BTreeMap<String, String>,
     pub cwd: PathBuf,
+}
+
+impl fmt::Debug for LaunchPlan {
+    /// 启动计划可能携带 keychain 注入的 API Key（DSH adapter 的 DEEPSEEK_API_KEY），
+    /// Debug 只打印变量名，绝不打印值。
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("LaunchPlan")
+            .field("program", &self.program)
+            .field("args", &self.args)
+            .field("env_keys", &self.env.keys().collect::<Vec<_>>())
+            .field("cwd", &self.cwd)
+            .finish()
+    }
+}
+
+/// 单次 agent 启动的可选覆盖项（ADR-0030 D2/D3）：
+/// - `dsh_path`：传给 `dsh-acp --dsh-path` 的外部路径，或字面量 `bundled`；
+/// - `dsh_home`：隔离的 `DSH_HOME`，仅对 `requires: ["dsh-runtime"]` 的条目生效；
+/// - `extra_env`：显式注入的子进程环境（来自 keychain，禁止日志/Debug 输出值）。
+#[derive(Clone, Default, PartialEq, Eq)]
+pub struct LaunchOptions {
+    pub dsh_path: Option<String>,
+    pub dsh_home: Option<PathBuf>,
+    pub extra_env: BTreeMap<String, String>,
+}
+
+impl fmt::Debug for LaunchOptions {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("LaunchOptions")
+            .field("dsh_path", &self.dsh_path)
+            .field("dsh_home", &self.dsh_home)
+            .field("extra_env_keys", &self.extra_env.keys().collect::<Vec<_>>())
+            .finish()
+    }
 }
 
 impl LaunchPlan {
@@ -195,7 +232,17 @@ pub fn build_launch(
     node: Option<&NodeRuntime>,
     cwd: &Path,
 ) -> Result<LaunchPlan, LaunchError> {
-    build_launch_with_env(entry, node, cwd, |key| std::env::var(key).ok())
+    build_launch_with_options(entry, node, cwd, &LaunchOptions::default())
+}
+
+/// 带显式启动覆盖项（DSH 路径 / DSH_HOME / keychain env）的生产入口。
+pub fn build_launch_with_options(
+    entry: &AgentEntry,
+    node: Option<&NodeRuntime>,
+    cwd: &Path,
+    options: &LaunchOptions,
+) -> Result<LaunchPlan, LaunchError> {
+    build_launch_with_env_and_options(entry, node, cwd, options, |key| std::env::var(key).ok())
 }
 
 /// 可注入的 env 读取器：测试用闭包，生产用 `std::env::var`。
@@ -205,13 +252,29 @@ pub fn build_launch_with_env(
     cwd: &Path,
     env_source: impl Fn(&str) -> Option<String>,
 ) -> Result<LaunchPlan, LaunchError> {
+    build_launch_with_env_and_options(entry, node, cwd, &LaunchOptions::default(), env_source)
+}
+
+pub fn build_launch_with_env_and_options(
+    entry: &AgentEntry,
+    node: Option<&NodeRuntime>,
+    cwd: &Path,
+    options: &LaunchOptions,
+    env_source: impl Fn(&str) -> Option<String>,
+) -> Result<LaunchPlan, LaunchError> {
     match &entry.distribution {
-        Distribution::Native { command } => Ok(LaunchPlan {
-            program: PathBuf::from(command),
-            args: entry.launch_args.clone(),
-            env: inherited_environment(env_source),
-            cwd: cwd.to_path_buf(),
-        }),
+        Distribution::Native { command } => {
+            let mut env = inherited_environment(env_source);
+            let mut args = Vec::new();
+            apply_launch_options(entry, options, &mut args, &mut env)?;
+            args.extend(entry.launch_args.clone());
+            Ok(LaunchPlan {
+                program: PathBuf::from(command),
+                args,
+                env,
+                cwd: cwd.to_path_buf(),
+            })
+        }
         Distribution::Npx { .. } => {
             let runtime = node.ok_or_else(|| LaunchError::NodeRuntimeMissing {
                 expected: PathBuf::from("<managed node runtime>"),
@@ -223,16 +286,57 @@ pub fn build_launch_with_env(
             }
             let executable = crate::registry::package::executable(entry, runtime)
                 .map_err(LaunchError::AgentPackageMissing)?;
+            let mut env = runtime.environment(env_source)?;
             let mut args = vec![executable.to_string_lossy().into_owned()];
+            apply_launch_options(entry, options, &mut args, &mut env)?;
             args.extend(entry.launch_args.clone());
             Ok(LaunchPlan {
                 program: runtime.node(),
                 args,
-                env: runtime.environment(env_source)?,
+                env,
                 cwd: cwd.to_path_buf(),
             })
         }
     }
+}
+
+fn apply_launch_options(
+    entry: &AgentEntry,
+    options: &LaunchOptions,
+    args: &mut Vec<String>,
+    env: &mut BTreeMap<String, String>,
+) -> Result<(), LaunchError> {
+    if entry.uses_dsh_runtime() {
+        if let Some(dsh_path) = &options.dsh_path {
+            if dsh_path.trim().is_empty() {
+                return Err(LaunchError::InvalidEnvironment(
+                    "dsh path must not be empty".to_string(),
+                ));
+            }
+            args.push("--dsh-path".to_string());
+            args.push(dsh_path.clone());
+        }
+        if let Some(dsh_home) = &options.dsh_home {
+            if dsh_home.as_os_str().is_empty() {
+                return Err(LaunchError::InvalidEnvironment(
+                    "DSH_HOME must not be empty".to_string(),
+                ));
+            }
+            env.insert(
+                "DSH_HOME".to_string(),
+                dsh_home.to_string_lossy().into_owned(),
+            );
+        }
+    }
+    for (key, value) in &options.extra_env {
+        if key.trim().is_empty() {
+            return Err(LaunchError::InvalidEnvironment(
+                "environment variable name must not be empty".to_string(),
+            ));
+        }
+        env.insert(key.clone(), value.clone());
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -307,5 +411,68 @@ mod tests {
         })
         .expect("native works without node");
         assert!(!plan.env.contains_key("OPENAI_API_KEY"));
+    }
+
+    #[test]
+    fn dsh_launch_options_add_path_home_and_keychain_env() {
+        let dsh = entry("deepseek");
+        let mut args = vec!["/pkg/dist/bin.js".to_string()];
+        let mut env = BTreeMap::new();
+        let options = LaunchOptions {
+            // 决策 A：不把 DSH Desktop 的 wrapper 传给 --dsh-path，统一 bundled。
+            dsh_path: Some("bundled".to_string()),
+            dsh_home: Some(PathBuf::from("/data/dsh-home")),
+            extra_env: BTreeMap::from([
+                ("DEEPSEEK_API_KEY".to_string(), "sk-secret".to_string()),
+                (
+                    "DEEPSEEK_BASE_URL".to_string(),
+                    "https://api.deepseek.com".to_string(),
+                ),
+            ]),
+        };
+        apply_launch_options(&dsh, &options, &mut args, &mut env).expect("options");
+        assert_eq!(args, vec!["/pkg/dist/bin.js", "--dsh-path", "bundled"]);
+        assert_eq!(
+            env.get("DSH_HOME").map(String::as_str),
+            Some("/data/dsh-home")
+        );
+        assert_eq!(
+            env.get("DEEPSEEK_API_KEY").map(String::as_str),
+            Some("sk-secret")
+        );
+
+        // Debug 只暴露变量名，不能泄漏 key 值。
+        let debug = format!("{:?}", options);
+        assert!(!debug.contains("sk-secret"));
+        assert!(debug.contains("DEEPSEEK_API_KEY"));
+    }
+
+    #[test]
+    fn dsh_launch_options_are_ignored_by_non_dsh_agents() {
+        let omp = entry("omp");
+        let mut args = Vec::new();
+        let mut env = BTreeMap::new();
+        let options = LaunchOptions {
+            dsh_path: Some("/opt/dsh".to_string()),
+            dsh_home: Some(PathBuf::from("/data/dsh-home")),
+            extra_env: BTreeMap::from([("DEEPSEEK_API_KEY".to_string(), "sk".to_string())]),
+        };
+        apply_launch_options(&omp, &options, &mut args, &mut env).expect("options");
+        assert!(args.is_empty());
+        assert!(!env.contains_key("DSH_HOME"));
+        assert_eq!(env.get("DEEPSEEK_API_KEY").map(String::as_str), Some("sk"));
+    }
+
+    #[test]
+    fn launch_plan_debug_redacts_environment_values() {
+        let plan = LaunchPlan {
+            program: PathBuf::from("node"),
+            args: vec!["bin.js".to_string()],
+            env: BTreeMap::from([("DEEPSEEK_API_KEY".to_string(), "sk-secret".to_string())]),
+            cwd: PathBuf::from("/tmp"),
+        };
+        let debug = format!("{plan:?}");
+        assert!(!debug.contains("sk-secret"));
+        assert!(debug.contains("DEEPSEEK_API_KEY"));
     }
 }

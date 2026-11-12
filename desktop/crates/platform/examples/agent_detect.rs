@@ -26,6 +26,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             AgentStatus::NodeUnavailable { required, found } => {
                 format!("node unavailable (need {required}, found {found:?})")
             }
+            AgentStatus::RuntimeMissing {
+                runtime,
+                download_url,
+            } => format!("runtime {runtime} missing (download {download_url})"),
             AgentStatus::Error(reason) => format!("error: {reason}"),
         };
         println!(

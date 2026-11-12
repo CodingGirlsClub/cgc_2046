@@ -377,6 +377,11 @@ agent.registry.loading
 agent.registry.error
 agent.registry.retry
 agent.registry.native_hint
+agent.registry.runtime_missing
+agent.registry.runtime_download
+agent.registry.dsh_desktop_detected
+agent.registry.dsh_runtime_detected
+agent.registry.dsh_desktop_missing
 app.settings.cursor_blink
 app.settings.cursor_blink_hint
 app.settings.cursor_blink_blinking
@@ -464,3 +469,8 @@ platform.notice.unreachable
 platform.notice.credential
 platform.notice.credential_limit
 platform.notice.retry
+agent_chat.auth.required
+agent_chat.auth.hint
+agent_chat.auth.methods
+agent_chat.auth.open_settings
+agent_chat.auth.retry

@@ -2,6 +2,7 @@
 
 pub(crate) mod command;
 pub mod detect;
+pub mod dsh_runtime;
 pub mod launch;
 pub mod lifecycle;
 pub mod node_runtime;

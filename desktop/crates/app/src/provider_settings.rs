@@ -248,6 +248,12 @@ mod tests {
             settings.load().selected_provider.as_deref(),
             Some(provider.id.as_str())
         );
+        // Key 只进 keychain：prefs 文件仅保留 has_key 标记，不含明文。
+        let raw = std::fs::read_to_string(root.join("agent_prefs.json")).expect("prefs");
+        assert!(
+            !raw.contains("secret"),
+            "prefs must not contain the key: {raw}"
+        );
 
         settings
             .apply(ProviderPrefsChange::ClearKey {

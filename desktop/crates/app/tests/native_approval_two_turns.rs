@@ -142,6 +142,8 @@ fn two_consecutive_turns_each_request_approval_and_end_without_timeout() {
                             title: None,
                             status: Some("completed".into()),
                             output: Some("late old result".into()),
+                            locations: None,
+                            args: None,
                         },
                     );
                     assert_eq!(

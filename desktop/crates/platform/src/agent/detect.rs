@@ -3,6 +3,7 @@
 use std::time::Duration;
 
 use super::command::run_output;
+use super::dsh_runtime::{probe_dsh_runtime, RuntimeProbe};
 use super::launch::{build_launch, NodeRuntime};
 use super::node_runtime::NODE_VERSION;
 use crate::registry::manifest::{AgentEntry, Distribution, Registry};
@@ -35,6 +36,11 @@ pub enum AgentStatus {
         required: String,
         found: Option<String>,
     },
+    /// 仅用于未安装适配器的信息提示；正常检测不返回此状态（DSH Desktop 不阻断）。
+    RuntimeMissing {
+        runtime: String,
+        download_url: String,
+    },
     Error(String),
 }
 
@@ -42,6 +48,8 @@ pub enum AgentStatus {
 pub struct DetectedAgent {
     pub entry: AgentEntry,
     pub status: AgentStatus,
+    /// 非阻断运行时探测：UI 用于展示 DSH Desktop 版本 / bundled 来源。
+    pub runtime: RuntimeProbe,
 }
 
 pub fn parse_version(output: &str) -> Option<String> {
@@ -95,9 +103,17 @@ pub fn detect_all(registry: &Registry, runtime: Option<&NodeRuntime>) -> Vec<Det
     registry
         .agents
         .iter()
-        .map(|entry| DetectedAgent {
-            entry: entry.clone(),
-            status: detect_agent(entry, runtime, &node),
+        .map(|entry| {
+            let runtime_probe = if entry.uses_dsh_runtime() {
+                probe_dsh_runtime(Some(entry), runtime)
+            } else {
+                RuntimeProbe::missing()
+            };
+            DetectedAgent {
+                entry: entry.clone(),
+                status: detect_agent(entry, runtime, &node),
+                runtime: runtime_probe,
+            }
         })
         .collect()
 }
