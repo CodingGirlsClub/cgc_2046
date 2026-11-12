@@ -27,6 +27,10 @@ mod enrollment_tests;
 mod site_tree_tests;
 
 #[cfg(all(test, cgc_ui_tests))]
+#[path = "issue_card_tests.rs"]
+mod issue_card_tests;
+
+#[cfg(all(test, cgc_ui_tests))]
 #[path = "offering_workspace_tests.rs"]
 mod offering_workspace_tests;
 
@@ -1090,6 +1094,14 @@ impl RootView {
         self.course_enrollments.clear();
         self.course_detail.reset();
         self.content.reset();
+        self.notes.reset();
+        self.notes_started = false;
+        self.note_edit = None;
+        self.note_pending_delete = None;
+        self.notes_notice = None;
+        self.selection_material_id = None;
+        self.expanded_notes.clear();
+        self.retro_checked.clear();
         self.projection.reset();
         self.pending_link = None;
         self.selected_event = None;
@@ -1386,6 +1398,9 @@ impl RootView {
             if !replayed && !self.chat.session.ingest_external(generation, &event) {
                 continue;
             }
+            if !replayed {
+                self.chat.learning_mutation.observe(&event);
+            }
             self.page_context
                 .observe_event(&self.chat.conversation_scope(), &event);
             match &event {
@@ -1493,6 +1508,9 @@ impl RootView {
                 | HostEvent::UserMessage(_)
                 | HostEvent::ToolCallUpdated { .. } => {}
             }
+        }
+        if self.chat.learning_mutation.take_changed() {
+            self.refresh_projection_after_learning_mutation(cx);
         }
         if matches!(self.chat.session.phase, ConnectionPhase::Ready)
             && std::env::var("CGC_AUTO_HISTORY").as_deref() == Ok("1")
@@ -1759,6 +1777,7 @@ impl RootView {
         cx: &mut Context<Self>,
     ) {
         self.chat.input.clear();
+        self.chat.pending_agent_call = None;
         if let Some(input) = self.chat_input.clone() {
             input.update(cx, |input, cx| {
                 input.set_value("", window, cx);
@@ -2000,6 +2019,7 @@ impl RootView {
             return false;
         }
         let scope = self.chat.conversation_scope();
+        let pending_agent_call = self.chat.pending_agent_call.take();
         let content = self
             .chat_input
             .as_ref()
@@ -2023,6 +2043,43 @@ impl RootView {
                 .session
                 .submission(draft.text.clone(), prompt, context, Vec::new(), false);
         submission.draft = Some(draft);
+        submission.agent_call = pending_agent_call
+            .as_ref()
+            .map(|pending| pending.call.clone());
+        let page_context = self.page_context.clone();
+        if !self
+            .chat
+            .session
+            .send_with_context(&mut submission, &page_context, &scope)
+        {
+            self.chat.pending_agent_call = pending_agent_call;
+            return false;
+        }
+        self.chat.composer_context.reset();
+        self.chat.history_open = false;
+        cx.notify();
+        true
+    }
+
+    pub(in crate::root_view) fn send_chat_agent_call(
+        &mut self,
+        call: crate::agent_call::AgentCall,
+        prompt: String,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        self.refresh_page_context();
+        if !self.chat.session.can_submit() || self.chat.session.session_id.is_none() {
+            return false;
+        }
+        let scope = self.chat.conversation_scope();
+        let display = prompt.clone();
+        let page = self.page_context.visible();
+        let (prompt, context) = self.page_context.freeze_page(scope.clone(), prompt, page);
+        let mut submission =
+            self.chat
+                .session
+                .submission(display, prompt, context, Vec::new(), false);
+        submission.agent_call = Some(call);
         let page_context = self.page_context.clone();
         if !self
             .chat
@@ -2031,7 +2088,6 @@ impl RootView {
         {
             return false;
         }
-        self.chat.composer_context.reset();
         self.chat.history_open = false;
         cx.notify();
         true
@@ -2266,6 +2322,7 @@ impl RootView {
             .invalidate_loaded(&self.chat.conversation_scope());
         self.chat.session.disconnect();
         self.chat.composer_context.reset();
+        self.chat.pending_agent_call = None;
         self.chat.agent.clear();
         self.chat.version = None;
         self.chat.session.thread =
@@ -3146,6 +3203,8 @@ impl RootView {
         self.agent_panel_title_original = None;
         self.chat.session.configs.clear();
         self.chat.session.commands.clear();
+        self.chat.pending_agent_call = None;
+        self.chat.composer_context.reset();
         self.chat.configs_applied = false;
         self.chat.auto_prompted = false;
     }

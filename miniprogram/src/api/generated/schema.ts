@@ -921,6 +921,17 @@ export type CourseMapIssue = {
   title: Scalars['String']['output'];
 };
 
+export type CourseNote = {
+  courseId: Scalars['ID']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  id: Scalars['ID']['output'];
+  issueId: Scalars['String']['output'];
+  kind: Scalars['String']['output'];
+  sourceMaterialId?: Maybe<Scalars['String']['output']>;
+  text: Scalars['String']['output'];
+  updatedAt?: Maybe<Scalars['DateTime']['output']>;
+};
+
 export type CourseSortField =
   | 'CAPACITY'
   | 'CONFIRMED_COUNT'
@@ -972,6 +983,13 @@ export type CreateCourseInput = {
   visibility?: InputMaybe<Scalars['String']['input']>;
   /** 目标工作台 ID（GraphQL 入口必传；tenant 已注入时省略） */
   workspaceId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type CreateCourseNoteInput = {
+  courseId: Scalars['ID']['input'];
+  issueId: Scalars['String']['input'];
+  sourceMaterialId?: InputMaybe<Scalars['String']['input']>;
+  text: Scalars['String']['input'];
 };
 
 /** The result of the :create_course mutation */
@@ -4833,6 +4851,7 @@ export type RootMutationType = {
   confirmOperation?: Maybe<OperationResolution>;
   /** 创建课程（默认 status=draft） */
   createCourse: CreateCourseResult;
+  createCourseNote: CourseNote;
   /** 创建报名；open/invite_only 立即占位，request 等待审批 */
   createEnrollment: CreateEnrollmentResult;
   /** 创建活动（默认 status=draft） */
@@ -4866,6 +4885,7 @@ export type RootMutationType = {
   declineSpeakerInvitation?: Maybe<SpeakerInvitationActionPayload>;
   /** 删除草稿课程：仅 draft；教研草稿一并删除、不可恢复；slug 释放（#676） */
   deleteCourse: DeleteCourseResult;
+  deleteCourseNote: Scalars['Boolean']['output'];
   /** 删除草稿活动：仅 draft；不可恢复；slug 释放（#676） */
   deleteEvent: DeleteEventResult;
   /** 删除某工作台自己的作品集条目（ADR-0004；tenant 隔离） */
@@ -4875,6 +4895,7 @@ export type RootMutationType = {
   disableInviteBatch: DisableInviteBatchResult;
   /** 拒绝首公里接入邀请（每次登录弹直到明确拒绝；幂等保留首次拒绝时间戳，仅本人） */
   dismissOnboardingInvitation?: Maybe<User>;
+  ensureCourseRetro?: Maybe<CourseNote>;
   /** 愿望留言（R8）：公开愿望可留言讨论 */
   flashbackAddWishComment?: Maybe<FlashbackWishResult>;
   /** 调整雾面区间（R16/KTD4）：只改 fog_spans，原文不可达。U9 起双入口：token 省略时按登录账号绑定档案 */
@@ -5032,6 +5053,7 @@ export type RootMutationType = {
   signUpWithPhone?: Maybe<SignUpWithPhonePayload>;
   /** 编辑课程元数据（Owner/Admin） */
   updateCourse: UpdateCourseResult;
+  updateCourseNote: CourseNote;
   /** 更新当前用户全局显示名（ADR-0004：displayName 保留全局身份字段） */
   updateDisplayName?: Maybe<User>;
   /** 编辑活动元数据（Owner/Admin） */
@@ -5272,6 +5294,11 @@ export type RootMutationTypeCreateCourseArgs = {
 };
 
 
+export type RootMutationTypeCreateCourseNoteArgs = {
+  input: CreateCourseNoteInput;
+};
+
+
 export type RootMutationTypeCreateEnrollmentArgs = {
   input: CreateEnrollmentInput;
 };
@@ -5361,6 +5388,11 @@ export type RootMutationTypeDeleteCourseArgs = {
 };
 
 
+export type RootMutationTypeDeleteCourseNoteArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
 export type RootMutationTypeDeleteEventArgs = {
   id: Scalars['ID']['input'];
 };
@@ -5379,6 +5411,12 @@ export type RootMutationTypeDemoteUserArgs = {
 
 export type RootMutationTypeDisableInviteBatchArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeEnsureCourseRetroArgs = {
+  courseId: Scalars['ID']['input'];
+  issueId: Scalars['String']['input'];
 };
 
 
@@ -5844,6 +5882,12 @@ export type RootMutationTypeUpdateCourseArgs = {
 };
 
 
+export type RootMutationTypeUpdateCourseNoteArgs = {
+  id: Scalars['ID']['input'];
+  input: UpdateCourseNoteInput;
+};
+
+
 export type RootMutationTypeUpdateDisplayNameArgs = {
   displayName: Scalars['String']['input'];
 };
@@ -6097,6 +6141,8 @@ export type RootQueryType = {
   me?: Maybe<User>;
   /** 当前用户可进入的工作台列表（成员资格 + 创建者） */
   meWorkspaces: Array<Workspace>;
+  /** 当前用户在课程下的 Notes（服务端真源；可按 issue 过滤） */
+  myCourseNotes: Array<CourseNote>;
   /** 当前用户在目标活动/课程上的活跃报名（pending/payment_pending/confirmed；无报名或未登录为 null） */
   myEnrollment?: Maybe<Enrollment>;
   /** 当前用户跨工作台的报名记录 */
@@ -6539,6 +6585,12 @@ export type RootQueryTypeListWorkspacesArgs = {
 export type RootQueryTypeMeWorkspacesArgs = {
   filter?: InputMaybe<WorkspaceFilterInput>;
   sort?: InputMaybe<Array<InputMaybe<WorkspaceSortInput>>>;
+};
+
+
+export type RootQueryTypeMyCourseNotesArgs = {
+  courseId: Scalars['ID']['input'];
+  issueId?: InputMaybe<Scalars['String']['input']>;
 };
 
 
@@ -7442,6 +7494,10 @@ export type UpdateCourseInput = {
   title?: InputMaybe<Scalars['String']['input']>;
   /** 可见性：public 公开可见 / workspace 仅工作台可见（可随时双向切换，D9） */
   visibility?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type UpdateCourseNoteInput = {
+  text: Scalars['String']['input'];
 };
 
 /** The result of the :update_course mutation */

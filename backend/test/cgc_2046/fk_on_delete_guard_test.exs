@@ -91,6 +91,13 @@ defmodule Cgc2046.FkOnDeleteGuardTest do
       reason: "enrollment 行由 courses FK ON DELETE CASCADE 承接"
     },
     %{
+      table: "learning_course_notes",
+      column: "course_id",
+      handling: :fk_cascade,
+      expected_confdeltype: "c",
+      reason: "课程笔记行由 courses FK ON DELETE CASCADE 承接"
+    },
+    %{
       table: "event_moderators",
       column: "event_id",
       handling: :fk_cascade,

@@ -1,6 +1,7 @@
 use super::RootView;
 use crate::{i18n::Language, theme::ThemePreference, workspace_state};
 use cgc_courses::catalog::{CoursesApi, FakeCoursesApi};
+use cgc_courses::notes::{CourseNote, CourseNotesService, FakeNotesApi, NoteKind};
 use cgc_platform::workspace::WorkspaceSummary;
 use gpui_kit::test::TestWindowExt;
 use gpui_kit::{px, size, AppContext, Bounds, Entity, TestAppContext, WindowBounds, WindowOptions};
@@ -264,4 +265,197 @@ fn active_learning_course_takes_priority_over_an_old_expanded_tree_course(cx: &m
             Some("crs-002")
         );
     });
+}
+
+/// ADR-0029 §7:pending action 的目标(course/issue)与当前页面分离即清除,
+/// 防止切 tab/换 issue 后发送指向旧课程的动作(错误课程提交风险)。
+#[gpui_kit::test]
+fn pending_agent_call_clears_when_navigation_leaves_target(cx: &mut TestAppContext) {
+    let _files = super::workspace_layout_tests::LayoutFiles::new();
+    let (window, root) = root_window(cx, "/w/alpha/courses/crs-001/learn?issue=issue-1");
+    let call = crate::agent_call::AgentCall::from_action(
+        &cgc_courses::content::AgentActionSpec {
+            id: "a-hint".into(),
+            label: "Hint".into(),
+            intent: cgc_courses::content::AgentIntent::Hint,
+            primary: false,
+        },
+        crate::agent_call::LearningTarget::Objective {
+            course_id: "crs-001".into(),
+            revision: None,
+            issue_id: "issue-1".into(),
+            objective_id: "obj-1".into(),
+        },
+    );
+    root.update(cx, |root, _| {
+        let tab = crate::root_view::state::PaneTab::page(
+            "/w/alpha/courses/crs-001/learn?issue=issue-1",
+            "Card",
+        );
+        root.state.active_tab = Some(tab.id.clone());
+        root.state.tabs.push(tab);
+        root.state.chat.pending_agent_call = Some(crate::agent_call::PendingAgentCall::new(
+            call,
+            "Hint",
+            "hint prompt",
+        ));
+    });
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(
+            root.read(cx).chat.pending_agent_call.is_some(),
+            "pending must survive a same-page render"
+        );
+        root.update(cx, |root, cx| {
+            root.navigate("/w/alpha/courses/crs-001/learn?issue=issue-2")
+        });
+        window.render_frame(cx);
+        assert!(
+            root.read(cx).chat.pending_agent_call.is_none(),
+            "switching to another issue must clear the pending action"
+        );
+    })
+    .unwrap();
+}
+
+/// 无课程上下文的页面(目录/列表)同样与 issue 级 pending 分离。
+#[gpui_kit::test]
+fn pending_agent_call_clears_when_leaving_course_pages(cx: &mut TestAppContext) {
+    let _files = super::workspace_layout_tests::LayoutFiles::new();
+    let (window, root) = root_window(cx, "/w/alpha/courses/crs-001/learn?issue=issue-1");
+    let call = crate::agent_call::AgentCall::from_action(
+        &cgc_courses::content::AgentActionSpec {
+            id: "a-hint".into(),
+            label: "Hint".into(),
+            intent: cgc_courses::content::AgentIntent::Hint,
+            primary: false,
+        },
+        crate::agent_call::LearningTarget::Issue {
+            course_id: "crs-001".into(),
+            revision: None,
+            issue_id: "issue-1".into(),
+        },
+    );
+    root.update(cx, |root, _| {
+        let tab = crate::root_view::state::PaneTab::page(
+            "/w/alpha/courses/crs-001/learn?issue=issue-1",
+            "Card",
+        );
+        root.state.active_tab = Some(tab.id.clone());
+        root.state.tabs.push(tab);
+        root.state.chat.pending_agent_call = Some(crate::agent_call::PendingAgentCall::new(
+            call,
+            "Hint",
+            "hint prompt",
+        ));
+    });
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(root.read(cx).chat.pending_agent_call.is_some());
+        root.update(cx, |root, cx| root.navigate("/w/alpha/courses"));
+        window.render_frame(cx);
+        assert!(
+            root.read(cx).chat.pending_agent_call.is_none(),
+            "leaving course pages must clear the issue-level pending action"
+        );
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn notes_panel_opens_and_filters_retro(cx: &mut TestAppContext) {
+    let _files = super::workspace_layout_tests::LayoutFiles::new();
+    let (window, root) = root_window(cx, "/w/alpha/courses/crs-001/learn");
+    root.update(cx, |root, _| {
+        root.notes = CourseNotesService::new(std::sync::Arc::new(FakeNotesApi::default()));
+        root.notes.begin_load("crs-001");
+        root.notes_notice = Some("已保存".into());
+        root.notes.adopt(vec![
+            CourseNote {
+                id: "n1".into(),
+                course_id: "crs-001".into(),
+                issue_id: "issue-1".into(),
+                source_material_id: None,
+                kind: NoteKind::Note,
+                text: "普通笔记".into(),
+                created_at: "2026-11-11T00:00:00Z".into(),
+                updated_at: None,
+            },
+            CourseNote {
+                id: "r1".into(),
+                course_id: "crs-001".into(),
+                issue_id: "issue-1".into(),
+                source_material_id: None,
+                kind: NoteKind::Retro,
+                text: "复盘".into(),
+                created_at: "2026-11-11T00:01:00Z".into(),
+                updated_at: None,
+            },
+        ]);
+    });
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        root.update(cx, |root, cx| root.open_notes_panel(cx));
+        window.render_frame(cx);
+        assert!(window.try_find("course-notes-panel").is_some());
+        assert!(window.try_find("course-notes-notice").is_some());
+        assert!(
+            window.try_find("issue-notes").is_none(),
+            "issue-card notes section must yield to the open Notes panel"
+        );
+        assert!(window.try_find("issue-note-n1").is_some());
+        assert!(window.try_find("issue-note-r1").is_some());
+
+        window.click("notes-filter-retro", cx);
+        window.render_frame(cx);
+        assert!(window.try_find("issue-note-r1").is_some());
+        assert!(window.try_find("issue-note-n1").is_none());
+
+        window.click("notes-filter-all", cx);
+        window.render_frame(cx);
+        window.click("note-edit-n1", cx);
+        window.render_frame(cx);
+        assert!(
+            window.try_find("note-save-n1").is_some(),
+            "panel owns the only note editor"
+        );
+        assert!(window.try_find("issue-notes").is_none());
+    })
+    .unwrap();
+}
+
+/// 选区浮层：三个动作可见；点击外部关闭。
+#[gpui_kit::test]
+fn selection_popover_renders_actions_and_dismisses(cx: &mut TestAppContext) {
+    let _files = super::workspace_layout_tests::LayoutFiles::new();
+    let (window, root) = root_window(cx, "/w/alpha/courses/crs-001/learn");
+    root.update(cx, |root, _| {
+        root.selection_popover = Some(crate::root_view::SelectionPopover {
+            text: "选中的一段材料".into(),
+            position: gpui_kit::point(px(120.0), px(120.0)),
+            target: crate::agent_call::LearningTarget::Issue {
+                course_id: "crs-001".into(),
+                revision: Some(1),
+                issue_id: "issue-1".into(),
+            },
+            source_material_id: None,
+        });
+    });
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(root.read(cx).selection_popover.is_some());
+        assert!(window.try_find("selection-popover").is_some());
+        assert!(window.try_find("selection-explain").is_some());
+        assert!(window.try_find("selection-summarize").is_some());
+        assert!(window.try_find("selection-add-note").is_some());
+        assert!(window.try_find("selection-copy").is_some());
+
+        let dismiss = window.find("selection-popover-dismiss");
+        assert!(dismiss.visible(), "dismiss bounds={:?}", dismiss.bounds());
+        window.click("selection-popover-dismiss", cx);
+        window.render_frame(cx);
+        assert!(window.try_find("selection-popover").is_none());
+        assert!(root.read(cx).selection_popover.is_none());
+    })
+    .unwrap();
 }

@@ -1,6 +1,31 @@
 use super::*;
-use std::collections::BTreeMap;
+use cgc_courses::notes::CourseNotesService;
+use gpui_kit::component::tree::TreeState;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
+
+/// 行内编辑中的笔记；只存在当前会话。
+#[derive(Clone)]
+pub(in crate::root_view) struct NoteEditState {
+    pub(in crate::root_view) note_id: String,
+    pub(in crate::root_view) input: gpui_kit::Entity<gpui_kit::component::input::InputState>,
+}
+
+/// 课程级 Notes 面板筛选。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(in crate::root_view) enum NotesFilter {
+    #[default]
+    All,
+    Notes,
+    Retro,
+}
+
+/// 媒体（课程图片）的加载状态；只在内存缓存，不落盘。
+pub(in crate::root_view) enum MediaState {
+    Loading,
+    Ready(Arc<RenderImage>),
+    Failed,
+}
 
 /// 右侧 Dock 的互斥 panel。图标在 footer/header 切换，同一时间只显示一个。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -8,6 +33,7 @@ pub(in crate::root_view) enum RightPanel {
     #[default]
     SiteTree,
     Outline,
+    Notes,
     Notifications,
 }
 
@@ -222,7 +248,34 @@ pub struct ShellState {
     pub(in crate::root_view) site_tree_search_focused: bool,
     pub(in crate::root_view) site_tree_course_open: Option<String>,
     pub(in crate::root_view) site_tree_scroll: ScrollHandle,
+    pub(in crate::root_view) notes_scroll: ScrollHandle,
     pub(in crate::root_view) site_tree_scroll_restore: Option<f32>,
+    /// Outline 目录树；课程内容加载后惰性创建。
+    pub(in crate::root_view) outline_tree: Option<Entity<TreeState>>,
+    pub(in crate::root_view) outline_tree_subscription: Option<Subscription>,
+    /// 当前树对应的 (course_id, revision)；变化时才重建 items。
+    pub(in crate::root_view) outline_tree_key: Option<(String, Option<i64>)>,
+    /// 按业务 id 保存的展开节点，跨重启恢复。
+    pub(in crate::root_view) outline_expanded: BTreeSet<String>,
+    /// 课程图片下载/解码结果（URL → 状态）；上限见 `media::MEDIA_CACHE_LIMIT`。
+    pub(in crate::root_view) media_cache: BTreeMap<String, MediaState>,
+    /// 正在下载的 URL，防止每帧重复发起请求。
+    pub(in crate::root_view) media_loading: BTreeSet<String>,
+    /// 已完成的课程材料 key（`course:revision:issue:material`）。
+    pub(in crate::root_view) completed_materials: BTreeSet<String>,
+    /// 每个 Issue 当前展开的材料 key（同一 Issue 单开）。
+    pub(in crate::root_view) expanded_material: BTreeMap<String, String>,
+    /// 每个 Issue 当前选中的 objective；按 issue scope 记忆，跨 tab 保留。
+    pub(in crate::root_view) selected_objective: BTreeMap<String, String>,
+    /// 选中的 objective 的 rubric / 任务材料折叠状态。
+    pub(in crate::root_view) expanded_objective_rubric: BTreeSet<String>,
+    pub(in crate::root_view) expanded_objective_materials: BTreeSet<String>,
+    /// objective 行的持久焦点句柄（`track_focus`）：Tab 可聚焦、Enter/Space 激活。
+    pub(in crate::root_view) objective_row_focus: std::collections::HashMap<String, FocusHandle>,
+    /// 材料动作行的持久焦点句柄（key: `scope:index`），覆盖展开/打开/重试。
+    pub(in crate::root_view) material_action_focus: std::collections::HashMap<String, FocusHandle>,
+    /// 点击后等待图片下载完成再打开 Viewer：URL → 窗口标题。
+    pub(in crate::root_view) pending_image_opens: BTreeMap<String, String>,
     pub(in crate::root_view) key_focus: Option<FocusHandle>,
     pub(in crate::root_view) key_interceptor: Option<Subscription>,
     pub(in crate::root_view) events: EventListService,
@@ -297,7 +350,29 @@ pub struct ShellState {
     pub(in crate::root_view) course_detail: CourseDetailService,
     pub(in crate::root_view) course_detail_started: bool,
     pub(in crate::root_view) content: CourseContentService,
+    /// 课程 Notes：服务端真源的内存快照；切换课程/重载时整体替换。
+    pub(in crate::root_view) notes: CourseNotesService,
+    pub(in crate::root_view) notes_started: bool,
+    pub(in crate::root_view) notes_load_serial: u64,
+    /// 行内编辑中的笔记（不落盘；离开页面即丢弃）。
+    pub(in crate::root_view) note_edit: Option<NoteEditState>,
+    /// 等待二次确认删除的笔记 id。
+    pub(in crate::root_view) note_pending_delete: Option<String>,
+    /// 展开全文的笔记 id。
+    pub(in crate::root_view) expanded_notes: BTreeSet<String>,
+    /// 课程级 Notes 面板当前选中的筛选。
+    pub(in crate::root_view) notes_filter: NotesFilter,
+    /// 当前选区来源材料（material.id）；由材料正文 mouse-down 记录。
+    pub(in crate::root_view) selection_material_id: Option<String>,
+    /// Notes 操作的一次性提示（已加入/重复/失败）。
+    pub(in crate::root_view) notes_notice: Option<String>,
+    /// 已触发过 Retro 检查的 `course:revision:issue`，避免每次投影刷新重复请求。
+    pub(in crate::root_view) retro_checked: BTreeSet<String>,
     pub(in crate::root_view) projection: LearningProjectionService,
+    /// 提交成功时投影仍在加载：当前请求结束后需要再拉一次。
+    pub(in crate::root_view) projection_refresh_pending: bool,
+    /// 页面选区浮层：解释/总结/复制。
+    pub(in crate::root_view) selection_popover: Option<super::SelectionPopover>,
     pub(in crate::root_view) pending_link: Option<String>,
     pub(in crate::root_view) native_agent_highlight: Option<NativeAgentHighlight>,
     pub(in crate::root_view) native_chat_mode: bool,
@@ -373,6 +448,7 @@ impl ShellState {
         let nav_courses = build_courses_service();
         let course_detail = CourseDetailService::new(courses.api_handle());
         let content = CourseContentService::new(courses.api_handle());
+        let notes = build_notes_service();
         let projection = LearningProjectionService::new(courses.api_handle());
         Self {
             registry,
@@ -435,7 +511,22 @@ impl ShellState {
             site_tree_search_focused: false,
             site_tree_course_open: None,
             site_tree_scroll: ScrollHandle::new(),
+            notes_scroll: ScrollHandle::new(),
             site_tree_scroll_restore: None,
+            outline_tree: None,
+            outline_tree_subscription: None,
+            outline_tree_key: None,
+            outline_expanded: BTreeSet::new(),
+            media_cache: BTreeMap::new(),
+            media_loading: BTreeSet::new(),
+            completed_materials: BTreeSet::new(),
+            expanded_material: BTreeMap::new(),
+            selected_objective: BTreeMap::new(),
+            expanded_objective_rubric: BTreeSet::new(),
+            expanded_objective_materials: BTreeSet::new(),
+            objective_row_focus: std::collections::HashMap::new(),
+            material_action_focus: std::collections::HashMap::new(),
+            pending_image_opens: BTreeMap::new(),
             key_focus: None,
             key_interceptor: None,
             events,
@@ -500,7 +591,19 @@ impl ShellState {
             course_detail,
             course_detail_started: false,
             content,
+            notes,
+            notes_started: false,
+            notes_load_serial: 0,
+            note_edit: None,
+            note_pending_delete: None,
+            expanded_notes: BTreeSet::new(),
+            notes_filter: NotesFilter::All,
+            selection_material_id: None,
+            notes_notice: None,
+            retro_checked: BTreeSet::new(),
             projection,
+            projection_refresh_pending: false,
+            selection_popover: None,
             pending_link: None,
             native_agent_highlight: None,
             native_chat_mode: crate::chat_state::load_native_chat_mode().unwrap_or(true),

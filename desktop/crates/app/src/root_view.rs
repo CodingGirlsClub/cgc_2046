@@ -5,6 +5,7 @@
 //! 整个窗口显示登录页（guard），登录成功后进入壳；登出在头像下拉里（同 Zed 的
 //! sign out）。网络调用放后台线程，结果回主线程刷新。
 
+use gpui_kit::component::button::Button;
 use gpui_kit::component::menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenu, PopupMenuItem};
 use gpui_kit::InteractiveElement;
 use gpui_kit::*;
@@ -20,6 +21,7 @@ use cgc_courses::catalog::{
     CoursesListState, FakeCoursesApi, HttpCoursesApi,
 };
 use cgc_courses::content::{CourseContentService, CourseContentState, MaterialKind};
+use cgc_courses::notes::{CourseNotesService, FakeNotesApi, HttpNotesApi, NotesApi, NotesState};
 use cgc_courses::projection::{LearningProjectionService, ProjectionState};
 use cgc_events::detail::{EventDetail, EventDetailService, PriceMode};
 use cgc_platform::paths::AppPaths;
@@ -74,6 +76,7 @@ use crate::routing::{Route, RouteMatch, RouteRegistry};
 use crate::settings_window::SettingsWindowView;
 use crate::theme::{self, space, ThemePreference, RADIUS_LARGE, RADIUS_MEDIUM, RADIUS_SMALL};
 
+mod agent_call_dispatch;
 mod agent_icons;
 mod agent_session;
 mod controller;
@@ -81,6 +84,7 @@ mod enrollment_flow;
 mod history_actions;
 mod key_dispatch;
 mod nav_copy;
+mod notes;
 mod offering_load;
 mod page_context_build;
 mod tab_lifecycle;
@@ -225,6 +229,14 @@ enum EnrollmentsListState {
     Failed(String),
 }
 
+#[derive(Clone)]
+pub(in crate::root_view) struct SelectionPopover {
+    pub(in crate::root_view) text: String,
+    pub(in crate::root_view) position: Point<Pixels>,
+    pub(in crate::root_view) target: crate::agent_call::LearningTarget,
+    pub(in crate::root_view) source_material_id: Option<String>,
+}
+
 #[derive(Default)]
 struct ChatUi {
     start_after_authorization: bool,
@@ -246,6 +258,10 @@ struct ChatUi {
     chat_scroll: ScrollHandle,
     input: String,
     composer_context: crate::composer_context::ComposerContext,
+    /// 课程 CTA 在 ACP composer 上的 pending action；发送成功或手动移除即清除。
+    pending_agent_call: Option<crate::agent_call::PendingAgentCall>,
+    /// submit_learning_attempt 成功信号；drain 后触发学习投影刷新。
+    learning_mutation: crate::learning_mutation::LearningMutationTracker,
     focused: bool,
     auto_prompted: bool,
     config_search: String,
@@ -728,6 +744,9 @@ impl Render for RootView {
         let previous_page = self.page_context.visible();
         self.refresh_page_context();
         let page_changed = previous_page != self.page_context.visible();
+        // ADR-0029 §7：pending 目标已不指向当前页面（切 tab/换 issue/离开课程页）
+        // 即清除，防止发送指向旧课程的动作。
+        self.clear_stale_pending_agent_calls(cx);
         if let Some(view) = self.native_agent_view.clone() {
             view.update(cx, |view, cx| {
                 view.set_language(self.language, cx);
@@ -1007,6 +1026,24 @@ impl Render for RootView {
                     .cloned()
                 {
                     self.start_content_load(cx, course_id);
+                }
+            }
+            if matches!(
+                current_id,
+                Some("courses.learning")
+                    | Some("courses.public_learning")
+                    | Some("courses.detail")
+                    | Some("courses.public_detail")
+            ) && matches!(self.course_detail.state(), CoursesListState::Ready)
+                && matches!(self.notes.state(), NotesState::Idle)
+            {
+                if let Some(course_id) = self
+                    .current
+                    .as_ref()
+                    .and_then(|route_match| route_match.params.get("id"))
+                    .cloned()
+                {
+                    self.start_notes_load(cx, course_id);
                 }
             }
             if data_ready
@@ -1336,8 +1373,13 @@ impl Render for RootView {
                                         .id("content-scroll")
                                         .on_mouse_down(
                                             MouseButton::Left,
-                                            cx.listener(|this, _, _, _| {
+                                            cx.listener(|this, _, window, cx| {
                                                 this.page_context.begin_selection();
+                                                // 页面正文接管焦点：否则聊天输入框保持 focused，
+                                                // 选中正文时会被 build_selection_popover 的守卫吞掉。
+                                                this.chat.focused = false;
+                                                let focus = this.ensure_key_focus(cx);
+                                                window.focus(&focus, cx);
                                             }),
                                         )
                                         .on_key_up(cx.listener(|this, _, window, cx| {
@@ -1480,6 +1522,7 @@ impl Render for RootView {
                                                             &issue_id,
                                                             language,
                                                             &palette,
+                                                            cx,
                                                         )
                                                     }
                                                     None => screens::render_course_learning(
@@ -1512,6 +1555,9 @@ impl Render for RootView {
                     &palette,
                     cx,
                 ));
+            if let Some(popover) = self.selection_popover.clone() {
+                root = root.child(self.render_selection_popover(popover, window, cx));
+            }
             root
         }
     }
@@ -1522,14 +1568,220 @@ impl RootView {
         let root = cx.entity().downgrade();
         window.on_next_frame(move |window, cx| {
             let text = gpui_kit::base::TextSelection::selected_text(window, cx);
+            let position = window.mouse_position();
             let _ = root.update(cx, |this, cx| {
-                this.page_context.capture_selection(text);
+                this.page_context.capture_selection(text.clone());
+                this.selection_popover = this.build_selection_popover(&text, position);
+                this.selection_material_id = None;
                 if let Some(view) = this.native_agent_view.clone() {
                     view.update(cx, |_, cx| cx.notify());
                 }
                 cx.notify();
             });
         });
+    }
+
+    /// 选区动作目标：当前 objective；未选中 objective 时挂到 issue。
+    fn selection_target(&self) -> Option<crate::agent_call::LearningTarget> {
+        let page = self.page_context.visible();
+        let course = page.as_ref()?.course.as_ref()?;
+        let unit = course.unit.as_ref()?;
+        let revision = course
+            .revision
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "unversioned".into());
+        let scope = format!("{}:{}:{}", course.id, revision, unit.id);
+        let objective = self.selected_objective.get(&scope).map(String::as_str);
+
+        if let Some(material_id) = self.selection_material_id.clone() {
+            return Some(crate::agent_call::LearningTarget::Material {
+                course_id: course.id.clone(),
+                revision: course.revision,
+                issue_id: unit.id.clone(),
+                objective_id: objective.map(str::to_string),
+                material_id,
+            });
+        }
+
+        crate::agent_call::selection_target(page.as_ref(), objective)
+    }
+
+    fn build_selection_popover(
+        &self,
+        text: &str,
+        position: Point<Pixels>,
+    ) -> Option<SelectionPopover> {
+        if self.chat.focused || text.trim().is_empty() {
+            return None;
+        }
+        let on_learning_page = self.current.as_ref().is_some_and(|route| {
+            matches!(
+                route.route.id,
+                "courses.learning" | "courses.public_learning"
+            )
+        });
+        if !on_learning_page {
+            return None;
+        }
+        let target = self.selection_target()?;
+        let mut text = text.trim().to_string();
+        if text.chars().count() > 4000 {
+            text = text.chars().take(4000).collect::<String>();
+            text.push('…');
+        }
+        Some(SelectionPopover {
+            text,
+            position,
+            target,
+            source_material_id: self.selection_material_id.clone(),
+        })
+    }
+
+    /// 选中文字后的浮动动作条：Positioner 负责视口夹紧/翻转，deferred 负责盖在
+    /// 页面滚动容器之上；点击外部关闭。
+    fn render_selection_popover(
+        &self,
+        popover: SelectionPopover,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let palette = theme::palette_from_theme(cx);
+        let language = self.language;
+        let root = cx.entity().downgrade();
+
+        let explain_call = crate::agent_call::AgentCall::from_selection(
+            cgc_courses::content::AgentIntent::Explain,
+            popover.target.clone(),
+            popover.text.clone(),
+        );
+        let summarize_call = crate::agent_call::AgentCall::from_selection(
+            cgc_courses::content::AgentIntent::Summarize,
+            popover.target.clone(),
+            popover.text.clone(),
+        );
+        let explain_prompt =
+            translate(language, Key::CoursesLearningAgentPromptExplain).to_string();
+        let summarize_prompt =
+            translate(language, Key::CoursesLearningAgentPromptSummarize).to_string();
+        let explain_label = translate(language, Key::CoursesLearningSelectionExplain).to_string();
+        let summarize_label =
+            translate(language, Key::CoursesLearningSelectionSummarize).to_string();
+        let copy_label = translate(language, Key::CoursesLearningSelectionCopy).to_string();
+
+        let explain_root = root.clone();
+        let explain_button = Button::new("selection-explain")
+            .xsmall()
+            .label(explain_label.clone())
+            .on_click(move |_, window, cx| {
+                let _ = explain_root.update(cx, |this, cx| {
+                    this.apply_agent_call(
+                        explain_call.clone(),
+                        explain_prompt.clone(),
+                        explain_label.clone(),
+                        window,
+                        cx,
+                    );
+                    this.selection_popover = None;
+                    cx.notify();
+                });
+            });
+        let summarize_root = root.clone();
+        let summarize_button = Button::new("selection-summarize")
+            .xsmall()
+            .label(summarize_label.clone())
+            .on_click(move |_, window, cx| {
+                let _ = summarize_root.update(cx, |this, cx| {
+                    this.apply_agent_call(
+                        summarize_call.clone(),
+                        summarize_prompt.clone(),
+                        summarize_label.clone(),
+                        window,
+                        cx,
+                    );
+                    this.selection_popover = None;
+                    cx.notify();
+                });
+            });
+        let add_label = translate(language, Key::CoursesLearningNotesAdd).to_string();
+        let add_text = popover.text.clone();
+        let add_source = popover.source_material_id.clone();
+        let add_target = popover.target.clone();
+        let add_root = root.clone();
+        let add_button = Button::new("selection-add-note")
+            .xsmall()
+            .label(add_label)
+            .on_click(move |_, _, cx| {
+                let _ = add_root.update(cx, |this, cx| {
+                    this.add_note_from_selection(
+                        add_text.clone(),
+                        add_source.clone(),
+                        add_target.clone(),
+                        cx,
+                    );
+                });
+            });
+
+        let copy_text = popover.text.clone();
+        let copy_root = root.clone();
+        let copy_button = Button::new("selection-copy")
+            .xsmall()
+            .label(copy_label)
+            .on_click(move |_, _, cx| {
+                cx.write_to_clipboard(ClipboardItem::new_string(copy_text.clone()));
+                let _ = copy_root.update(cx, |this, cx| {
+                    this.selection_popover = None;
+                    cx.notify();
+                });
+            });
+
+        let card = div()
+            .id("selection-popover")
+            .test_support()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(px(2.0))
+            .p(px(3.0))
+            .rounded(px(RADIUS_MEDIUM))
+            .border_1()
+            .border_color(palette.line)
+            .bg(palette.card)
+            .shadow_sm()
+            .children([explain_button, summarize_button, add_button, copy_button]);
+
+        let dismiss_root = cx.entity().downgrade();
+        let dismiss = deferred(
+            gpui_kit::base::Positioner::corner(Anchor::TopLeft, gpui_kit::point(px(0.0), px(0.0)))
+                .margin(px(0.0))
+                .occlude()
+                .child(
+                    div()
+                        .id("selection-popover-dismiss")
+                        .test_support()
+                        .w(window.viewport_size().width)
+                        .h(window.viewport_size().height)
+                        .bg(transparent_black())
+                        .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                            let _ = dismiss_root.update(cx, |this, cx| {
+                                this.selection_popover = None;
+                                cx.notify();
+                            });
+                        }),
+                ),
+        )
+        .with_priority(gpui_kit::base::POPUP_PRIORITY - 1);
+
+        let positioned = deferred(
+            gpui_kit::base::Positioner::corner(Anchor::TopLeft, popover.position)
+                .margin(px(8.0))
+                .occlude()
+                .child(card),
+        )
+        .with_priority(gpui_kit::base::POPUP_PRIORITY);
+
+        div()
+            .children([dismiss.into_any_element(), positioned.into_any_element()])
+            .into_any_element()
     }
 
     /// 窗口变窄或恢复旧宽度时，保证两侧 panel 不会把中心压到 320px 以下。
@@ -2297,6 +2549,16 @@ fn build_courses_service() -> CourseCatalogService {
         Arc::new(FakeCoursesApi::with_seed(15))
     };
     CourseCatalogService::new(api)
+}
+
+fn build_notes_service() -> CourseNotesService {
+    let use_http = !cgc_platform::runtime::use_fake_backend();
+    let api: Arc<dyn NotesApi> = if use_http {
+        Arc::new(HttpNotesApi::from_env())
+    } else {
+        Arc::new(FakeNotesApi::default())
+    };
+    CourseNotesService::new(api)
 }
 
 fn status_label(language: Language, status: &str) -> &'static str {
@@ -3151,6 +3413,7 @@ mod tests {
                             assessment: None,
                             rubric: Vec::new(),
                             materials: Vec::new(),
+                            agent_actions: Vec::new(),
                         },
                         CourseObjective {
                             id: Some("objective-optional".into()),
@@ -3161,6 +3424,7 @@ mod tests {
                             assessment: None,
                             rubric: Vec::new(),
                             materials: Vec::new(),
+                            agent_actions: Vec::new(),
                         },
                     ],
                     ..Default::default()

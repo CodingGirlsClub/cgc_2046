@@ -270,5 +270,362 @@ fn native_composer_uses_shared_editor_growth_and_preserves_draft(cx: &mut TestAp
     }
 }
 
+#[gpui_kit::test]
+fn native_composer_shows_and_removes_pending_agent_call(cx: &mut TestAppContext) {
+    use cgc_courses::content::{AgentActionSpec, AgentIntent};
+
+    cx.update(gpui_kit::init);
+    let (handle, probe) = cx.update(|cx| {
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds {
+                    origin: Default::default(),
+                    size: size(px(420.0), px(600.0)),
+                })),
+                ..Default::default()
+            },
+            cx,
+            |window, cx| cx.new(|cx| NativeComposerProbe::new(window, cx)),
+        )
+        .unwrap()
+    });
+    let call = crate::agent_call::AgentCall::from_action(
+        &AgentActionSpec {
+            id: "a-answer".into(),
+            label: "Answer".into(),
+            intent: AgentIntent::Answer,
+            primary: true,
+        },
+        crate::agent_call::LearningTarget::Objective {
+            course_id: "crs-1".into(),
+            revision: Some(1),
+            issue_id: "issue-1".into(),
+            objective_id: "obj-1".into(),
+        },
+    );
+    cx.update_window(handle, |_, window, cx| {
+        let view = probe.read(cx).view.clone();
+        view.update(cx, |view, cx| {
+            view.compose_agent_call(
+                call,
+                "Please ask me a question".into(),
+                "Answer".into(),
+                window,
+                cx,
+            );
+        });
+        window.render_frame(cx);
+        assert!(window.try_find("native-agent-call-chip").is_some());
+        assert!(window.try_find("native-agent-call-remove").is_some());
+        // 可访问名称必须是语义化的，而不是可见符号 "×"。
+        assert_eq!(
+            window.find("native-agent-call-remove").label(),
+            Some("Remove learning action")
+        );
+        assert_eq!(
+            view.read(cx).input.read(cx).value(),
+            "Please ask me a question"
+        );
+        view.update(cx, |view, cx| view.steer(window, cx));
+        assert!(view.read(cx).pending_agent_call.is_some());
+        assert_eq!(
+            view.read(cx).input.read(cx).value(),
+            "Please ask me a question"
+        );
+        assert!(view.read(cx).status.contains("队列"));
+
+        window.click("native-agent-call-remove", cx);
+        window.render_frame(cx);
+        assert!(window.try_find("native-agent-call-chip").is_none());
+        assert!(view.read(cx).pending_agent_call.is_none());
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn native_auto_send_keeps_composer_draft(cx: &mut TestAppContext) {
+    use crate::agent_call::{AgentCall, LearningTarget};
+    use cgc_courses::content::{AgentActionSpec, AgentIntent};
+
+    cx.update(gpui_kit::init);
+    let (handle, probe) = cx.update(|cx| {
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds {
+                    origin: Default::default(),
+                    size: size(px(420.0), px(600.0)),
+                })),
+                ..Default::default()
+            },
+            cx,
+            |window, cx| cx.new(|cx| NativeComposerProbe::new(window, cx)),
+        )
+        .unwrap()
+    });
+    cx.update_window(handle, |_, window, cx| {
+        let view = probe.read(cx).view.clone();
+        let input = view.read(cx).input.clone();
+        input.update(cx, |state, cx| state.set_value("draft answer", window, cx));
+        let call = AgentCall::from_action(
+            &AgentActionSpec {
+                id: "a-hint".into(),
+                label: "Hint".into(),
+                intent: AgentIntent::Hint,
+                primary: false,
+            },
+            LearningTarget::Objective {
+                course_id: "crs-1".into(),
+                revision: None,
+                issue_id: "issue-1".into(),
+                objective_id: "obj-1".into(),
+            },
+        );
+        view.update(cx, |view, cx| {
+            assert!(view.send_agent_call(call, "automatic hint".into(), cx));
+            assert_eq!(view.input.read(cx).value(), "draft answer");
+            assert!(view.pending_agent_call.is_none());
+        });
+    })
+    .unwrap();
+}
+
+/// AutoSend 回归：`send_agent_call` 必须先 `freeze_page` 再构造 Submission。
+/// 若未来把 context 改回 `None`，page context 会整体丢失，MCP 拿不到
+/// workspace/course 标识（此前线上症状）。session 保持 Idle，dispatch 不会
+/// 跨线程发送；断言队列中 submission 已带完整 page context。发送链路
+/// （send_with_context 注入正文）由 `conversation_session` envelope 测试覆盖。
+#[gpui_kit::test]
+fn native_auto_send_sends_page_context(cx: &mut TestAppContext) {
+    use crate::agent_call::{AgentCall, LearningTarget};
+    use crate::page_context::{CourseContext, PageBody, PageContext};
+    use cgc_courses::content::{AgentActionSpec, AgentIntent};
+
+    cx.update(gpui_kit::init);
+    let (handle, probe) = cx.update(|cx| {
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds {
+                    origin: Default::default(),
+                    size: size(px(420.0), px(600.0)),
+                })),
+                ..Default::default()
+            },
+            cx,
+            |window, cx| cx.new(|cx| NativeComposerProbe::new(window, cx)),
+        )
+        .unwrap()
+    });
+    cx.update_window(handle, |_, window, cx| {
+        let view = probe.read(cx).view.clone();
+        view.update(cx, |view, _| {
+            view.page_context.set_current(Some(PageContext {
+                workspace_id: Some("workspace-1".into()),
+                tab_id: "course-tab".into(),
+                route: "/courses/course-1/learn".into(),
+                title: "Course".into(),
+                version: "v1".into(),
+                body: PageBody::Ready("complete course task body".into()),
+                course: Some(CourseContext {
+                    id: "course-1".into(),
+                    title: "Course".into(),
+                    revision: Some(1),
+                    unit: None,
+                }),
+            }));
+        });
+        let call = AgentCall::from_action(
+            &AgentActionSpec {
+                id: "a-hint".into(),
+                label: "Hint".into(),
+                intent: AgentIntent::Hint,
+                primary: false,
+            },
+            LearningTarget::Objective {
+                course_id: "course-1".into(),
+                revision: Some(1),
+                issue_id: "issue-1".into(),
+                objective_id: "obj-1".into(),
+            },
+        );
+        view.update(cx, |view, cx| {
+            assert!(view.send_agent_call(call, "automatic hint".into(), cx));
+        });
+    })
+    .unwrap();
+    let queued = cx.update(|cx| {
+        let view = probe.read(cx).view.clone();
+        let session = &view.read(cx).state.session;
+        assert_eq!(
+            session.queue.len(),
+            1,
+            "auto-send must queue one submission"
+        );
+        let submission = &session.queue[0];
+        (
+            submission.display.clone(),
+            submission.prompt.clone(),
+            submission
+                .context
+                .as_ref()
+                .map(|context| context.page.clone()),
+            submission.agent_call.is_some(),
+        )
+    });
+    let (display, prompt, context_page, has_call) = queued;
+    assert_eq!(display, "automatic hint", "display keeps the bare prompt");
+    assert!(has_call, "queued submission carries the agent call");
+    let context_page = context_page.expect("auto-send submission must freeze the page context");
+    assert_eq!(
+        context_page.workspace_id.as_deref(),
+        Some("workspace-1"),
+        "frozen context keeps the workspace identifier"
+    );
+    assert!(
+        prompt.contains("workspace_id=workspace-1"),
+        "auto-send prompt lost the workspace identifier: {prompt}"
+    );
+    assert!(
+        prompt.contains("<active_tab_body>"),
+        "auto-send prompt lost the page body: {prompt}"
+    );
+    assert!(
+        prompt.contains("complete course task body"),
+        "auto-send prompt lost the page body text: {prompt}"
+    );
+    assert!(
+        prompt.contains("automatic hint"),
+        "auto-send prompt lost the user prompt: {prompt}"
+    );
+}
+
+/// ADR-0029 §7：native pending 目标与 page 身份分离即清除（render 钩子接线）。
+#[gpui_kit::test]
+fn native_pending_agent_call_clears_when_page_leaves_target(cx: &mut TestAppContext) {
+    use crate::agent_call::{AgentCall, LearningTarget, PendingAgentCall};
+    use crate::page_context::{CourseContext, PageBody, PageContext, PageUnit};
+    use cgc_courses::content::{AgentActionSpec, AgentIntent};
+
+    cx.update(gpui_kit::init);
+    let (handle, probe) = cx.update(|cx| {
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds {
+                    origin: Default::default(),
+                    size: size(px(420.0), px(600.0)),
+                })),
+                ..Default::default()
+            },
+            cx,
+            |window, cx| cx.new(|cx| NativeComposerProbe::new(window, cx)),
+        )
+        .unwrap()
+    });
+    cx.update_window(handle, |_, _window, cx| {
+        let view = probe.read(cx).view.clone();
+        let call = AgentCall::from_action(
+            &AgentActionSpec {
+                id: "a-hint".into(),
+                label: "Hint".into(),
+                intent: AgentIntent::Hint,
+                primary: false,
+            },
+            LearningTarget::Objective {
+                course_id: "course-1".into(),
+                revision: None,
+                issue_id: "issue-1".into(),
+                objective_id: "obj-1".into(),
+            },
+        );
+        view.update(cx, |view, _| {
+            view.pending_agent_call = Some(PendingAgentCall::new(call, "Hint", "hint prompt"));
+            view.page_context.set_current(Some(PageContext {
+                workspace_id: None,
+                tab_id: "course-tab".into(),
+                route: "/courses/course-1/learn".into(),
+                title: "Course".into(),
+                version: "v1".into(),
+                body: PageBody::Ready("body".into()),
+                course: Some(CourseContext {
+                    id: "course-1".into(),
+                    title: "Course".into(),
+                    revision: None,
+                    unit: Some(PageUnit {
+                        id: "issue-1".into(),
+                        title: "Issue".into(),
+                    }),
+                }),
+            }));
+        });
+        let page = view.read(cx).page_context.visible();
+        view.update(cx, |view, cx| {
+            view.clear_stale_pending_agent_call(page.as_ref(), cx)
+        });
+        assert!(
+            view.read(cx).pending_agent_call.is_some(),
+            "pending must survive while the page matches the target"
+        );
+        view.update(cx, |view, _| {
+            let mut other = view.page_context.visible().unwrap();
+            other.course = Some(CourseContext {
+                id: "course-1".into(),
+                title: "Course".into(),
+                revision: None,
+                unit: Some(PageUnit {
+                    id: "issue-2".into(),
+                    title: "Another issue".into(),
+                }),
+            });
+            view.page_context.set_current(Some(other));
+        });
+        let page = view.read(cx).page_context.visible();
+        view.update(cx, |view, cx| {
+            view.clear_stale_pending_agent_call(page.as_ref(), cx)
+        });
+        assert!(
+            view.read(cx).pending_agent_call.is_none(),
+            "switching to another issue must clear the native pending action"
+        );
+    })
+    .unwrap();
+}
+
 #[path = "paste_tests.rs"]
 mod paste_tests;
+
+/// 提交工具成功后必须置位，RootView 才能重拉学习投影让卡片立即更新。
+#[test]
+fn submit_tool_completion_marks_learning_state_changed() {
+    use crate::native_agent_view::NativeThreadState;
+    use cgc_platform::acp::connection::{HostEvent, ToolCallView};
+
+    let mut state = NativeThreadState::new();
+    state.ingest(
+        0,
+        &HostEvent::ToolCall {
+            call: ToolCallView {
+                tool_call_id: "call-1".into(),
+                title: "提交掌握".into(),
+                name: Some("mcp_cgc-2046-learning_submit_learning_attempt".into()),
+                kind: "other".into(),
+                status: "pending".into(),
+                args: None,
+                output: None,
+                locations: Vec::new(),
+            },
+        },
+    );
+    assert!(!state.take_learning_state_changed());
+    state.ingest(
+        0,
+        &HostEvent::ToolCallUpdated {
+            tool_call_id: "call-1".into(),
+            title: None,
+            status: Some("completed".into()),
+            output: None,
+        },
+    );
+    assert!(
+        state.take_learning_state_changed(),
+        "successful submit must trigger a projection refresh"
+    );
+}

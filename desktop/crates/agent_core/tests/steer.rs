@@ -132,6 +132,6 @@ fn steer_limit_stops_runaway_interrupts() {
         &AutoApprover,
     ))
     .unwrap_err();
-    assert!(matches!(error, AgentError::StepLimitExceeded));
+    assert!(matches!(error, AgentError::SteerLimitExceeded));
     assert_eq!(fake.requests().len(), cgc_agent_core::MAX_STEERS);
 }

@@ -30,5 +30,6 @@ defmodule Cgc2046.Learning do
     # 学习记忆库（切片 H U2，#180）
     # ADR-0011 L1（S8）：Attempt（不可变评价账本）取代 LearningRecord
     resource(Cgc2046.Learning.Attempt)
+    resource(Cgc2046.Learning.CourseNote)
   end
 end

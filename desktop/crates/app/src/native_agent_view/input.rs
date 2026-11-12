@@ -3,9 +3,95 @@
 //! 子模块可直接访问父模块私有字段。
 
 use super::*;
+use crate::i18n::{translate, Key};
 use gpui_kit::base::Disableable;
 
 impl NativeAgentView {
+    pub(crate) fn compose_agent_call(
+        &mut self,
+        call: crate::agent_call::AgentCall,
+        prompt: String,
+        label: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.pending_agent_call = Some(crate::agent_call::PendingAgentCall::new(
+            call,
+            label,
+            prompt.clone(),
+        ));
+        self.composer_context.reset();
+        self.input.update(cx, |state, cx| {
+            state.set_value(prompt, window, cx);
+            state.focus(window, cx);
+        });
+        self.status = "已加入学习动作，发送前可编辑".into();
+        cx.notify();
+    }
+
+    pub(crate) fn compose_note(
+        &mut self,
+        prompt: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.pending_agent_call = None;
+        self.composer_context.reset();
+        self.input.update(cx, |state, cx| {
+            state.set_value(prompt, window, cx);
+            state.focus(window, cx);
+        });
+        self.status = translate(self.language, Key::CoursesLearningNotesAgentStatus).to_string();
+        cx.notify();
+    }
+
+    pub(crate) fn clear_pending_agent_call(&mut self, cx: &mut Context<Self>) {
+        if self.pending_agent_call.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    /// ADR-0029 §7：pending 目标已不指向当前页面（切 tab/换 issue）即清除。
+    /// 由 RootView::render 在 page context 刷新后调用。
+    pub(crate) fn clear_stale_pending_agent_call(
+        &mut self,
+        page: Option<&crate::page_context::PageContext>,
+        cx: &mut Context<Self>,
+    ) {
+        let stale = self.pending_agent_call.as_ref().is_some_and(|pending| {
+            !crate::agent_call::pending_action_targets_current_page(pending, page)
+        });
+        if stale {
+            self.pending_agent_call = None;
+            cx.notify();
+        }
+    }
+
+    /// AutoSend: 独立提交一条学习动作消息，不触碰 composer 内容或 draft。
+    pub(crate) fn send_agent_call(
+        &mut self,
+        call: crate::agent_call::AgentCall,
+        prompt: String,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !self.ensure_model_configured(true, cx) {
+            return false;
+        }
+        let display = prompt.clone();
+        let scope = self.conversation_scope();
+        let page = self.page_context.visible();
+        let (prompt, context) = self.page_context.freeze_page(scope, prompt, page);
+        let mut submission =
+            self.state
+                .session
+                .submission(display, prompt, context, Vec::new(), false);
+        submission.agent_call = Some(call);
+        self.state.session.queue_mode = QueueMode::Auto;
+        self.state.session.queue.push(submission);
+        self.dispatch_queued(cx);
+        true
+    }
+
     pub(crate) fn context_source(&self, id: &str) -> Option<crate::page_context::PageContext> {
         self.edit_context
             .source(id)

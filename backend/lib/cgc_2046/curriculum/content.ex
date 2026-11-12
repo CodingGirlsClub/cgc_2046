@@ -22,6 +22,9 @@ defmodule Cgc2046.Curriculum.Content do
             "required" => true,
             "prereq_ids" => [],
             "materials" => [%{"kind" => "web", "title" => ..., "url" => "https://..."}],
+            "agent_actions" => [
+              %{"id" => "a-inspect", "label" => "检查产物", "intent" => "inspect_artifact", "primary" => true}
+            ],
             "activity" => "...", "assessment" => "...",
             "rubric" => [%{"id" => "r1", "text" => "程序能运行并输出问候"}]
           }
@@ -47,6 +50,8 @@ defmodule Cgc2046.Curriculum.Content do
   @issue_kinds ["thoughtwork", "handwork"]
   @material_kinds ["text", "markdown", "web", "image", "video"]
   @video_providers ["bilibili"]
+  @agent_intents ~w(answer hint explain summarize inspect_workspace create_file run inspect_artifact submit review)
+  @max_agent_actions 8
 
   @doc "issue kind 二分(证据在哪为界:thoughtwork 对话 / handwork 产物)。"
   @spec issue_kinds() :: [String.t()]
@@ -59,6 +64,10 @@ defmodule Cgc2046.Curriculum.Content do
   @doc "Video providers currently supported by the first-party renderer."
   @spec video_providers() :: [String.t()]
   def video_providers, do: @video_providers
+
+  @doc "AgentActionSpec.intent 的封闭词表；与桌面 AgentIntent 同步。"
+  @spec agent_intents() :: [String.t()]
+  def agent_intents, do: @agent_intents
 
   @doc """
   结构性校验 course content(保存时全规则 = v1 形状 + objectives 强制存在):
@@ -582,11 +591,72 @@ defmodule Cgc2046.Curriculum.Content do
       {valid_materials?(objective["materials"]), "#{label} 的 materials 形状不合法"}
     ]
 
-    for({false, message} <- checks, do: message) ++ rubric_violations(objective, label)
+    for({false, message} <- checks, do: message) ++
+      rubric_violations(objective, label) ++ agent_action_violations(objective, label)
   end
 
   defp objective_shape_violations(_objective),
     do: ["objective 形状非法:须为 map(含 id/title/rubric 等字段)"]
+
+  defp agent_action_violations(objective, label) do
+    case objective["agent_actions"] do
+      nil ->
+        []
+
+      actions when is_list(actions) ->
+        too_many =
+          if length(actions) > @max_agent_actions do
+            ["#{label} 的 agent_actions 最多 #{@max_agent_actions} 条"]
+          else
+            []
+          end
+
+        shapes =
+          actions
+          |> Enum.with_index()
+          |> Enum.flat_map(fn {action, index} ->
+            agent_action_shape_violations(action, "#{label} agent_actions[#{index}]")
+          end)
+
+        duplicate_ids =
+          actions
+          |> Enum.flat_map(fn action ->
+            if is_map(action) and non_empty_string?(action["id"]), do: [action["id"]], else: []
+          end)
+          |> Enum.frequencies()
+          |> Enum.filter(fn {_id, count} -> count > 1 end)
+          |> Enum.map(fn {_id, _count} -> "#{label} 的 agent_actions id 重复" end)
+
+        primary_count =
+          Enum.count(actions, fn action -> is_map(action) and action["primary"] == true end)
+
+        primary =
+          if primary_count > 1 do
+            ["#{label} 的 agent_actions 最多一个 primary"]
+          else
+            []
+          end
+
+        too_many ++ shapes ++ duplicate_ids ++ primary
+
+      _ ->
+        ["#{label} 的 agent_actions 须为数组"]
+    end
+  end
+
+  defp agent_action_shape_violations(action, label) when is_map(action) do
+    checks = [
+      {non_blank_string?(action["id"]), "#{label} 缺非空 id"},
+      {non_blank_string?(action["label"]), "#{label} 缺非空 label"},
+      {action["intent"] in @agent_intents, "#{label} 的 intent 非法"},
+      {not Map.has_key?(action, "primary") or is_boolean(action["primary"]),
+       "#{label} 的 primary 须为布尔值"}
+    ]
+
+    for({false, message} <- checks, do: message)
+  end
+
+  defp agent_action_shape_violations(_action, label), do: ["#{label} 须为 map"]
 
   defp objective_label(objective) do
     case objective["id"] do

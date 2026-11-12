@@ -38,6 +38,46 @@ pub(in crate::root_view) fn render_chat_panel(
     let streaming = ctx.chat.session.is_busy();
     let surface = super::surface::ChatSurface::new(&thread);
     let surface_flags = surface.flags;
+    let auto_send = crate::preferences::load().course_action_delivery
+        == crate::agent_call::DeliveryMode::AutoSend;
+    let auto_send_zap_root = cx.entity().downgrade();
+    let auto_send_zap_button = {
+        let mut button = Button::new("chat-course-action-auto-send")
+            .icon(
+                Icon::default()
+                    .path(AssetIcon::Zap.path())
+                    .text_color(if auto_send {
+                        palette.canvas
+                    } else {
+                        palette.ink_3
+                    })
+                    .small(),
+            )
+            .xsmall()
+            .tooltip(translate(
+                language,
+                if auto_send {
+                    Key::CoursesLearningAutoSendOn
+                } else {
+                    Key::CoursesLearningAutoSendOff
+                },
+            ));
+        if auto_send {
+            button = button.primary();
+        } else {
+            button = button.ghost();
+        }
+        button.on_click(move |_, _, cx| {
+            crate::preferences::update(|preferences| {
+                preferences.course_action_delivery = if auto_send {
+                    crate::agent_call::DeliveryMode::FillOnly
+                } else {
+                    crate::agent_call::DeliveryMode::AutoSend
+                };
+            });
+            let _ = auto_send_zap_root.update(cx, |_this, cx| cx.notify());
+        })
+    };
     let row_view = surface.thread.row_view();
     let input = ctx.chat.input.clone();
     let agent_label = if ctx.chat.agent.trim().is_empty() {
@@ -770,6 +810,9 @@ pub(in crate::root_view) fn render_chat_panel(
                         .flex()
                         .flex_col()
                         .gap(space(1))
+                        .children(ctx.chat.pending_agent_call.as_ref().map(|pending| {
+                            render_chat_agent_call_chip(pending, palette, language, cx)
+                        }))
                         .child(
                             cgc_agent_ui::composer::composer_card(
                                 "chat-composer",
@@ -913,6 +956,7 @@ pub(in crate::root_view) fn render_chat_panel(
                                                 }
                                             }),
                                     )
+                                    .child(auto_send_zap_button)
                                     .child(
                                         div()
                                             .flex()
@@ -1462,6 +1506,67 @@ fn has_unresolved_permission(entries: &[ConversationEntry]) -> bool {
     entries
         .iter()
         .any(|entry| matches!(entry, ConversationEntry::Permission { resolved: None, .. }))
+}
+
+fn render_chat_agent_call_chip(
+    pending: &crate::agent_call::PendingAgentCall,
+    palette: &theme::Palette,
+    language: Language,
+    cx: &mut Context<RootView>,
+) -> AnyElement {
+    let palette = *palette;
+    let json = pending.call.to_json();
+    let remove_root = cx.entity().downgrade();
+    div()
+        .id("chat-agent-call-row")
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(px(4.0))
+        .px(space(1))
+        .child(
+            Popover::new("chat-agent-call-json")
+                .anchor(Anchor::BottomLeft)
+                .trigger(
+                    Button::new("chat-agent-call-chip")
+                        .label(format!(
+                            "{} · {}",
+                            translate(language, Key::CoursesLearningAgentCallLabel),
+                            pending.label
+                        ))
+                        .xsmall()
+                        .ghost()
+                        .tooltip(pending.call.to_json()),
+                )
+                .content(move |_, _, _| {
+                    div()
+                        .max_w(px(360.0))
+                        .p(space(1))
+                        .rounded(px(RADIUS_SMALL))
+                        .border_1()
+                        .border_color(palette.line)
+                        .bg(palette.card)
+                        .text_size(px(10.0))
+                        .text_color(palette.ink_3)
+                        .child(json.clone())
+                        .into_any_element()
+                }),
+        )
+        .child(
+            Button::new("chat-agent-call-remove")
+                .label("×")
+                .xsmall()
+                .ghost()
+                .accessibility_label(translate(language, Key::CoursesLearningAgentCallRemove))
+                .tooltip(translate(language, Key::CoursesLearningAgentCallRemove))
+                .on_click(move |_, _, cx| {
+                    let _ = remove_root.update(cx, |this, cx| {
+                        this.chat.pending_agent_call = None;
+                        cx.notify();
+                    });
+                }),
+        )
+        .into_any_element()
 }
 
 #[cfg(test)]

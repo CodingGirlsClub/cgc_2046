@@ -57,6 +57,10 @@ pub struct CourseIssue {
     pub kind: Option<String>,
     pub chapter_id: Option<String>,
     pub goal: Option<String>,
+    /// User story 的「作为」角色；旧内容缺失时为 None。
+    pub as_a: Option<String>,
+    /// User story 的「前提」列表；旧内容缺失时为空。
+    pub given: Vec<String>,
     pub checklist: Vec<CourseChecklistItem>,
     pub objectives: Vec<CourseObjective>,
     pub story_materials: Vec<TypedMaterial>,
@@ -80,15 +84,75 @@ pub struct CourseObjective {
     pub assessment: Option<String>,
     pub rubric: Vec<CourseChecklistItem>,
     pub materials: Vec<TypedMaterial>,
+    /// 教研人员声明的学习 Agent CTA；旧内容为空，由 issue.kind 默认动作兜底。
+    pub agent_actions: Vec<AgentActionSpec>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AgentActionSpec {
+    pub id: String,
+    pub label: String,
+    pub intent: AgentIntent,
+    pub primary: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AgentIntent {
+    Answer,
+    Hint,
+    Explain,
+    Summarize,
+    InspectWorkspace,
+    CreateFile,
+    Run,
+    InspectArtifact,
+    Submit,
+    Review,
+}
+
+impl AgentIntent {
+    /// 与后端 `Content.agent_intents/0` 保持同一封闭词表。
+    pub fn parse(value: &str) -> Option<Self> {
+        Some(match value {
+            "answer" => Self::Answer,
+            "hint" => Self::Hint,
+            "explain" => Self::Explain,
+            "summarize" => Self::Summarize,
+            "inspect_workspace" => Self::InspectWorkspace,
+            "create_file" => Self::CreateFile,
+            "run" => Self::Run,
+            "inspect_artifact" => Self::InspectArtifact,
+            "submit" => Self::Submit,
+            "review" => Self::Review,
+            _ => return None,
+        })
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Answer => "answer",
+            Self::Hint => "hint",
+            Self::Explain => "explain",
+            Self::Summarize => "summarize",
+            Self::InspectWorkspace => "inspect_workspace",
+            Self::CreateFile => "create_file",
+            Self::Run => "run",
+            Self::InspectArtifact => "inspect_artifact",
+            Self::Submit => "submit",
+            Self::Review => "review",
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TypedMaterial {
+    pub id: Option<String>,
     pub kind: MaterialKind,
     pub title: Option<String>,
     pub body: Option<String>,
     pub url: Option<String>,
     pub alt_text: Option<String>,
+    pub caption: Option<String>,
     pub provider: Option<String>,
     pub external_id: Option<String>,
 }
@@ -158,8 +222,8 @@ fn parse_chapter(value: &Value) -> Option<CourseChapter> {
 
 fn parse_issue(value: &Value) -> Option<CourseIssue> {
     value.as_object()?;
-    let story_materials = value
-        .get("story")
+    let story = value.get("story");
+    let story_materials = story
         .and_then(|story| story.get("materials"))
         .and_then(Value::as_array)
         .map(|materials| materials.iter().filter_map(parse_material).collect())
@@ -178,11 +242,27 @@ fn parse_issue(value: &Value) -> Option<CourseIssue> {
         .iter()
         .flat_map(|objective| objective.materials.iter().cloned())
         .collect();
-    let checklist = value
-        .get("story")
+    let checklist = story
         .and_then(|story| story.get("checklist"))
         .and_then(Value::as_array)
         .map(|items| items.iter().filter_map(parse_checklist_item).collect())
+        .unwrap_or_default();
+    let as_a = story
+        .and_then(|story| story.get("as_a"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .filter(|value| !value.trim().is_empty());
+    let given = story
+        .and_then(|story| story.get("given"))
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .filter(|value| !value.trim().is_empty())
+                .collect()
+        })
         .unwrap_or_default();
 
     Some(CourseIssue {
@@ -190,11 +270,13 @@ fn parse_issue(value: &Value) -> Option<CourseIssue> {
         title: string_field(value, "title"),
         kind: string_field(value, "kind"),
         chapter_id: string_field(value, "chapter_id"),
-        goal: value
-            .get("story")
+        goal: story
             .and_then(|story| story.get("goal"))
             .and_then(Value::as_str)
-            .map(str::to_string),
+            .map(str::to_string)
+            .filter(|value| !value.trim().is_empty()),
+        as_a,
+        given,
         checklist,
         objectives,
         story_materials,
@@ -219,10 +301,14 @@ fn parse_objective(value: &Value) -> Option<CourseObjective> {
     Some(CourseObjective {
         id: string_field(value, "id"),
         title: string_field(value, "title"),
-        required: value
-            .get("required")
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
+        // 后端契约（Content.required_objective?/1）：缺省 = 必修；显式 false =
+        // 选修；非法值按选修。客户端必须同源，否则旧内容 UI 显示选修、后端
+        // 却按必算计完成。
+        required: match value.get("required") {
+            None => true,
+            Some(Value::Bool(required)) => *required,
+            Some(_) => false,
+        },
         prereq_ids: value
             .get("prereq_ids")
             .and_then(Value::as_array)
@@ -241,6 +327,33 @@ fn parse_objective(value: &Value) -> Option<CourseObjective> {
             .map(|items| items.iter().filter_map(parse_checklist_item).collect())
             .unwrap_or_default(),
         materials,
+        agent_actions: value
+            .get("agent_actions")
+            .and_then(Value::as_array)
+            .map(|actions| actions.iter().filter_map(parse_agent_action).collect())
+            .unwrap_or_default(),
+    })
+}
+
+fn parse_agent_action(value: &Value) -> Option<AgentActionSpec> {
+    value.as_object()?;
+    let id = string_field(value, "id")?;
+    if id.trim().is_empty() {
+        return None;
+    }
+    let label = string_field(value, "label")?;
+    if label.trim().is_empty() {
+        return None;
+    }
+    let intent = AgentIntent::parse(value.get("intent")?.as_str()?)?;
+    Some(AgentActionSpec {
+        id,
+        label,
+        intent,
+        primary: value
+            .get("primary")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
     })
 }
 
@@ -260,11 +373,13 @@ fn parse_material(value: &Value) -> Option<TypedMaterial> {
         _ => None,
     };
     Some(TypedMaterial {
+        id: string_field(value, "id").filter(|value| !value.trim().is_empty()),
         kind,
         title: string_field(value, "title"),
         body,
         url: string_field(value, "url"),
         alt_text: string_field(value, "alt_text"),
+        caption: string_field(value, "caption"),
         provider: string_field(value, "provider"),
         external_id: string_field(value, "external_id"),
     })
@@ -341,20 +456,24 @@ pub(crate) fn fake_course_content(course_id: &str, title: &str, index: usize) ->
                 kind: Some("handwork".to_string()),
                 story_materials: vec![
                     TypedMaterial {
+                        id: Some("mat-md".to_string()),
                         kind: MaterialKind::Markdown,
                         title: Some("正文".to_string()),
                         body: Some(FAKE_MARKDOWN.to_string()),
                         url: None,
                         alt_text: None,
+                        caption: None,
                         provider: None,
                         external_id: None,
                     },
                     TypedMaterial {
+                        id: Some("mat-web".to_string()),
                         kind: MaterialKind::Web,
                         title: Some("延伸阅读".to_string()),
                         body: None,
                         url: Some("https://example.com".to_string()),
                         alt_text: None,
+                        caption: None,
                         provider: None,
                         external_id: None,
                     },
@@ -469,6 +588,8 @@ mod tests {
                 "kind": "handwork",
                 "chapter_id": "ch-1",
                 "story": {
+                    "as_a": "刚装好 Rust 的学员",
+                    "given": ["读完第一章", "能打开终端"],
                     "goal": "跑起来",
                     "checklist": [{"id": "check-1", "text": "完成第一次运行"}],
                     "materials": [
@@ -482,6 +603,13 @@ mod tests {
                             "title": "延伸阅读",
                             "body": "web 不保留正文",
                             "url": "https://example.com"
+                        },
+                        {
+                            "id": "mat-image",
+                            "kind": "image",
+                            "url": "https://example.com/a.png",
+                            "alt_text": "插图",
+                            "caption": "图 1"
                         }
                     ]
                 },
@@ -492,6 +620,10 @@ mod tests {
                     "prereq_ids": ["obj-0"],
                     "activity": "运行示例",
                     "assessment": "提交输出",
+                    "agent_actions": [
+                        {"id": "a-run", "label": "运行示例", "intent": "run", "primary": true},
+                        {"id": "a-hint", "label": "给我提示", "intent": "hint"}
+                    ],
                     "rubric": [{"id": "rubric-1", "text": "输出正确"}],
                     "materials": [{"kind": "text", "title": "提示", "body": "先安装工具链"}]
                 }],
@@ -567,14 +699,36 @@ mod tests {
         assert_eq!(issue.kind.as_deref(), Some("handwork"));
         assert_eq!(issue.chapter_id.as_deref(), Some("ch-1"));
         assert_eq!(issue.goal.as_deref(), Some("跑起来"));
+        assert_eq!(issue.as_a.as_deref(), Some("刚装好 Rust 的学员"));
+        assert_eq!(
+            issue.given,
+            vec!["读完第一章".to_string(), "能打开终端".to_string()]
+        );
         assert_eq!(issue.checklist[0].id.as_deref(), Some("check-1"));
         assert_eq!(issue.checklist[0].text, "完成第一次运行");
         assert_eq!(issue.objectives[0].id.as_deref(), Some("obj-1"));
         assert!(issue.objectives[0].required);
         assert_eq!(issue.objectives[0].prereq_ids, vec!["obj-0".to_string()]);
         assert_eq!(issue.objectives[0].rubric[0].text, "输出正确");
+        assert_eq!(
+            issue.objectives[0].agent_actions,
+            vec![
+                AgentActionSpec {
+                    id: "a-run".into(),
+                    label: "运行示例".into(),
+                    intent: AgentIntent::Run,
+                    primary: true,
+                },
+                AgentActionSpec {
+                    id: "a-hint".into(),
+                    label: "给我提示".into(),
+                    intent: AgentIntent::Hint,
+                    primary: false,
+                },
+            ]
+        );
 
-        assert_eq!(issue.story_materials.len(), 2);
+        assert_eq!(issue.story_materials.len(), 3);
         assert_eq!(issue.story_materials[0].kind, MaterialKind::Markdown);
         assert_eq!(issue.story_materials[0].title.as_deref(), Some("正文"));
         let body = issue.story_materials[0]
@@ -593,6 +747,9 @@ mod tests {
             issue.story_materials[1].url.as_deref(),
             Some("https://example.com")
         );
+        assert_eq!(issue.story_materials[2].kind, MaterialKind::Image);
+        assert_eq!(issue.story_materials[2].alt_text.as_deref(), Some("插图"));
+        assert_eq!(issue.story_materials[2].caption.as_deref(), Some("图 1"));
 
         assert_eq!(issue.objective_materials.len(), 1);
         assert_eq!(issue.objective_materials[0].kind, MaterialKind::Text);
@@ -601,6 +758,66 @@ mod tests {
             Some("先安装工具链")
         );
         assert!(!document.is_empty());
+    }
+
+    #[test]
+    fn parse_course_content_tolerates_missing_user_story_fields() {
+        let raw = r#"{"issues":[{"id":"issue-1","story":{"goal":"只写 goal"}}]}"#;
+        let document = parse_course_content(raw);
+        let issue = &document.issues[0];
+
+        assert_eq!(issue.goal.as_deref(), Some("只写 goal"));
+        assert_eq!(issue.as_a, None);
+        assert!(issue.given.is_empty());
+    }
+
+    #[test]
+    fn parse_course_content_drops_blank_user_story_fields() {
+        let raw =
+            r#"{"issues":[{"id":"issue-1","story":{"as_a":"  ","given":["","  "],"goal":"  "}}]}"#;
+        let document = parse_course_content(raw);
+        let issue = &document.issues[0];
+
+        assert_eq!(issue.as_a, None);
+        assert!(issue.given.is_empty());
+        assert_eq!(issue.goal, None);
+    }
+
+    #[test]
+    fn agent_intent_round_trips_contract_vocabulary() {
+        for value in [
+            "answer",
+            "hint",
+            "explain",
+            "summarize",
+            "inspect_workspace",
+            "create_file",
+            "run",
+            "inspect_artifact",
+            "submit",
+            "review",
+        ] {
+            let intent = AgentIntent::parse(value).expect("known intent");
+            assert_eq!(intent.as_str(), value);
+        }
+        assert_eq!(AgentIntent::parse("unknown"), None);
+    }
+
+    #[test]
+    fn parse_course_content_drops_invalid_agent_actions() {
+        let raw = r#"{"issues":[{"objectives":[{"id":"obj-1","agent_actions":[
+            {"id":"a-ok","label":"回答","intent":"answer"},
+            {"id":"","label":"缺 id","intent":"answer"},
+            {"id":"a-unknown","label":"未知","intent":"unknown"},
+            {"id":"a-null","label":"缺 intent"}
+        ]}]}]}"#;
+        let document = parse_course_content(raw);
+        let actions = &document.issues[0].objectives[0].agent_actions;
+
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0].id, "a-ok");
+        assert_eq!(actions[0].intent, AgentIntent::Answer);
+        assert!(!actions[0].primary);
     }
 
     #[test]
@@ -817,6 +1034,30 @@ mod tests {
         });
 
         assert_eq!(service.state(), &CourseContentState::Empty);
+    }
+
+    #[test]
+    fn objective_missing_required_defaults_to_required_and_invalid_to_elective() {
+        let raw = r#"{
+            "issues": [{
+                "id": "issue-1",
+                "title": "t",
+                "objectives": [
+                    {"id": "obj-missing", "title": "missing", "rubric": [{"id": "r1", "text": "x"}]},
+                    {"id": "obj-elective", "title": "elective", "required": false, "rubric": [{"id": "r2", "text": "x"}]},
+                    {"id": "obj-invalid", "title": "invalid", "required": "yes", "rubric": [{"id": "r3", "text": "x"}]}
+                ]
+            }]
+        }"#;
+        let document = parse_course_content(raw);
+        let required = document.issues[0]
+            .objectives
+            .iter()
+            .map(|objective| objective.required)
+            .collect::<Vec<_>>();
+        // 后端契约（Content.required_objective?/1）：缺省 = 必修；显式 false = 选修；
+        // 非法值按选修。客户端必须同源，否则旧内容 UI 显示选修、后端按必算计完成。
+        assert_eq!(required, vec![true, false, false]);
     }
 
     #[test]

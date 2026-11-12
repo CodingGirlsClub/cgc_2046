@@ -25,6 +25,8 @@ pub(crate) struct WorkspaceEntry {
     pub(crate) site_tree_query: String,
     pub(crate) site_tree_course_open: Option<String>,
     pub(crate) site_tree_scroll_y: f32,
+    /// Outline 树按节点 id（`chapter:{course}:{id}` / `issue:{course}:{id}`）保存的展开节点。
+    pub(crate) outline_expanded: Vec<String>,
     /// None 表示布局没有工作台覆盖，使用 Panels 偏好；导航仍独立保存。
     pub(crate) layout: Option<PanelLayout>,
 }
@@ -44,6 +46,7 @@ pub(crate) enum PersistedRightPanel {
     #[default]
     SiteTree,
     Outline,
+    Notes,
 }
 
 impl PersistedRightPanel {
@@ -51,12 +54,14 @@ impl PersistedRightPanel {
         match self {
             Self::SiteTree => "site_tree",
             Self::Outline => "outline",
+            Self::Notes => "notes",
         }
     }
 
     pub(crate) fn from_value(value: Option<&str>) -> Self {
         match value {
             Some("outline") => Self::Outline,
+            Some("notes") => Self::Notes,
             _ => Self::SiteTree,
         }
     }
@@ -295,6 +300,16 @@ pub(crate) fn load() -> WorkspaceState {
                     .get("site_tree_scroll_y")
                     .and_then(Value::as_f64)
                     .unwrap_or(0.0) as f32,
+                outline_expanded: entry
+                    .get("outline_expanded")
+                    .and_then(Value::as_array)
+                    .map(|ids| {
+                        ids.iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_string)
+                            .collect()
+                    })
+                    .unwrap_or_default(),
                 layout: parse_layout(entry),
             },
         );
@@ -330,6 +345,7 @@ pub(crate) fn save(state: &WorkspaceState) {
                 "site_tree_query": entry.site_tree_query,
                 "site_tree_course_open": entry.site_tree_course_open,
                 "site_tree_scroll_y": entry.site_tree_scroll_y,
+                "outline_expanded": entry.outline_expanded,
             });
             if let Some(slug) = known_workspace_slug(workspace_id) {
                 value
@@ -457,6 +473,7 @@ mod tests {
             site_tree_query: "hitl".to_string(),
             site_tree_course_open: Some("crs-002".to_string()),
             site_tree_scroll_y: 42.0,
+            outline_expanded: vec!["chapter:ch-1".to_string(), "chapter:ch-2".to_string()],
             layout: Some(PanelLayout {
                 right_panel_width: 320.0,
                 agent_panel_width: 360.0,
