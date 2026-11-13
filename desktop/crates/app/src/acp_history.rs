@@ -236,7 +236,13 @@ pub fn merge_history_with_native_archived(
     acp_threads: Vec<SidebarThread>,
     native_archived: &std::collections::HashSet<String>,
 ) -> Vec<HistoryEntry> {
-    merge_history_with_terminals(native_threads, acp_threads, native_archived, Vec::new())
+    merge_history_with_terminals(
+        native_threads,
+        acp_threads,
+        native_archived,
+        Vec::new(),
+        None,
+    )
 }
 
 /// 终端展示标题：用户重命名 > OSC 标题 > cwd 末段；三无时 `None`。
@@ -343,6 +349,7 @@ pub fn merge_history_with_terminals(
     acp_threads: Vec<SidebarThread>,
     native_archived: &std::collections::HashSet<String>,
     terminal_sessions: Vec<cgc_agent_store::TerminalSession>,
+    live_terminal: Option<(&str, Option<&str>)>,
 ) -> Vec<HistoryEntry> {
     let mut entries: Vec<HistoryEntry> = native_threads
         .into_iter()
@@ -379,8 +386,14 @@ pub fn merge_history_with_terminals(
             }
         }))
         .chain(terminal_sessions.into_iter().map(|session| {
+            // 运行中的终端：header 读 live OSC，DB 里的 title 只在关闭时回填。
+            // 列表用 live 标题覆盖这一行，才不会出现「同一会话两个名字」。
+            let live_osc = match live_terminal {
+                Some((id, Some(title))) if id == session.terminal_id => Some(title),
+                _ => None,
+            };
             let title = terminal_title(
-                session.title.as_deref(),
+                live_osc.or(session.title.as_deref()),
                 session.custom_title.as_deref(),
                 session.working_directory.as_deref(),
             );
@@ -936,6 +949,7 @@ mod tests {
                 terminal_session("t1", "2026-11-13T06:00:00Z", None),
                 terminal_session("t2", "2026-11-13T07:00:00Z", None),
             ],
+            None,
         );
         assert!(
             merged
@@ -954,6 +968,7 @@ mod tests {
             vec![],
             &Default::default(),
             vec![terminal_session("t1", "2026-11-13T06:00:00Z", None)],
+            None,
         );
         assert_eq!(merged[0].title.as_deref(), Some("omp"), "不撞车就不加后缀");
     }
@@ -969,8 +984,42 @@ mod tests {
                 "2026-11-13T06:00:00Z",
                 Some("我的终端"),
             )],
+            None,
         );
         assert_eq!(merged[0].title.as_deref(), Some("我的终端"));
+    }
+
+    #[test]
+    fn live_osc_title_overrides_the_running_row() {
+        let merged = merge_history_with_terminals(
+            vec![],
+            vec![],
+            &Default::default(),
+            vec![terminal_session("t1", "2026-11-13T06:00:00Z", None)],
+            Some(("t1", Some("live: ~/p"))),
+        );
+        assert_eq!(
+            merged[0].title.as_deref(),
+            Some("live: ~/p"),
+            "运行中的行用 live OSC，而不是 spawn 时的占位标题"
+        );
+
+        let renamed = merge_history_with_terminals(
+            vec![],
+            vec![],
+            &Default::default(),
+            vec![terminal_session(
+                "t1",
+                "2026-11-13T06:00:00Z",
+                Some("我的终端"),
+            )],
+            Some(("t1", Some("live: ~/p"))),
+        );
+        assert_eq!(
+            renamed[0].title.as_deref(),
+            Some("我的终端"),
+            "custom_title 仍优先于 live OSC"
+        );
     }
 
     #[test]
@@ -985,7 +1034,7 @@ mod tests {
             exit_code: None,
         };
         let merged =
-            merge_history_with_terminals(vec![], vec![], &Default::default(), vec![session]);
+            merge_history_with_terminals(vec![], vec![], &Default::default(), vec![session], None);
         assert_eq!(merged.len(), 1);
         let row = &merged[0];
         assert_eq!(row.source, HistorySource::Terminal);

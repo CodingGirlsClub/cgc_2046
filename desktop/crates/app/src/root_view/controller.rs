@@ -1732,7 +1732,18 @@ impl RootView {
             .as_ref()
             .and_then(|store| store.list_terminal_sessions(50).ok())
             .unwrap_or_default();
-        crate::acp_history::merge_history_with_terminals(native, acp, &native_archived, terminals)
+        let live_terminal = self
+            .terminal_session_id
+            .as_deref()
+            .zip(self.terminal_live_title.as_deref())
+            .map(|(id, title)| (id, Some(title)));
+        crate::acp_history::merge_history_with_terminals(
+            native,
+            acp,
+            &native_archived,
+            terminals,
+            live_terminal,
+        )
     }
 
     pub(in crate::root_view) fn reset_config_search(
@@ -2549,19 +2560,37 @@ impl RootView {
         self.terminal_session_id = Some(session_id);
         self.terminal_visible = true;
         self.terminal_custom_title = None;
+        self.terminal_live_title = None;
         self.terminal_cwd = cwd.clone();
         self.pending_terminal_open = None;
         self.chat.history = self.load_unified_history();
         cx.notify();
 
         // 33ms 轮询 PTY；视图析构后 `update` 失败，循环自然退出。
+        // OSC 标题变化时同步到列表（DB 只在关闭时回填，运行中的行靠 live 覆盖）。
         let weak = view.downgrade();
-        cx.spawn(async move |_root, cx| loop {
-            cx.background_executor()
-                .timer(std::time::Duration::from_millis(33))
-                .await;
-            if weak.update(cx, |view, cx| view.poll(cx)).is_err() {
-                break;
+        cx.spawn(async move |root, cx| {
+            let mut last_title = String::new();
+            loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(33))
+                    .await;
+                let Ok(title) = weak.update(cx, |view, cx| {
+                    view.poll(cx);
+                    view.title().to_string()
+                }) else {
+                    break;
+                };
+                if title == last_title {
+                    continue;
+                }
+                last_title = title.clone();
+                let title = (!title.is_empty()).then_some(title);
+                let _ = root.update(cx, |root, cx| {
+                    root.terminal_live_title = title;
+                    root.chat.history = root.load_unified_history();
+                    cx.notify();
+                });
             }
         })
         .detach();
@@ -2599,6 +2628,7 @@ impl RootView {
         self.pending_terminal_open = None;
         self.terminal_visible = false;
         self.terminal_custom_title = None;
+        self.terminal_live_title = None;
         self.terminal_cwd = None;
         self.chat.history = self.load_unified_history();
         cx.notify();
