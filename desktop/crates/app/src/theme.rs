@@ -359,8 +359,9 @@ pub const RADIUS_BASE: f32 = 5.0;
 pub const RADIUS_MEDIUM: f32 = 6.0;
 pub const RADIUS_LARGE: f32 = 8.0;
 
-/// web 的字体栈（字体文件暂未随包，缺失时由 gpui 回退系统字体）。
-pub const FONT_SANS: &str = "Inter";
+/// web 的字体栈：Inter 随包注册（`resources/fonts/InterVariable.ttf`），
+/// family 名取 variable 文件的 `Inter Variable`，见 `fonts::SANS_FAMILY`。
+pub const FONT_SANS: &str = crate::fonts::SANS_FAMILY;
 pub const FONT_MONO: &str = "Geist Mono";
 
 pub fn space(step: usize) -> Pixels {
