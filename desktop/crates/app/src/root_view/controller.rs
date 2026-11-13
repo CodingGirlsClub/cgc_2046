@@ -2570,8 +2570,9 @@ impl RootView {
         cx.notify();
 
         // 33ms 轮询 PTY；视图析构后 `update` 失败，循环自然退出。
-        // OSC 标题/目录变化时同步到列表（DB 只在关闭时回填，运行中的行靠 live 覆盖）。
+        // OSC 标题/目录变化只更新列表里的对应行，不在 UI 线程整表读库。
         let weak = view.downgrade();
+        let live_id = self.terminal_session_id.clone().unwrap_or_default();
         cx.spawn(async move |root, cx| {
             let mut last: (Option<String>, Option<String>) = (None, None);
             loop {
@@ -2591,10 +2592,25 @@ impl RootView {
                 }
                 last = snapshot.clone();
                 let (title, cwd) = snapshot;
+                let live_id = live_id.clone();
                 let _ = root.update(cx, |root, cx| {
+                    let resolved = crate::acp_history::terminal_title(
+                        title.as_deref(),
+                        root.terminal_custom_title.as_deref(),
+                        cwd.as_deref(),
+                    );
+                    let updated = crate::acp_history::update_live_terminal_row(
+                        &mut root.chat.history,
+                        &live_id,
+                        resolved.as_deref(),
+                        cwd.as_deref(),
+                    );
                     root.terminal_live_title = title;
                     root.terminal_live_cwd = cwd;
-                    root.chat.history = root.load_unified_history();
+                    if !updated {
+                        // 列表还没加载出这一行：退化为一次完整加载。
+                        root.chat.history = root.load_unified_history();
+                    }
                     cx.notify();
                 });
             }

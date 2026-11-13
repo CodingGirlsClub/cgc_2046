@@ -350,9 +350,11 @@ pub fn abbreviate_cwd(path: &str, home: Option<&str>) -> String {
 pub fn disambiguate_terminal_titles(entries: &mut [HistoryEntry]) {
     let mut counts = std::collections::BTreeMap::new();
     for entry in entries
-        .iter()
+        .iter_mut()
         .filter(|entry| entry.source == HistorySource::Terminal)
     {
+        // 原地更新时先清旧后缀，否则标题不再撞车后仍会留着上一次的时间戳。
+        entry.title_suffix = None;
         if let Some(title) = entry.title.as_deref() {
             *counts.entry(title.to_string()).or_insert(0usize) += 1;
         }
@@ -389,6 +391,31 @@ fn title_stamp(created_at: &str) -> Option<String> {
     DateTime::parse_from_rfc3339(created_at)
         .ok()
         .map(|time| time.with_timezone(&Local).format("%H:%M:%S").to_string())
+}
+
+/// 运行中终端的 OSC 变化只更新对应行，避免在 UI 线程整表重载（#1252 C）。
+///
+/// `title` 应是调用方按 `custom > live OSC > live cwd` 解析后的底名；
+/// 返回 `false` 表示列表里还没有这一行，调用方回退一次完整加载。
+pub fn update_live_terminal_row(
+    entries: &mut [HistoryEntry],
+    terminal_id: &str,
+    title: Option<&str>,
+    working_directory: Option<&str>,
+) -> bool {
+    let thread_id = format!("terminal:{terminal_id}");
+    let Some(entry) = entries
+        .iter_mut()
+        .find(|entry| entry.thread_id == thread_id)
+    else {
+        return false;
+    };
+    entry.title = title.map(str::to_string);
+    if let Some(cwd) = working_directory.filter(|cwd| !cwd.is_empty()) {
+        entry.working_directory = Some(cwd.to_string());
+    }
+    disambiguate_terminal_titles(entries);
+    true
 }
 
 /// 完整合并：native 线程 + ACP 线程 + 终端会话日志，按最近活动倒序。
@@ -1175,6 +1202,52 @@ mod tests {
             Some("/tmp/cgc2046_workspace/assistant/884c7a2f"),
             "副标题目录与标题取同一个 live cwd"
         );
+    }
+
+    #[test]
+    fn live_row_update_touches_only_the_target_row() {
+        let mut merged = merge_history_with_terminals(
+            vec![],
+            vec![],
+            &Default::default(),
+            vec![
+                terminal_session("t1", "2026-11-13T06:00:00Z", None),
+                terminal_session("t2", "2026-11-13T07:00:00Z", None),
+            ],
+            None,
+        );
+        assert!(
+            update_live_terminal_row(&mut merged, "t1", Some("build"), Some("/tmp/y")),
+            "命中列表中的行"
+        );
+        let first = merged
+            .iter()
+            .find(|entry| entry.thread_id == "terminal:t1")
+            .expect("t1");
+        assert_eq!(first.title.as_deref(), Some("build"));
+        assert_eq!(first.working_directory.as_deref(), Some("/tmp/y"));
+        let second = merged
+            .iter()
+            .find(|entry| entry.thread_id == "terminal:t2")
+            .expect("t2");
+        assert_eq!(second.title.as_deref(), Some("omp"), "其他行不动");
+        assert_eq!(second.working_directory.as_deref(), Some("/tmp/x"));
+        assert!(
+            first.title_suffix.is_none() && second.title_suffix.is_none(),
+            "不再撞车时旧的时间后缀被清掉"
+        );
+    }
+
+    #[test]
+    fn live_row_update_reports_missing_rows() {
+        let mut history = merge_history_with_native_archived(vec![], vec![], &Default::default());
+        assert!(!update_live_terminal_row(
+            &mut history,
+            "terminal:missing",
+            Some("x"),
+            None
+        ));
+        assert!(history.is_empty(), "找不到时不新建行");
     }
 
     #[test]
