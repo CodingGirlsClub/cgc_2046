@@ -13,6 +13,7 @@ pub mod logging;
 pub mod mcp;
 pub mod notifications;
 pub mod paths;
+pub mod process;
 pub mod registry;
 pub mod routes;
 pub mod runtime;
