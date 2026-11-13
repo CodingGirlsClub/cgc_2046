@@ -127,6 +127,7 @@ fn execute(
     // 仍有后台命令继续改文件。
     #[cfg(unix)]
     process.process_group(0);
+    cgc_platform::process::hide_console_window(&mut process);
     let mut child = process
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

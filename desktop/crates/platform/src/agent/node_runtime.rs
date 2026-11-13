@@ -114,15 +114,17 @@ impl Downloader for HttpDownloader {
     /// 用系统 curl 下载：天然继承系统代理设置（企业 Clash 等）与 TLS 信任；
     /// 大小上限由 curl `--max-filesize` 约束，checksum 在调用方校验。
     fn fetch(&self, url: &str) -> Result<Vec<u8>, String> {
-        let output = std::process::Command::new("curl")
-            .args([
-                "-fsSL",
-                "--max-time",
-                "300",
-                "--max-filesize",
-                "268435456",
-                url,
-            ])
+        let mut command = std::process::Command::new("curl");
+        command.args([
+            "-fsSL",
+            "--max-time",
+            "300",
+            "--max-filesize",
+            "268435456",
+            url,
+        ]);
+        crate::process::hide_console_window(&mut command);
+        let output = command
             .output()
             .map_err(|error| format!("cannot run curl: {error}"))?;
         if !output.status.success() {
@@ -203,23 +205,25 @@ impl NodeRuntimeManager {
         std::fs::write(&archive, bytes).map_err(|error| RuntimeError::Io(error.to_string()))?;
 
         let status = if file_name.ends_with(".zip") {
-            std::process::Command::new("tar")
-                .args([
-                    "-xf",
-                    &archive.to_string_lossy(),
-                    "-C",
-                    &staging.to_string_lossy(),
-                ])
-                .status()
+            let mut command = std::process::Command::new("tar");
+            command.args([
+                "-xf",
+                &archive.to_string_lossy(),
+                "-C",
+                &staging.to_string_lossy(),
+            ]);
+            crate::process::hide_console_window(&mut command);
+            command.status()
         } else {
-            std::process::Command::new("tar")
-                .args([
-                    "-xJf",
-                    &archive.to_string_lossy(),
-                    "-C",
-                    &staging.to_string_lossy(),
-                ])
-                .status()
+            let mut command = std::process::Command::new("tar");
+            command.args([
+                "-xJf",
+                &archive.to_string_lossy(),
+                "-C",
+                &staging.to_string_lossy(),
+            ]);
+            crate::process::hide_console_window(&mut command);
+            command.status()
         }
         .map_err(|error| RuntimeError::Extract(error.to_string()))?;
         if !status.success() {

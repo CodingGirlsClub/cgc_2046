@@ -611,6 +611,13 @@ jobs:
           CGC_DEFAULT_ENV: prod
           ZIG: ${{ runner.temp }}/zig/zig/zig
         run: cargo packager -p cgc-desktop-app --release -f ${{ matrix.formats }}
+      # 与 desktop-release 用同一份守卫：Windows 产物必须是 GUI 子系统，
+      # 否则双击弹黑窗且关窗即退（属性在 crates/app/src/main.rs）。
+      # 条件必须与上面的打包步骤一致：PR 不打包，就没有 exe 可校验。
+      - name: 校验 PE 子系统（Windows GUI）
+        if: github.event_name == 'push' && runner.os == 'Windows'
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/verify-pe-subsystem.ps1
       # cargo-packager 不做 lipo：两个架构各编一次，合并成 universal 再打包，
       # 产物路径正好是 packager 对 universal-apple-darwin 期望的 binaries_dir。
       - name: 打包（macOS universal）

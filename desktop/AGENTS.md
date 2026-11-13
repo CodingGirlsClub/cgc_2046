@@ -19,6 +19,7 @@ GPUI + gpui-kit 的原生桌面客户端。组织方式对齐 Zed：`crates/` �
 - **UI 尽量使用 GPUI Kit 组件**：具体有哪些、怎么用，去 `gpui_kit` 依赖源码里找，自己决定。
 - **许可门禁**：新增依赖须与 AGPL-3.0 兼容；GPL-3.0 类先开 issue 人裁（`docs/开源合规/依赖引入规则.md`）。
 - **敏感值**：token、对话内容、核销码、用户手机号不进日志/遥测/崩溃报告（AD-13/AD-16）。
+- **Windows 子进程必须隐藏控制台**：release 是 GUI 子系统（`crates/app/src/main.rs` 的 `windows_subsystem`），父进程没有 console；未设 `CREATE_NO_WINDOW`(0x08000000) 的 console 子进程（`git`/`cmd`/`curl`/`tar`/`node`）会各自弹黑窗。spawn 前调用 `cgc_platform::process::hide_console_window`；不依赖 platform 的 crate 用本地 6 行实现（见 `agent_checkpoint::checkpoint::git_command`）。CI 的 PE 守卫只保证主进程子系统，子进程靠这条约束。
 - **人工合并**：`.github/**`、依赖锁文件（`Cargo.lock`）、根 `AGENTS.md` 的改动由人合并。
 
 ## 验收
