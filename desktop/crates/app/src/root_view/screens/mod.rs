@@ -1,6 +1,9 @@
 pub(in crate::root_view) use auth::{render_login_split, render_reset_login_card};
 #[cfg(all(test, cgc_ui_tests))]
 pub(in crate::root_view) use chat::agent_panel::header as render_agent_panel_header;
+pub(in crate::root_view) use chat::agent_panel::{
+    panel_content, terminal_panel_title, AgentPanelContent,
+};
 pub(in crate::root_view) use chat::dock::render_agent_panel;
 pub(in crate::root_view) use context::ScreenContext;
 pub(in crate::root_view) use courses::{
