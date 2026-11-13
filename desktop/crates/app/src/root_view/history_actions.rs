@@ -116,6 +116,9 @@ impl RootView {
             {
                 log::warn!(target: "terminal", "重命名终端会话失败：{error}");
             }
+            if self.terminal_session_id.as_deref() == Some(terminal_id) {
+                self.terminal_custom_title = title.clone();
+            }
         } else if rename.thread_id.starts_with(acp_history::ACP_THREAD_PREFIX) {
             let _ = acp_history::rename_override(&rename.thread_id, title.as_deref());
             if self

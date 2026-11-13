@@ -12,7 +12,7 @@ use cgc_agent_store::{
     ConversationStore, ConversationStoreError, SidebarThread, ThreadSummary, CONVERSATIONS_DB,
 };
 use cgc_agent_ui::conversation::{ConversationThread, Entry};
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Local, Offset};
 
 /// ACP 历史 thread_id 前缀（`acp-<session_id>`，沿用旧统一列表约定）。
 pub const ACP_THREAD_PREFIX: &str = "acp-";
@@ -62,6 +62,8 @@ pub struct HistoryEntry {
     /// 展示标题（ACP override 优先；native 已是 COALESCE(override,title)）。
     pub title: Option<String>,
     pub updated_at: String,
+    /// 仅 Terminal 行：会话创建时间（标题撞车时用来区分）。
+    pub created_at: Option<String>,
     /// 归档标记（仅 ACP 可归档；native 恒 false）。
     pub archived: bool,
     pub source: HistorySource,
@@ -237,6 +239,104 @@ pub fn merge_history_with_native_archived(
     merge_history_with_terminals(native_threads, acp_threads, native_archived, Vec::new())
 }
 
+/// 终端展示标题：用户重命名 > OSC 标题 > cwd 末段；三无时 `None`。
+///
+/// 单一来源：Agent Panel header 与历史侧栏都走它。header 读 live OSC、侧栏读 DB，
+/// 若各自拼标题就会重新长出「同一会话两个名字」（#1252 B2）。
+pub fn terminal_title(
+    osc_title: Option<&str>,
+    custom_title: Option<&str>,
+    working_directory: Option<&str>,
+) -> Option<String> {
+    fn non_empty(value: Option<&str>) -> Option<String> {
+        value
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    }
+
+    non_empty(custom_title)
+        .or_else(|| non_empty(osc_title))
+        .or_else(|| {
+            non_empty(working_directory).and_then(|path| {
+                path.rsplit('/')
+                    .find(|segment| !segment.is_empty())
+                    .map(str::to_string)
+            })
+        })
+}
+
+/// 侧栏副标题的目录缩写：home → `~`；超过两段保留 `~/…/父/末`。
+pub fn abbreviate_cwd(path: &str, home: Option<&str>) -> String {
+    let expanded = match home.filter(|home| !home.is_empty()) {
+        Some(home) => match path.strip_prefix(home) {
+            Some(rest) => format!("~{rest}"),
+            None => path.to_string(),
+        },
+        None => path.to_string(),
+    };
+    let segments: Vec<&str> = expanded
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .collect();
+    let real = if expanded.starts_with("~/") {
+        &segments[1..]
+    } else {
+        &segments[..]
+    };
+    if real.len() <= 2 {
+        return expanded;
+    }
+    let prefix = if expanded.starts_with("~/") {
+        "~/"
+    } else if expanded.starts_with('/') {
+        "/"
+    } else {
+        ""
+    };
+    let tail = &real[real.len() - 2..];
+    format!("{prefix}…/{}/{}", tail[0], tail[1])
+}
+
+/// 终端标题撞车时追加创建时间（`· 14:32`），让列表可区分（#1252 B2）。
+///
+/// 只动 Terminal 行；没有 `created_at` 或解析失败的行保持原名。
+pub fn disambiguate_terminal_titles(entries: &mut [HistoryEntry]) {
+    let mut counts = std::collections::BTreeMap::new();
+    for entry in entries
+        .iter()
+        .filter(|entry| entry.source == HistorySource::Terminal)
+    {
+        if let Some(title) = entry.title.as_deref() {
+            *counts.entry(title.to_string()).or_insert(0usize) += 1;
+        }
+    }
+    for entry in entries
+        .iter_mut()
+        .filter(|entry| entry.source == HistorySource::Terminal)
+    {
+        let Some(title) = entry.title.clone() else {
+            continue;
+        };
+        if counts.get(&title).copied().unwrap_or(0) < 2 {
+            continue;
+        }
+        if let Some(stamp) = entry
+            .created_at
+            .as_deref()
+            .and_then(|created_at| title_stamp(created_at, Local::now().offset().fix()))
+        {
+            entry.title = Some(format!("{title} · {stamp}"));
+        }
+    }
+}
+
+fn title_stamp(created_at: &str, offset: chrono::FixedOffset) -> Option<String> {
+    DateTime::parse_from_rfc3339(created_at)
+        .ok()
+        .map(|time| time.with_timezone(&offset).format("%H:%M").to_string())
+}
+
 /// 完整合并：native 线程 + ACP 线程 + 终端会话日志，按最近活动倒序。
 pub fn merge_history_with_terminals(
     native_threads: Vec<ThreadSummary>,
@@ -255,6 +355,7 @@ pub fn merge_history_with_terminals(
                 agent_id: Some(thread.agent),
                 title: thread.title,
                 updated_at: cgc_agent_store::format_epoch_rfc3339(thread.updated_at),
+                created_at: None,
                 archived,
                 source: HistorySource::Native,
                 working_directory: None,
@@ -271,21 +372,30 @@ pub fn merge_history_with_terminals(
                 agent_id: thread.agent_id,
                 title,
                 updated_at: thread.updated_at,
+                created_at: None,
                 archived: thread.archived,
                 source: HistorySource::Acp,
                 working_directory: None,
             }
         }))
-        .chain(terminal_sessions.into_iter().map(|session| HistoryEntry {
-            // 前缀避免与 thread_id 冲突（重命名/点击都按这个 key 分派）。
-            thread_id: format!("terminal:{}", session.terminal_id),
-            session_id: None,
-            agent_id: None,
-            title: session.display_title().map(str::to_string),
-            updated_at: session.updated_at().to_string(),
-            archived: false,
-            source: HistorySource::Terminal,
-            working_directory: session.working_directory.clone(),
+        .chain(terminal_sessions.into_iter().map(|session| {
+            let title = terminal_title(
+                session.title.as_deref(),
+                session.custom_title.as_deref(),
+                session.working_directory.as_deref(),
+            );
+            HistoryEntry {
+                // 前缀避免与 thread_id 冲突（重命名/点击都按这个 key 分派）。
+                thread_id: format!("terminal:{}", session.terminal_id),
+                session_id: None,
+                agent_id: None,
+                title,
+                updated_at: session.updated_at().to_string(),
+                created_at: Some(session.created_at.clone()),
+                archived: false,
+                source: HistorySource::Terminal,
+                working_directory: session.working_directory.clone(),
+            }
         }))
         .collect();
     entries.sort_by(|left, right| {
@@ -294,6 +404,7 @@ pub fn merge_history_with_terminals(
             .cmp(&left.updated_at)
             .then_with(|| right.thread_id.cmp(&left.thread_id))
     });
+    disambiguate_terminal_titles(&mut entries);
     entries
 }
 
@@ -761,10 +872,105 @@ mod tests {
             agent_id: Some("omp".to_string()),
             title: Some(format!("title {id}")),
             updated_at: updated_at.to_string(),
+            created_at: None,
             archived,
             source: HistorySource::Acp,
             working_directory: None,
         }
+    }
+
+    #[test]
+    fn terminal_title_prefers_custom_then_osc_then_cwd() {
+        assert_eq!(
+            terminal_title(Some("vim"), Some("我的终端"), Some("/tmp/x")).as_deref(),
+            Some("我的终端"),
+            "用户重命名优先于程序标题"
+        );
+        assert_eq!(
+            terminal_title(Some("vim"), None, Some("/tmp/x")).as_deref(),
+            Some("vim"),
+            "无重命名时用 OSC 标题"
+        );
+        assert_eq!(
+            terminal_title(Some("   "), Some(""), Some("/tmp/x")).as_deref(),
+            Some("x"),
+            "标题都为空时用 cwd 末段"
+        );
+        assert_eq!(terminal_title(None, None, None), None);
+    }
+
+    #[test]
+    fn cwd_abbreviation_keeps_home_and_tail() {
+        assert_eq!(
+            abbreviate_cwd("/Users/x/p/a/x", Some("/Users/x")),
+            "~/…/a/x"
+        );
+        assert_eq!(abbreviate_cwd("/tmp/x", None), "/tmp/x", "两段以内原样保留");
+        assert_eq!(abbreviate_cwd("/a/b/c", None), "/…/b/c");
+        assert_eq!(abbreviate_cwd("~/a", Some("/Users/x")), "~/a");
+    }
+
+    fn terminal_session(
+        id: &str,
+        created_at: &str,
+        custom: Option<&str>,
+    ) -> cgc_agent_store::TerminalSession {
+        cgc_agent_store::TerminalSession {
+            terminal_id: id.into(),
+            title: Some("omp".into()),
+            custom_title: custom.map(str::to_string),
+            working_directory: Some("/tmp/x".into()),
+            created_at: created_at.into(),
+            closed_at: None,
+            exit_code: None,
+        }
+    }
+
+    #[test]
+    fn duplicate_terminal_titles_get_a_creation_stamp() {
+        let merged = merge_history_with_terminals(
+            vec![],
+            vec![],
+            &Default::default(),
+            vec![
+                terminal_session("t1", "2026-11-13T06:00:00Z", None),
+                terminal_session("t2", "2026-11-13T07:00:00Z", None),
+            ],
+        );
+        assert!(
+            merged
+                .iter()
+                .all(|entry| entry.title.as_deref().unwrap_or("").starts_with("omp · ")),
+            "撞车标题追加创建时间：{:?}",
+            merged.iter().map(|entry| &entry.title).collect::<Vec<_>>()
+        );
+        assert_ne!(merged[0].title, merged[1].title, "两条仍可区分");
+    }
+
+    #[test]
+    fn single_terminal_keeps_its_plain_title() {
+        let merged = merge_history_with_terminals(
+            vec![],
+            vec![],
+            &Default::default(),
+            vec![terminal_session("t1", "2026-11-13T06:00:00Z", None)],
+        );
+        assert_eq!(merged[0].title.as_deref(), Some("omp"), "不撞车就不加后缀");
+    }
+
+    #[test]
+    fn renamed_terminal_uses_custom_title_in_the_list() {
+        let merged = merge_history_with_terminals(
+            vec![],
+            vec![],
+            &Default::default(),
+            vec![terminal_session(
+                "t1",
+                "2026-11-13T06:00:00Z",
+                Some("我的终端"),
+            )],
+        );
+        assert_eq!(merged[0].title.as_deref(), Some("我的终端"));
     }
 
     #[test]

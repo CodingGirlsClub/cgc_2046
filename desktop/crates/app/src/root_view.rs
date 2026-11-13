@@ -571,12 +571,17 @@ impl RootView {
     pub(in crate::root_view) fn agent_panel_title(&self, cx: &App) -> String {
         // 显示与编辑同源：面板内容由「终端可见 + 终端实例」共同决定（#1269）。
         match screens::panel_content(self) {
-            screens::AgentPanelContent::Terminal => screens::terminal_panel_title(
-                self.terminal_view
-                    .as_ref()
-                    .map(|view| view.read(cx).title())
-                    .unwrap_or(""),
-            ),
+            screens::AgentPanelContent::Terminal => {
+                let terminal_title = self.terminal_view.as_ref().and_then(|view| {
+                    let view = view.read(cx);
+                    crate::acp_history::terminal_title(
+                        Some(view.title()),
+                        self.terminal_custom_title.as_deref(),
+                        view.cwd(),
+                    )
+                });
+                screens::terminal_panel_title(terminal_title.as_deref().unwrap_or(""))
+            }
             screens::AgentPanelContent::Native => {
                 if let Some(view) = self.native_panel_view() {
                     let view = view.read(cx);
@@ -643,10 +648,6 @@ impl RootView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        // 终端标题由 shell 的 OSC 驱动；面板内改名只对线程生效（#1269 / #1252 B2）。
-        if screens::panel_content(self) == screens::AgentPanelContent::Terminal {
-            return;
-        }
         let title = self.agent_panel_title(cx);
         self.agent_panel_title_original = Some(title.clone());
         let input = self.ensure_agent_panel_title_input(window, cx);
@@ -678,6 +679,21 @@ impl RootView {
             return;
         }
         let title = if raw.is_empty() { None } else { Some(raw) };
+        if screens::panel_content(self) == screens::AgentPanelContent::Terminal {
+            // 终端重命名写 DB 的 custom_title，并同步内存态：header 与侧栏共用同一个值。
+            if let Some(session_id) = self.terminal_session_id.clone() {
+                if let Err(error) = crate::acp_history::open_conversation_store()
+                    .and_then(|store| store.rename_terminal_session(&session_id, title.as_deref()))
+                {
+                    log::warn!(target: "terminal", "重命名终端会话失败：{error}");
+                }
+            }
+            self.terminal_custom_title = title;
+            self.chat.history = self.load_unified_history();
+            self.agent_panel_editing_title = false;
+            cx.notify();
+            return;
+        }
         if self.native_chat_mode && RootView::native_agent_enabled() {
             if let Some(view) = self.native_panel_view() {
                 view.update(cx, |view, cx| view.set_title_override(title.clone(), cx));
@@ -723,6 +739,9 @@ impl RootView {
     }
 
     pub(in crate::root_view) fn regenerate_agent_panel_title(&mut self, cx: &mut Context<Self>) {
+        if screens::panel_content(self) == screens::AgentPanelContent::Terminal {
+            return;
+        }
         if self.native_chat_mode && RootView::native_agent_enabled() {
             if let Some(view) = self.native_panel_view() {
                 view.update(cx, |view, cx| view.regenerate_title(cx));

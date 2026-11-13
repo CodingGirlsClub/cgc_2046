@@ -2548,6 +2548,7 @@ impl RootView {
         }
         self.terminal_session_id = Some(session_id);
         self.terminal_visible = true;
+        self.terminal_custom_title = None;
         self.terminal_cwd = cwd.clone();
         self.pending_terminal_open = None;
         self.chat.history = self.load_unified_history();
@@ -2597,6 +2598,7 @@ impl RootView {
         }
         self.pending_terminal_open = None;
         self.terminal_visible = false;
+        self.terminal_custom_title = None;
         self.terminal_cwd = None;
         self.chat.history = self.load_unified_history();
         cx.notify();

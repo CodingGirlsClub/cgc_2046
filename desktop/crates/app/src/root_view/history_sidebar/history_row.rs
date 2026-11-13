@@ -171,7 +171,22 @@ impl RootView {
                         div()
                             .text_size(px(10.0))
                             .text_color(palette.ink_3)
-                            .child(format!("{agent_label} · {time_label}")),
+                            .child(match source {
+                                HistorySource::Terminal => entry
+                                    .working_directory
+                                    .as_deref()
+                                    .map(|directory| {
+                                        format!(
+                                            "{} · {time_label}",
+                                            acp_history::abbreviate_cwd(
+                                                directory,
+                                                std::env::var("HOME").ok().as_deref()
+                                            )
+                                        )
+                                    })
+                                    .unwrap_or_else(|| format!("{agent_label} · {time_label}")),
+                                _ => format!("{agent_label} · {time_label}"),
+                            }),
                     ),
             )
             .on_click(move |_, window, cx| {
@@ -318,6 +333,7 @@ mod history_row_tests {
             agent_id: Some("omp".to_string()),
             title: Some("t".to_string()),
             updated_at: "2026-10-26T12:00:00Z".to_string(),
+            created_at: None,
             archived,
             source,
             working_directory: None,

@@ -78,7 +78,7 @@ pub(in crate::root_view) fn header_model(content: AgentPanelContent) -> HeaderMo
     match content {
         AgentPanelContent::Terminal => HeaderModel {
             icon: HeaderIcon::Terminal,
-            editable: false,
+            editable: true,
         },
         AgentPanelContent::Native | AgentPanelContent::External => HeaderModel {
             icon: HeaderIcon::Agent,
@@ -103,10 +103,14 @@ fn title_for(
 
 fn panel_title(state: &ShellState, cx: &App) -> String {
     let content = panel_content(state);
-    let terminal_title = state
-        .terminal_view
-        .as_ref()
-        .map(|view| view.read(cx).title().to_string());
+    let terminal_title = state.terminal_view.as_ref().and_then(|view| {
+        let view = view.read(cx);
+        crate::acp_history::terminal_title(
+            Some(view.title()),
+            state.terminal_custom_title.as_deref(),
+            view.cwd(),
+        )
+    });
     let native_title = state
         .native_agent_view
         .as_ref()
@@ -666,7 +670,10 @@ mod tests {
     fn header_follows_panel_content_not_terminal_presence() {
         let terminal = header_model(AgentPanelContent::Terminal);
         assert_eq!(terminal.icon, HeaderIcon::Terminal);
-        assert!(!terminal.editable, "终端标题由 OSC 驱动，面板内不可改名");
+        assert!(
+            terminal.editable,
+            "终端标题可在面板内改名（写 custom_title）"
+        );
 
         for content in [AgentPanelContent::Native, AgentPanelContent::External] {
             let model = header_model(content);
