@@ -572,14 +572,7 @@ impl RootView {
         // 显示与编辑同源：面板内容由「终端可见 + 终端实例」共同决定（#1269）。
         match screens::panel_content(self) {
             screens::AgentPanelContent::Terminal => {
-                let terminal_title = self.terminal_view.as_ref().and_then(|view| {
-                    let view = view.read(cx);
-                    crate::acp_history::terminal_title(
-                        Some(view.title()),
-                        self.terminal_custom_title.as_deref(),
-                        view.cwd(),
-                    )
-                });
+                let terminal_title = self.terminal_display_title(cx);
                 screens::terminal_panel_title(terminal_title.as_deref().unwrap_or(""))
             }
             screens::AgentPanelContent::Native => {

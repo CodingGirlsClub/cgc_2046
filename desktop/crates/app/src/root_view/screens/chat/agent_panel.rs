@@ -61,6 +61,25 @@ pub(in crate::root_view) fn panel_content(state: &ShellState) -> AgentPanelConte
     .content(state.native_chat_mode && RootView::native_agent_enabled())
 }
 
+impl ShellState {
+    /// 当前终端的展示标题：custom > live OSC > live cwd > spawn cwd。
+    ///
+    /// header 与历史列表共用同一组输入，`cd` 之后不会各显示一个目录名（#1252 B2）。
+    pub(in crate::root_view) fn terminal_display_title(&self, cx: &App) -> Option<String> {
+        let view = self.terminal_view.as_ref()?;
+        let view = view.read(cx);
+        let spawn_cwd = self
+            .terminal_cwd
+            .as_deref()
+            .and_then(std::path::Path::to_str);
+        crate::acp_history::terminal_title(
+            Some(view.title()),
+            self.terminal_custom_title.as_deref(),
+            view.cwd().filter(|cwd| !cwd.is_empty()).or(spawn_cwd),
+        )
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::root_view) enum HeaderIcon {
     Terminal,
@@ -103,14 +122,7 @@ fn title_for(
 
 fn panel_title(state: &ShellState, cx: &App) -> String {
     let content = panel_content(state);
-    let terminal_title = state.terminal_view.as_ref().and_then(|view| {
-        let view = view.read(cx);
-        crate::acp_history::terminal_title(
-            Some(view.title()),
-            state.terminal_custom_title.as_deref(),
-            view.cwd(),
-        )
-    });
+    let terminal_title = state.terminal_display_title(cx);
     let native_title = state
         .native_agent_view
         .as_ref()
