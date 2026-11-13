@@ -437,20 +437,33 @@ pub fn merge_history_with_terminals(
         }))
         .chain(terminal_sessions.into_iter().map(|session| {
             // 运行中的终端：header 读 live OSC / OSC 7；DB 里的 title 与 cwd 只在关闭时回填。
-            // 列表用 live 值覆盖这一行，否则 `cd` 之后 header 与列表会各显示一个目录名。
+            // 标题与副标题都从同一个 `working_directory` 派生，`cd` 后两处不会各显示一个目录。
+            let live_osc = match live_terminal {
+                Some((id, osc, _)) if id == session.terminal_id => {
+                    osc.filter(|title| !title.is_empty())
+                }
+                _ => None,
+            };
+            let live_cwd = match live_terminal {
+                Some((id, _, cwd)) if id == session.terminal_id => {
+                    cwd.filter(|cwd| !cwd.is_empty())
+                }
+                _ => None,
+            };
+            let working_directory = live_cwd
+                .map(str::to_string)
+                .or_else(|| session.working_directory.clone());
             let title = match live_terminal {
-                Some((id, live_osc, live_cwd)) if id == session.terminal_id => terminal_title(
+                Some((id, _, _)) if id == session.terminal_id => terminal_title(
                     live_osc,
                     session.custom_title.as_deref(),
-                    live_cwd
-                        .filter(|cwd| !cwd.is_empty())
-                        .or(session.working_directory.as_deref()),
+                    working_directory.as_deref(),
                 )
                 .or_else(|| session.title.clone()),
                 _ => terminal_title(
                     session.title.as_deref(),
                     session.custom_title.as_deref(),
-                    session.working_directory.as_deref(),
+                    working_directory.as_deref(),
                 ),
             };
             HistoryEntry {
@@ -464,7 +477,7 @@ pub fn merge_history_with_terminals(
                 created_at: Some(session.created_at.clone()),
                 archived: false,
                 source: HistorySource::Terminal,
-                working_directory: session.working_directory.clone(),
+                working_directory,
             }
         }))
         .collect();
@@ -1140,7 +1153,7 @@ mod tests {
     }
 
     #[test]
-    fn live_cwd_replaces_the_launch_directory_fallback() {
+    fn live_cwd_drives_both_title_and_subtitle() {
         let merged = merge_history_with_terminals(
             vec![],
             vec![],
@@ -1156,6 +1169,11 @@ mod tests {
             merged[0].title.as_deref(),
             Some("884c7a2f"),
             "无 OSC 标题时用 live cwd（OSC 7），而不是 spawn 目录名"
+        );
+        assert_eq!(
+            merged[0].working_directory.as_deref(),
+            Some("/tmp/cgc2046_workspace/assistant/884c7a2f"),
+            "副标题目录与标题取同一个 live cwd"
         );
     }
 

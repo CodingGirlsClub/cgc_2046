@@ -193,6 +193,18 @@ impl RootView {
                 self.open_acp_history_thread(thread_id, session_id, cx);
             }
             HistorySource::Terminal => {
+                // 运行中的实例按 id 激活：`cd` 后行里的 cwd 是 live 目录，
+                // 不能再按 cwd 判断是否复用（那会误触发「替换」流程）。
+                if thread_id
+                    .strip_prefix("terminal:")
+                    .is_some_and(|id| self.terminal_session_id.as_deref() == Some(id))
+                {
+                    self.terminal_visible = true;
+                    self.pending_terminal_open = None;
+                    self.agent_panel_editing_title = false;
+                    cx.notify();
+                    return;
+                }
                 if let Some(directory) = working_directory {
                     self.open_terminal_at(std::path::PathBuf::from(directory), window, cx);
                 }
