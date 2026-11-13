@@ -3881,7 +3881,7 @@ fn next_terminal_session_id() -> String {
 }
 
 /// 用户 home：macOS/Linux 用 `HOME`，Windows 用 `USERPROFILE`。
-fn home_dir() -> Option<std::path::PathBuf> {
+pub(in crate::root_view) fn home_dir() -> Option<std::path::PathBuf> {
     std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map(std::path::PathBuf::from)
