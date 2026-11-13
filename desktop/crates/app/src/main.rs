@@ -1,3 +1,8 @@
+// Windows release 必须是 GUI 子系统：console 子系统双击启动会分配一个黑色终端窗口，
+// 关掉终端即向进程发 CTRL_CLOSE_EVENT，应用随之退出。debug 保留控制台方便开发；
+// 现场日志看 `<data_root>/logs/app.log`。
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 //! CGC Desktop 入口：聚合注册 → 校验 → 应用启动主题 → 打开主窗口。
 //!
 //! 顶部 header / 底部 footer 的外壳样式在 `root_view`；系统外观变化由

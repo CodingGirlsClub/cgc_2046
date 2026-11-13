@@ -173,6 +173,10 @@ jobs:
           CGC_DEFAULT_ENV: prod
           ZIG: ${{ runner.temp }}/zig/zig/zig
         run: cargo packager -p cgc-desktop-app --release -f ${{ matrix.formats }}
+      - name: 校验 PE 子系统（Windows GUI）
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/verify-pe-subsystem.ps1
       - name: 打包（macOS universal）
         if: runner.os == 'macOS'
         env:

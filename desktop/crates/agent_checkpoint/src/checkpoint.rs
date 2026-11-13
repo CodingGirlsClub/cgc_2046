@@ -55,7 +55,7 @@ impl CheckpointManager {
     /// 打开一个已有的 Git 仓库；不是仓库返回 `NotRepo`。
     pub fn open(repo: impl Into<PathBuf>) -> Result<Self, CheckpointError> {
         let repo = repo.into();
-        let output = Command::new("git")
+        let output = git_command()
             .arg("-C")
             .arg(&repo)
             .args(["rev-parse", "--git-dir"])
@@ -78,7 +78,7 @@ impl CheckpointManager {
     pub fn initialize(repo: impl Into<PathBuf>) -> Result<Self, CheckpointError> {
         let repo = repo.into();
         std::fs::create_dir_all(&repo).map_err(|error| CheckpointError::Io(error.to_string()))?;
-        let output = Command::new("git")
+        let output = git_command()
             .arg("-C")
             .arg(&repo)
             .args(["init", "--quiet"])
@@ -382,7 +382,7 @@ impl CheckpointManager {
         &self,
         args: [&str; N],
     ) -> Result<std::process::Output, CheckpointError> {
-        Command::new("git")
+        git_command()
             .arg("-C")
             .arg(&self.repo)
             .args(args)
@@ -395,7 +395,7 @@ impl CheckpointManager {
         index_path: &Path,
         args: [&str; N],
     ) -> Result<std::process::Output, CheckpointError> {
-        Command::new("git")
+        git_command()
             .arg("-C")
             .arg(&self.repo)
             .env("GIT_INDEX_FILE", index_path)
@@ -405,7 +405,7 @@ impl CheckpointManager {
     }
 
     fn git_with_identity(&self, args: &[&str]) -> Result<std::process::Output, CheckpointError> {
-        Command::new("git")
+        git_command()
             .arg("-C")
             .arg(&self.repo)
             .env("GIT_AUTHOR_NAME", AGENT_NAME)
@@ -421,7 +421,7 @@ impl CheckpointManager {
 /// 解析真实 git 目录：支持 linked worktree 与仓库子目录。
 /// linked worktree 根目录的 `.git` 是文件，`<repo>/.git` 拼路径会失败。
 fn resolve_git_dir(repo: &Path) -> Result<PathBuf, CheckpointError> {
-    let output = Command::new("git")
+    let output = git_command()
         .arg("-C")
         .arg(repo)
         .args(["rev-parse", "--absolute-git-dir"])
@@ -431,7 +431,7 @@ fn resolve_git_dir(repo: &Path) -> Result<PathBuf, CheckpointError> {
         String::from_utf8_lossy(&output.stdout).trim().to_string()
     } else {
         // 老版本 git 没有 --absolute-git-dir，回退 --git-dir 并转绝对路径。
-        let output = Command::new("git")
+        let output = git_command()
             .arg("-C")
             .arg(repo)
             .args(["rev-parse", "--git-dir"])
@@ -470,6 +470,23 @@ fn stderr(output: &std::process::Output) -> String {
     String::from_utf8_lossy(&output.stderr).trim().to_string()
 }
 
+/// `git` 是控制台程序；Windows GUI 子系统（无 console）下不隐藏就会闪黑窗。
+///
+/// 与 `cgc-platform::process::hide_console_window` 同义；本 crate 不依赖 platform，
+/// 为不改依赖图保留这 6 行本地实现。
+fn git_command() -> Command {
+    // 非 Windows 平台不需要 creation_flags，mut 只在 cfg(windows) 分支用到。
+    #[cfg_attr(not(windows), allow(unused_mut))]
+    let mut command = Command::new("git");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt as _;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    command
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -486,7 +503,7 @@ mod tests {
     }
 
     fn git(dir: &Path, args: &[&str]) -> std::process::Output {
-        Command::new("git")
+        git_command()
             .arg("-C")
             .arg(dir)
             .args(args)

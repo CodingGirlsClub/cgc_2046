@@ -180,12 +180,8 @@ pub(crate) fn configure_process_group(command: &mut Command) {
         use std::os::unix::process::CommandExt as _;
         command.process_group(0);
     }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt as _;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        command.creation_flags(CREATE_NO_WINDOW);
-    }
+    // Windows 没有进程组；这里同时负责隐藏子进程的控制台窗口。
+    crate::process::hide_console_window(command);
 }
 
 pub(crate) fn terminate_process_group(pid: u32) {

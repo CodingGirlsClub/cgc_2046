@@ -8,6 +8,7 @@
 //! 带 `schema_migrations` 版本表；缺列/损坏 JSON 容错降级（返回空/`None`），不 panic。
 //! native 既有 `agent/threads.db` schema 与内容不动；ACP 只写这里。
 
+use std::io::Write;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -348,7 +349,8 @@ impl ConversationStore {
         match serde_json::from_str::<ConversationThread>(&data) {
             Ok(thread) => Ok(Some(thread)),
             Err(error) => {
-                eprintln!(
+                let _ = writeln!(
+                    std::io::stderr(),
                     "[conversations] 忽略损坏的 thread_content [{}]: {error}",
                     thread_digest(thread_id)
                 );
@@ -400,7 +402,8 @@ impl ConversationStore {
         match serde_json::from_str::<SavedConversation>(&data) {
             Ok(snapshot) => Ok(Some(snapshot)),
             Err(error) => {
-                eprintln!(
+                let _ = writeln!(
+                    std::io::stderr(),
                     "[conversations] 忽略损坏的 thread_snapshots [{}]: {error}",
                     thread_digest(thread_id)
                 );
@@ -432,7 +435,8 @@ impl ConversationStore {
             if has_row {
                 return Ok(Some((snapshot.into_thread(), RestoredFrom::Snapshot)));
             }
-            eprintln!(
+            let _ = writeln!(
+                std::io::stderr(),
                 "[conversations] 忽略孤儿投影 [{}]：没有对应的正文或侧栏",
                 thread_digest(thread_id)
             );
