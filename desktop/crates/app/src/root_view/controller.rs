@@ -2605,14 +2605,24 @@ impl RootView {
     /// 关闭终端并回到对话视图；记住当前目录、回填会话日志。
     pub fn close_terminal(&mut self, cx: &mut Context<Self>) {
         if let Some(view) = self.terminal_view.take() {
-            let (cwd, title, exit_code) = {
+            let (cwd, title, cwd_text, exit_code) = {
                 let view = view.read(cx);
-                let title = view.title().trim().to_string();
-                (
-                    view.cwd().map(std::path::PathBuf::from),
-                    (!title.is_empty()).then_some(title),
-                    view.exit_code(),
-                )
+                let osc_title = view.title().trim().to_string();
+                let cwd = view
+                    .cwd()
+                    .map(std::path::PathBuf::from)
+                    .or_else(|| self.terminal_cwd.clone());
+                // 展示中的标题可能是 cwd 末段（shell 不设 OSC 标题时）；关闭时把它一并
+                // 持久化，否则行会回退到 spawn 时的目录名。
+                let title = (!osc_title.is_empty()).then_some(osc_title).or_else(|| {
+                    view.cwd()
+                        .and_then(|cwd| crate::acp_history::terminal_title(None, None, Some(cwd)))
+                });
+                let cwd_text = cwd
+                    .as_deref()
+                    .and_then(std::path::Path::to_str)
+                    .map(str::to_string);
+                (cwd, title, cwd_text, view.exit_code())
             };
             self.last_terminal_cwd = cwd;
             if let Some(session_id) = self.terminal_session_id.take() {
@@ -2622,6 +2632,7 @@ impl RootView {
                         store.finish_terminal_session(
                             &session_id,
                             title.as_deref(),
+                            cwd_text.as_deref(),
                             &closed_at,
                             exit_code.map(i64::from),
                         )
