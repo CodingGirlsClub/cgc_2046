@@ -5,6 +5,7 @@
 use super::super::super::*;
 use super::super::ScreenContext;
 use crate::icons::{AGENT_HEADER_ICON_SIZE, AGENT_ROW_ICON_SIZE};
+use crate::root_view::state::ShellState;
 use cgc_platform::agent::detect::AgentStatus;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::Input;
@@ -29,16 +30,108 @@ pub(in crate::root_view) fn content_kind(
     }
 }
 
-/// 面板内容优先级：终端 > native > external。
+/// 面板槽位的两个独立事实：终端实例是否存在（可能被隐藏）、它是否占据面板。
 ///
-/// 终端打开时它就是面板内容；切到任何 agent 之前必须先关闭终端
-/// （`RootView::dismiss_terminal_for_chat`），否则对话会被终端挡住。
-fn content_for(terminal_open: bool, native_mode: bool) -> AgentPanelContent {
-    if terminal_open {
-        AgentPanelContent::Terminal
-    } else {
-        content_kind(native_mode, None)
+/// 切到 agent 时只隐藏终端（`RootView::dismiss_terminal_for_chat`），PTY 与输出保留，
+/// 所以「终端存在」不等于「终端占面板」。任何「当前显示什么」的判断都必须过这里，
+/// 不能再直接读 `terminal_view.is_some()`——那会把隐藏终端当成面板模式（issue #1269）。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::root_view) struct PanelSlot {
+    pub terminal_present: bool,
+    pub terminal_visible: bool,
+}
+
+impl PanelSlot {
+    /// 面板内容优先级：可见终端 > native > external。
+    pub fn content(self, native_mode: bool) -> AgentPanelContent {
+        if self.terminal_present && self.terminal_visible {
+            AgentPanelContent::Terminal
+        } else {
+            content_kind(native_mode, None)
+        }
     }
+}
+
+/// 当前面板显示什么：唯一判定入口（header、标题、编辑入口都从这里派生）。
+pub(in crate::root_view) fn panel_content(state: &ShellState) -> AgentPanelContent {
+    PanelSlot {
+        terminal_present: state.terminal_view.is_some(),
+        terminal_visible: state.terminal_visible,
+    }
+    .content(state.native_chat_mode && RootView::native_agent_enabled())
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::root_view) enum HeaderIcon {
+    Terminal,
+    Agent,
+}
+
+/// header 的图标与可编辑性：由面板内容派生，不单独判断。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::root_view) struct HeaderModel {
+    pub icon: HeaderIcon,
+    pub editable: bool,
+}
+
+pub(in crate::root_view) fn header_model(content: AgentPanelContent) -> HeaderModel {
+    match content {
+        AgentPanelContent::Terminal => HeaderModel {
+            icon: HeaderIcon::Terminal,
+            editable: false,
+        },
+        AgentPanelContent::Native | AgentPanelContent::External => HeaderModel {
+            icon: HeaderIcon::Agent,
+            editable: true,
+        },
+    }
+}
+
+/// 标题选择：只按面板内容分派，隐藏终端的 OSC 标题不会泄漏到线程面板。
+fn title_for(
+    content: AgentPanelContent,
+    terminal_title: Option<&str>,
+    native_title: Option<&str>,
+    chat_title: Option<&str>,
+) -> String {
+    match content {
+        AgentPanelContent::Terminal => terminal_panel_title(terminal_title.unwrap_or("")),
+        AgentPanelContent::Native => native_title.unwrap_or("新对话").to_string(),
+        AgentPanelContent::External => chat_title.unwrap_or("新对话").to_string(),
+    }
+}
+
+fn panel_title(state: &ShellState, cx: &App) -> String {
+    let content = panel_content(state);
+    let terminal_title = state
+        .terminal_view
+        .as_ref()
+        .map(|view| view.read(cx).title().to_string());
+    let native_title = state
+        .native_agent_view
+        .as_ref()
+        .map(|view| view.read(cx).display_title());
+    let chat_title = state.chat.title_override.clone().or_else(|| {
+        state
+            .chat
+            .session
+            .session_id
+            .as_ref()
+            .and_then(|session_id| {
+                state
+                    .chat
+                    .sessions
+                    .iter()
+                    .find(|session| &session.session_id == session_id)
+                    .and_then(|session| session.title.clone())
+            })
+    });
+    title_for(
+        content,
+        terminal_title.as_deref(),
+        native_title.as_deref(),
+        chat_title.as_deref(),
+    )
 }
 
 pub(in crate::root_view) fn render_agent_panel(
@@ -48,11 +141,8 @@ pub(in crate::root_view) fn render_agent_panel(
     _window: &mut Window,
     cx: &mut Context<RootView>,
 ) -> AnyElement {
-    let native_mode = ctx.native_chat_mode && RootView::native_agent_enabled();
-    let content: AnyElement = match content_for(
-        ctx.terminal_visible && ctx.terminal_view.is_some(),
-        native_mode,
-    ) {
+    let panel = panel_content(ctx);
+    let content: AnyElement = match panel {
         AgentPanelContent::Terminal => ctx
             .terminal_view
             .clone()
@@ -78,32 +168,6 @@ pub(in crate::root_view) fn render_agent_panel(
         .into_any_element()
 }
 
-fn panel_title(ctx: &ScreenContext<'_>, cx: &mut Context<RootView>) -> String {
-    if let Some(view) = ctx.terminal_view.as_ref() {
-        return terminal_panel_title(view.read(cx).title());
-    }
-    if ctx.native_chat_mode && RootView::native_agent_enabled() {
-        return ctx
-            .native_agent_view
-            .as_ref()
-            .map(|view| view.read(cx).display_title())
-            .unwrap_or_else(|| "新对话".to_string());
-    }
-    ctx.chat
-        .title_override
-        .clone()
-        .or_else(|| {
-            ctx.chat.session.session_id.as_ref().and_then(|session_id| {
-                ctx.chat
-                    .sessions
-                    .iter()
-                    .find(|session| &session.session_id == session_id)
-                    .and_then(|session| session.title.clone())
-            })
-        })
-        .unwrap_or_else(|| "新对话".to_string())
-}
-
 /// 终端面板标题：程序通过 OSC 设置了标题就用它，否则回退 `Terminal`。
 pub(in crate::root_view) fn terminal_panel_title(title: &str) -> String {
     let trimmed = title.trim();
@@ -122,21 +186,25 @@ pub(in crate::root_view) fn header(
 ) -> AnyElement {
     let palette = *palette;
     let root = cx.entity().downgrade();
-    let native_mode = ctx.native_chat_mode && RootView::native_agent_enabled();
+    let content = panel_content(ctx);
+    let model = header_model(content);
+    let native_mode = content == AgentPanelContent::Native;
     let agent_icon_id = if native_mode {
         "native".to_string()
     } else {
         ctx.chat.selected_agent.clone().unwrap_or_default()
     };
     // 终端模式用终端图标，其余沿用 agent 品牌 mark（Zed 的 tab 同样按内容切图标）。
-    let header_icon = if ctx.terminal_view.is_some() {
-        crate::root_view::agent_icons::terminal_icon_element(AGENT_HEADER_ICON_SIZE, palette.ink_3)
-    } else {
-        crate::root_view::agent_icons::agent_icon_element(
+    let header_icon = match model.icon {
+        HeaderIcon::Terminal => crate::root_view::agent_icons::terminal_icon_element(
+            AGENT_HEADER_ICON_SIZE,
+            palette.ink_3,
+        ),
+        HeaderIcon::Agent => crate::root_view::agent_icons::agent_icon_element(
             &agent_icon_id,
             AGENT_HEADER_ICON_SIZE,
             palette.ink_3,
-        )
+        ),
     };
     let title = panel_title(ctx, cx);
     let editing = ctx.agent_panel_editing_title;
@@ -193,34 +261,48 @@ pub(in crate::root_view) fn header(
             .into_any_element()
     } else {
         // 对齐 Zed：标题本身就是编辑入口（没有铅笔）；Enter/失焦提交，Esc 取消。
+        // 终端标题由 shell 的 OSC 驱动，面板内不提供改名（改名见 #1252 B2）。
         let click_root = root.clone();
         let key_root = root.clone();
-        let editable = div()
-            .id("agent-panel-title")
-            .role(Role::Button)
-            .aria_label("重命名对话")
-            .tab_index(0isize)
-            .flex_1()
-            .flex()
-            .flex_row()
-            .items_center()
-            .px(space(1))
-            .rounded(px(RADIUS_SMALL))
-            .hover(|style| style.bg(palette.soft))
-            .child(div().text_size(px(13.0)).child(title.clone()))
-            .on_click(move |_, window, cx| {
-                let _ = click_root.update(cx, |this, cx| {
-                    this.start_edit_agent_panel_title(window, cx);
-                });
-            })
-            .on_key_down(move |event, window, cx| {
-                if matches!(event.keystroke.key.as_str(), "enter" | "space") {
-                    let _ = key_root.update(cx, |this, cx| {
+        let editable: AnyElement = if model.editable {
+            div()
+                .id("agent-panel-title")
+                .role(Role::Button)
+                .aria_label("重命名对话")
+                .tab_index(0isize)
+                .flex_1()
+                .flex()
+                .flex_row()
+                .items_center()
+                .px(space(1))
+                .rounded(px(RADIUS_SMALL))
+                .hover(|style| style.bg(palette.soft))
+                .child(div().text_size(px(13.0)).child(title.clone()))
+                .on_click(move |_, window, cx| {
+                    let _ = click_root.update(cx, |this, cx| {
                         this.start_edit_agent_panel_title(window, cx);
                     });
-                    cx.stop_propagation();
-                }
-            });
+                })
+                .on_key_down(move |event, window, cx| {
+                    if matches!(event.keystroke.key.as_str(), "enter" | "space") {
+                        let _ = key_root.update(cx, |this, cx| {
+                            this.start_edit_agent_panel_title(window, cx);
+                        });
+                        cx.stop_propagation();
+                    }
+                })
+                .into_any_element()
+        } else {
+            div()
+                .id("agent-panel-title-readonly")
+                .flex_1()
+                .flex()
+                .flex_row()
+                .items_center()
+                .px(space(1))
+                .child(div().text_size(px(13.0)).child(title.clone()))
+                .into_any_element()
+        };
         if let Some(error) = title_error {
             let retry_root = root.clone();
             div()
@@ -549,16 +631,67 @@ fn threads_sidebar_shortcut_label() -> &'static str {
 #[cfg(test)]
 mod tests {
     // 只做显式导入：父模块的 glob 会引入 gpui 的 test 宏。
-    use super::{content_for, terminal_panel_title, AgentPanelContent};
+    use super::{
+        header_model, terminal_panel_title, title_for, AgentPanelContent, HeaderIcon, PanelSlot,
+    };
 
     /// 面板内容优先级：终端可见时占位；隐藏（切到 agent）后显示对话内容。
+    /// 原 bug（#1269）：隐藏终端仍被当成面板模式——本测试的 `hidden` 分支就是那条守卫。
     #[test]
     fn terminal_owns_the_panel_only_while_visible() {
-        assert_eq!(content_for(true, true), AgentPanelContent::Terminal);
-        assert_eq!(content_for(true, false), AgentPanelContent::Terminal);
+        let visible = PanelSlot {
+            terminal_present: true,
+            terminal_visible: true,
+        };
+        assert_eq!(visible.content(true), AgentPanelContent::Terminal);
+        assert_eq!(visible.content(false), AgentPanelContent::Terminal);
+
         // 隐藏终端后（进程仍在跑）面板回到对话内容。
-        assert_eq!(content_for(false, true), AgentPanelContent::Native);
-        assert_eq!(content_for(false, false), AgentPanelContent::External);
+        let hidden = PanelSlot {
+            terminal_present: true,
+            terminal_visible: false,
+        };
+        assert_eq!(hidden.content(true), AgentPanelContent::Native);
+        assert_eq!(hidden.content(false), AgentPanelContent::External);
+
+        let absent = PanelSlot {
+            terminal_present: false,
+            terminal_visible: false,
+        };
+        assert_eq!(absent.content(true), AgentPanelContent::Native);
+        assert_eq!(absent.content(false), AgentPanelContent::External);
+    }
+
+    #[test]
+    fn header_follows_panel_content_not_terminal_presence() {
+        let terminal = header_model(AgentPanelContent::Terminal);
+        assert_eq!(terminal.icon, HeaderIcon::Terminal);
+        assert!(!terminal.editable, "终端标题由 OSC 驱动，面板内不可改名");
+
+        for content in [AgentPanelContent::Native, AgentPanelContent::External] {
+            let model = header_model(content);
+            assert_eq!(model.icon, HeaderIcon::Agent);
+            assert!(model.editable);
+        }
+    }
+
+    /// 原 bug 的直接断言：终端存在但隐藏时，线程面板的标题不能取终端 OSC 标题。
+    #[test]
+    fn hidden_terminal_title_never_reaches_a_thread_panel() {
+        let osc = Some("ywen: ~/cgc2046_workspace/assistant/884c");
+        assert_eq!(
+            title_for(AgentPanelContent::Native, osc, Some("课程"), Some("chat")),
+            "课程"
+        );
+        assert_eq!(
+            title_for(AgentPanelContent::External, osc, None, Some("chat")),
+            "chat"
+        );
+        // 终端内容仍然用终端标题。
+        assert_eq!(
+            title_for(AgentPanelContent::Terminal, osc, Some("课程"), None),
+            "ywen: ~/cgc2046_workspace/assistant/884c"
+        );
     }
 
     #[test]

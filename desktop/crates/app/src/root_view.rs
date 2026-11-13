@@ -569,34 +569,44 @@ impl RootView {
     }
 
     pub(in crate::root_view) fn agent_panel_title(&self, cx: &App) -> String {
-        if self.native_chat_mode && RootView::native_agent_enabled() {
-            if let Some(view) = self.native_panel_view() {
-                let view = view.read(cx);
-                if view.is_empty_thread() {
-                    return self.new_thread_title_for("CGC Agent");
-                }
-                return view.display_title();
-            }
-            return self.new_thread_title_for("CGC Agent");
-        }
-        self.chat
-            .title_override
-            .clone()
-            .or_else(|| crate::acp_history::thread_display_title(&self.chat.session.thread))
-            .or_else(|| {
-                self.chat
-                    .session
-                    .session_id
+        // 显示与编辑同源：面板内容由「终端可见 + 终端实例」共同决定（#1269）。
+        match screens::panel_content(self) {
+            screens::AgentPanelContent::Terminal => screens::terminal_panel_title(
+                self.terminal_view
                     .as_ref()
-                    .and_then(|session_id| {
-                        self.chat
-                            .sessions
-                            .iter()
-                            .find(|session| &session.session_id == session_id)
-                            .and_then(|session| session.title.clone())
-                    })
-            })
-            .unwrap_or_else(|| self.new_thread_title())
+                    .map(|view| view.read(cx).title())
+                    .unwrap_or(""),
+            ),
+            screens::AgentPanelContent::Native => {
+                if let Some(view) = self.native_panel_view() {
+                    let view = view.read(cx);
+                    if view.is_empty_thread() {
+                        return self.new_thread_title_for("CGC Agent");
+                    }
+                    return view.display_title();
+                }
+                self.new_thread_title_for("CGC Agent")
+            }
+            screens::AgentPanelContent::External => self
+                .chat
+                .title_override
+                .clone()
+                .or_else(|| crate::acp_history::thread_display_title(&self.chat.session.thread))
+                .or_else(|| {
+                    self.chat
+                        .session
+                        .session_id
+                        .as_ref()
+                        .and_then(|session_id| {
+                            self.chat
+                                .sessions
+                                .iter()
+                                .find(|session| &session.session_id == session_id)
+                                .and_then(|session| session.title.clone())
+                        })
+                })
+                .unwrap_or_else(|| self.new_thread_title()),
+        }
     }
 
     fn ensure_agent_panel_title_input(
@@ -633,6 +643,10 @@ impl RootView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // 终端标题由 shell 的 OSC 驱动；面板内改名只对线程生效（#1269 / #1252 B2）。
+        if screens::panel_content(self) == screens::AgentPanelContent::Terminal {
+            return;
+        }
         let title = self.agent_panel_title(cx);
         self.agent_panel_title_original = Some(title.clone());
         let input = self.ensure_agent_panel_title_input(window, cx);

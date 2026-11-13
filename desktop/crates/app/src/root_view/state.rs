@@ -378,7 +378,9 @@ pub struct ShellState {
     pub(in crate::root_view) native_chat_mode: bool,
     pub(in crate::root_view) native_agent_view:
         Option<gpui_kit::Entity<crate::native_agent_view::NativeAgentView>>,
-    /// 终端视图（＋ 菜单 → Terminal）。存在即表示 agent panel 处于终端模式。
+    /// 终端视图（＋ 菜单 → Terminal）。存在 ≠ 占据面板：切到 agent 时只隐藏
+    /// （`terminal_visible`），PTY 与输出保留。判断「当前显示什么」用
+    /// `screens::panel_content`，不要读 `is_some()`。
     pub(in crate::root_view) terminal_view:
         Option<gpui_kit::Entity<cgc_terminal_view::TerminalView>>,
     /// 应用主题变化订阅：切换主题时把新配色同步给已打开的终端。
