@@ -544,19 +544,23 @@ impl ConversationStore {
         Ok(())
     }
 
-    /// 终端关闭/进程退出时回填：最终标题、关闭时间与退出码。
+    /// 终端关闭/进程退出时回填：最终标题、最终目录、关闭时间与退出码。
     pub fn finish_terminal_session(
         &self,
         terminal_id: &str,
         title: Option<&str>,
+        working_directory: Option<&str>,
         closed_at: &str,
         exit_code: Option<i64>,
     ) -> Result<(), ConversationStoreError> {
         self.conn.execute(
             "UPDATE sidebar_terminal_sessions
-             SET title = COALESCE(?2, title), closed_at = ?3, exit_code = ?4
+             SET title = COALESCE(?2, title),
+                 working_directory = COALESCE(?3, working_directory),
+                 closed_at = ?4,
+                 exit_code = ?5
              WHERE terminal_id = ?1",
-            params![terminal_id, title, closed_at, exit_code],
+            params![terminal_id, title, working_directory, closed_at, exit_code],
         )?;
         Ok(())
     }
@@ -880,10 +884,21 @@ mod tests {
         assert_eq!(list[0].working_directory.as_deref(), Some("/tmp/project"));
 
         store
-            .finish_terminal_session("term-1", Some("build"), "2026-01-01T00:10:00Z", Some(2))
+            .finish_terminal_session(
+                "term-1",
+                Some("build"),
+                Some("/tmp/project/sub"),
+                "2026-01-01T00:10:00Z",
+                Some(2),
+            )
             .expect("finish");
         let list = store.list_terminal_sessions(10).expect("list");
         assert_eq!(list[0].display_title(), Some("build"));
+        assert_eq!(
+            list[0].working_directory.as_deref(),
+            Some("/tmp/project/sub"),
+            "关闭时把 live 目录写回，重新打开不会退回启动目录"
+        );
         assert_eq!(list[0].exit_code, Some(2));
         assert_eq!(list[0].updated_at(), "2026-01-01T00:10:00Z");
 

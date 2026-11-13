@@ -1732,7 +1732,20 @@ impl RootView {
             .as_ref()
             .and_then(|store| store.list_terminal_sessions(50).ok())
             .unwrap_or_default();
-        crate::acp_history::merge_history_with_terminals(native, acp, &native_archived, terminals)
+        let live_terminal = self.terminal_session_id.as_deref().map(|id| {
+            (
+                id,
+                self.terminal_live_title.as_deref(),
+                self.terminal_live_cwd.as_deref(),
+            )
+        });
+        crate::acp_history::merge_history_with_terminals(
+            native,
+            acp,
+            &native_archived,
+            terminals,
+            live_terminal,
+        )
     }
 
     pub(in crate::root_view) fn reset_config_search(
@@ -2548,19 +2561,42 @@ impl RootView {
         }
         self.terminal_session_id = Some(session_id);
         self.terminal_visible = true;
+        self.terminal_custom_title = None;
+        self.terminal_live_title = None;
+        self.terminal_live_cwd = None;
         self.terminal_cwd = cwd.clone();
         self.pending_terminal_open = None;
         self.chat.history = self.load_unified_history();
         cx.notify();
 
         // 33ms 轮询 PTY；视图析构后 `update` 失败，循环自然退出。
+        // OSC 标题/目录变化时同步到列表（DB 只在关闭时回填，运行中的行靠 live 覆盖）。
         let weak = view.downgrade();
-        cx.spawn(async move |_root, cx| loop {
-            cx.background_executor()
-                .timer(std::time::Duration::from_millis(33))
-                .await;
-            if weak.update(cx, |view, cx| view.poll(cx)).is_err() {
-                break;
+        cx.spawn(async move |root, cx| {
+            let mut last: (Option<String>, Option<String>) = (None, None);
+            loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(33))
+                    .await;
+                let Ok(snapshot) = weak.update(cx, |view, cx| {
+                    view.poll(cx);
+                    let title = Some(view.title().to_string()).filter(|title| !title.is_empty());
+                    let cwd = view.cwd().map(str::to_string);
+                    (title, cwd)
+                }) else {
+                    break;
+                };
+                if snapshot == last {
+                    continue;
+                }
+                last = snapshot.clone();
+                let (title, cwd) = snapshot;
+                let _ = root.update(cx, |root, cx| {
+                    root.terminal_live_title = title;
+                    root.terminal_live_cwd = cwd;
+                    root.chat.history = root.load_unified_history();
+                    cx.notify();
+                });
             }
         })
         .detach();
@@ -2569,14 +2605,24 @@ impl RootView {
     /// 关闭终端并回到对话视图；记住当前目录、回填会话日志。
     pub fn close_terminal(&mut self, cx: &mut Context<Self>) {
         if let Some(view) = self.terminal_view.take() {
-            let (cwd, title, exit_code) = {
+            let (cwd, title, cwd_text, exit_code) = {
                 let view = view.read(cx);
-                let title = view.title().trim().to_string();
-                (
-                    view.cwd().map(std::path::PathBuf::from),
-                    (!title.is_empty()).then_some(title),
-                    view.exit_code(),
-                )
+                let osc_title = view.title().trim().to_string();
+                let cwd = view
+                    .cwd()
+                    .map(std::path::PathBuf::from)
+                    .or_else(|| self.terminal_cwd.clone());
+                // 展示中的标题可能是 cwd 末段（shell 不设 OSC 标题时）；关闭时把它一并
+                // 持久化，否则行会回退到 spawn 时的目录名。
+                let title = (!osc_title.is_empty()).then_some(osc_title).or_else(|| {
+                    view.cwd()
+                        .and_then(|cwd| crate::acp_history::terminal_title(None, None, Some(cwd)))
+                });
+                let cwd_text = cwd
+                    .as_deref()
+                    .and_then(std::path::Path::to_str)
+                    .map(str::to_string);
+                (cwd, title, cwd_text, view.exit_code())
             };
             self.last_terminal_cwd = cwd;
             if let Some(session_id) = self.terminal_session_id.take() {
@@ -2586,6 +2632,7 @@ impl RootView {
                         store.finish_terminal_session(
                             &session_id,
                             title.as_deref(),
+                            cwd_text.as_deref(),
                             &closed_at,
                             exit_code.map(i64::from),
                         )
@@ -2597,6 +2644,9 @@ impl RootView {
         }
         self.pending_terminal_open = None;
         self.terminal_visible = false;
+        self.terminal_custom_title = None;
+        self.terminal_live_title = None;
+        self.terminal_live_cwd = None;
         self.terminal_cwd = None;
         self.chat.history = self.load_unified_history();
         cx.notify();
@@ -3849,7 +3899,7 @@ fn next_terminal_session_id() -> String {
 }
 
 /// 用户 home：macOS/Linux 用 `HOME`，Windows 用 `USERPROFILE`。
-fn home_dir() -> Option<std::path::PathBuf> {
+pub(in crate::root_view) fn home_dir() -> Option<std::path::PathBuf> {
     std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map(std::path::PathBuf::from)

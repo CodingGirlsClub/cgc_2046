@@ -46,8 +46,7 @@ impl RootView {
         let working_directory = entry.working_directory.clone();
         let actions = history_row_actions(entry);
         let title = entry
-            .title
-            .clone()
+            .display_title()
             .filter(|title| !title.trim().is_empty())
             .unwrap_or_else(|| match source {
                 HistorySource::Terminal => "Terminal".to_string(),
@@ -55,6 +54,8 @@ impl RootView {
             });
         let agent_label = entry.agent_label().to_string();
         let time_label = acp_history::relative_time_label(&entry.updated_at, now);
+        let home = crate::root_view::controller::home_dir()
+            .and_then(|path| path.to_str().map(str::to_string));
         let is_current = match source {
             HistorySource::Acp => entry
                 .session_id
@@ -171,7 +172,19 @@ impl RootView {
                         div()
                             .text_size(px(10.0))
                             .text_color(palette.ink_3)
-                            .child(format!("{agent_label} · {time_label}")),
+                            .child(match source {
+                                HistorySource::Terminal => entry
+                                    .working_directory
+                                    .as_deref()
+                                    .map(|directory| {
+                                        format!(
+                                            "{} · {time_label}",
+                                            acp_history::abbreviate_cwd(directory, home.as_deref())
+                                        )
+                                    })
+                                    .unwrap_or_else(|| format!("{agent_label} · {time_label}")),
+                                _ => format!("{agent_label} · {time_label}"),
+                            }),
                     ),
             )
             .on_click(move |_, window, cx| {
@@ -317,7 +330,9 @@ mod history_row_tests {
             session_id: Some("sess-1".to_string()),
             agent_id: Some("omp".to_string()),
             title: Some("t".to_string()),
+            title_suffix: None,
             updated_at: "2026-10-26T12:00:00Z".to_string(),
+            created_at: None,
             archived,
             source,
             working_directory: None,
