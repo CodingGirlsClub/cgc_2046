@@ -393,6 +393,20 @@ fn title_stamp(created_at: &str) -> Option<String> {
         .map(|time| time.with_timezone(&Local).format("%H:%M:%S").to_string())
 }
 
+/// 运行中终端的标题解析：custom > live OSC > live cwd > spawn cwd。
+///
+/// header、列表与轮询更新共用这一条链，shell 清空 OSC 标题时不会出现
+/// 「header 有目录名、列表却变成空标题」。
+pub fn live_terminal_title(
+    osc_title: Option<&str>,
+    custom_title: Option<&str>,
+    live_cwd: Option<&str>,
+    spawn_cwd: Option<&str>,
+) -> Option<String> {
+    let cwd = live_cwd.filter(|cwd| !cwd.trim().is_empty()).or(spawn_cwd);
+    terminal_title(osc_title, custom_title, cwd)
+}
+
 /// 运行中终端的 OSC 变化只更新对应行，避免在 UI 线程整表重载（#1252 C）。
 ///
 /// `title` 应是调用方按 `custom > live OSC > live cwd` 解析后的底名；
@@ -1201,6 +1215,38 @@ mod tests {
             merged[0].working_directory.as_deref(),
             Some("/tmp/cgc2046_workspace/assistant/884c7a2f"),
             "副标题目录与标题取同一个 live cwd"
+        );
+    }
+
+    #[test]
+    fn live_title_falls_back_to_spawn_cwd_when_shell_clears_title() {
+        assert_eq!(
+            live_terminal_title(
+                None,
+                None,
+                None,
+                Some("/tmp/cgc2046_workspace/assistant/abc")
+            ),
+            Some("abc".to_string()),
+            "shell 清空标题且无 OSC 7 时，用 spawn 目录名而不是空标题"
+        );
+        assert_eq!(
+            live_terminal_title(None, None, Some("/tmp/new"), Some("/tmp/spawn")),
+            Some("new".to_string()),
+            "live cwd 优先于 spawn cwd"
+        );
+        assert_eq!(
+            live_terminal_title(
+                Some("live: ~/p"),
+                None,
+                Some("/tmp/new"),
+                Some("/tmp/spawn")
+            ),
+            Some("live: ~/p".to_string())
+        );
+        assert_eq!(
+            live_terminal_title(None, Some("我的终端"), None, Some("/tmp/spawn")),
+            Some("我的终端".to_string())
         );
     }
 

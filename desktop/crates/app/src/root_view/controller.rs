@@ -2594,10 +2594,16 @@ impl RootView {
                 let (title, cwd) = snapshot;
                 let live_id = live_id.clone();
                 let _ = root.update(cx, |root, cx| {
-                    let resolved = crate::acp_history::terminal_title(
+                    let spawn_cwd = root
+                        .terminal_cwd
+                        .as_deref()
+                        .and_then(std::path::Path::to_str)
+                        .map(str::to_string);
+                    let resolved = crate::acp_history::live_terminal_title(
                         title.as_deref(),
                         root.terminal_custom_title.as_deref(),
                         cwd.as_deref(),
+                        spawn_cwd.as_deref(),
                     );
                     let updated = crate::acp_history::update_live_terminal_row(
                         &mut root.chat.history,
