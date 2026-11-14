@@ -83,20 +83,19 @@ pub struct TerminalCore {
     match_buffer: libghostty_vt::search::MatchBuffer,
 }
 
-/// OSC 7 的 `file://host/path` 归一成路径；已是路径时原样返回。
+/// OSC 7 的 `file://host/path` 归一成路径；OSC 9/1337 的裸路径原样返回。
 fn normalize_pwd(value: &str) -> Option<String> {
-    let value = value.trim();
     if value.is_empty() {
         return None;
     }
-    let path = match value.strip_prefix("file://") {
+    match value.strip_prefix("file://") {
         Some(rest) => {
             let index = rest.find('/')?;
-            &rest[index..]
+            Some(percent_decode(&rest[index..]))
         }
-        None => value,
-    };
-    Some(percent_decode(path))
+        // 裸路径不是 URI：不 trim、不做 percent-decode（目录名可能真含 `%20` 或空格）。
+        None => Some(value.to_string()),
+    }
 }
 
 fn percent_decode(value: &str) -> String {
@@ -495,9 +494,18 @@ mod tests {
             normalize_pwd("file:///tmp/a%20b").as_deref(),
             Some("/tmp/a b")
         );
-        assert_eq!(normalize_pwd("/tmp/plain").as_deref(), Some("/tmp/plain"));
+        assert_eq!(
+            normalize_pwd("/tmp/a%20b").as_deref(),
+            Some("/tmp/a%20b"),
+            "裸路径不解码：目录名可能真的包含 %20"
+        );
+        assert_eq!(
+            normalize_pwd("/tmp/with space ").as_deref(),
+            Some("/tmp/with space "),
+            "裸路径保留首尾空格"
+        );
         assert_eq!(normalize_pwd("file://host").as_deref(), None);
-        assert_eq!(normalize_pwd("   ").as_deref(), None);
+        assert_eq!(normalize_pwd("").as_deref(), None);
     }
 
     #[test]
