@@ -1731,10 +1731,25 @@ impl RootView {
             .as_ref()
             .and_then(|store| store.archived_native_threads().ok())
             .unwrap_or_default();
-        let terminals = store
+        let mut terminals = store
             .as_ref()
             .and_then(|store| store.list_terminal_sessions(50).ok())
             .unwrap_or_default();
+        // 活实例必须始终在列表里：它们可能早于最近 50 条，但历史行是「按 id 激活」的唯一入口。
+        if let Some(store) = store.as_ref() {
+            for terminal in self.terminal_panel.iter() {
+                if terminals.iter().any(|row| row.terminal_id == terminal.id) {
+                    continue;
+                }
+                match store.terminal_session(&terminal.id) {
+                    Ok(Some(row)) => terminals.push(row),
+                    Ok(None) => {}
+                    Err(error) => {
+                        log::warn!(target: "terminal", "补回终端会话失败：{error}");
+                    }
+                }
+            }
+        }
         let live_terminals: Vec<_> = self
             .terminal_panel
             .iter()
@@ -2656,8 +2671,8 @@ impl RootView {
         .detach();
     }
 
-    /// 关闭当前终端实例；回填日志后回落到最近激活的实例。
-    pub fn close_terminal(&mut self, cx: &mut Context<Self>) {
+    /// 关闭当前终端实例；回填日志后回落到最近激活的实例并转移焦点。
+    pub fn close_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some((session_id, view, spawn_cwd)) = self.terminal_panel.active().map(|terminal| {
             (
                 terminal.id.clone(),
@@ -2688,6 +2703,13 @@ impl RootView {
         };
         self.terminal_panel.set_last_cwd(cwd);
         self.terminal_panel.remove(&session_id);
+        if let Some(view) = self
+            .terminal_panel
+            .active()
+            .map(|terminal| terminal.view.clone())
+        {
+            view.update(cx, |view, cx| view.focus(window, cx));
+        }
         let closed_at = cgc_agent_store::now_utc_rfc3339();
         if let Err(error) = crate::acp_history::open_conversation_store().and_then(|store| {
             store.finish_terminal_session(

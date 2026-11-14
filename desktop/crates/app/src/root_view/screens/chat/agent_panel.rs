@@ -608,8 +608,9 @@ pub(in crate::root_view) fn header(
                     if terminal_open {
                         let close_root = settings_root.clone();
                         menu = menu.item(PopupMenuItem::new("Close Terminal").on_click(
-                            move |_, _, cx| {
-                                let _ = close_root.update(cx, |this, cx| this.close_terminal(cx));
+                            move |_, window, cx| {
+                                let _ = close_root
+                                    .update(cx, |this, cx| this.close_terminal(window, cx));
                             },
                         ));
                     }
