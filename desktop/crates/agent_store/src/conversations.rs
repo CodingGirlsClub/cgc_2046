@@ -117,18 +117,6 @@ pub struct TerminalSession {
 }
 
 impl TerminalSession {
-    /// 列表展示标题：用户重命名优先，其次程序标题。
-    pub fn display_title(&self) -> Option<&str> {
-        self.custom_title
-            .as_deref()
-            .filter(|title| !title.trim().is_empty())
-            .or_else(|| {
-                self.title
-                    .as_deref()
-                    .filter(|title| !title.trim().is_empty())
-            })
-    }
-
     /// 最近活动时间（关闭时间优先）。
     pub fn updated_at(&self) -> &str {
         self.closed_at.as_deref().unwrap_or(&self.created_at)
@@ -880,7 +868,8 @@ mod tests {
 
         let list = store.list_terminal_sessions(10).expect("list");
         assert_eq!(list.len(), 1);
-        assert_eq!(list[0].display_title(), Some("vim"));
+        assert_eq!(list[0].title.as_deref(), Some("vim"));
+        assert!(list[0].custom_title.is_none());
         assert_eq!(list[0].working_directory.as_deref(), Some("/tmp/project"));
 
         store
@@ -893,7 +882,7 @@ mod tests {
             )
             .expect("finish");
         let list = store.list_terminal_sessions(10).expect("list");
-        assert_eq!(list[0].display_title(), Some("build"));
+        assert_eq!(list[0].title.as_deref(), Some("build"));
         assert_eq!(
             list[0].working_directory.as_deref(),
             Some("/tmp/project/sub"),
@@ -906,9 +895,12 @@ mod tests {
         store
             .rename_terminal_session("term-1", Some("部署"))
             .expect("rename");
+        let renamed = store.list_terminal_sessions(10).unwrap();
+        assert_eq!(renamed[0].custom_title.as_deref(), Some("部署"));
         assert_eq!(
-            store.list_terminal_sessions(10).unwrap()[0].display_title(),
-            Some("部署")
+            renamed[0].title.as_deref(),
+            Some("build"),
+            "重命名只写 custom_title，不改程序标题"
         );
         store
             .rename_terminal_session("term-1", Some("   "))
@@ -922,10 +914,9 @@ mod tests {
             )
             .expect("read custom_title");
         assert_eq!(stored, None, "空白重命名应把覆盖列清成 NULL");
-        assert_eq!(
-            store.list_terminal_sessions(10).unwrap()[0].display_title(),
-            Some("build")
-        );
+        let cleared = store.list_terminal_sessions(10).unwrap();
+        assert!(cleared[0].custom_title.is_none());
+        assert_eq!(cleared[0].title.as_deref(), Some("build"));
     }
 
     #[test]
