@@ -378,29 +378,10 @@ pub struct ShellState {
     pub(in crate::root_view) native_chat_mode: bool,
     pub(in crate::root_view) native_agent_view:
         Option<gpui_kit::Entity<crate::native_agent_view::NativeAgentView>>,
-    /// 终端视图（＋ 菜单 → Terminal）。存在 ≠ 占据面板：切到 agent 时只隐藏
-    /// （`terminal_visible`），PTY 与输出保留。判断「当前显示什么」用
-    /// `screens::panel_content`，不要读 `is_some()`。
-    pub(in crate::root_view) terminal_view:
-        Option<gpui_kit::Entity<cgc_terminal_view::TerminalView>>,
+    /// 终端实例表（B1）：身份按 id，切到 agent 只隐藏，PTY 保留。
+    pub(in crate::root_view) terminal_panel: crate::root_view::terminal_panel::LiveTerminalPanel,
     /// 应用主题变化订阅：切换主题时把新配色同步给已打开的终端。
     pub(in crate::root_view) theme_subscription: Option<Subscription>,
-    /// 上次终端的 cwd：新终端从该目录启动（终端关闭后仍保留）。
-    pub(in crate::root_view) last_terminal_cwd: Option<std::path::PathBuf>,
-    /// 当前终端会话 id（历史侧栏 terminal 行的 key）。
-    pub(in crate::root_view) terminal_session_id: Option<String>,
-    /// 终端是否占据面板内容（关闭面板内容不等于销毁终端，见 `dismiss_terminal_for_chat`）。
-    pub(in crate::root_view) terminal_visible: bool,
-    /// 当前终端的用户重命名（写 `sidebar_terminal_sessions.custom_title`，穿插在 OSC 标题之上）。
-    pub(in crate::root_view) terminal_custom_title: Option<String>,
-    /// 当前终端的 live OSC 标题（DB 只在关闭时回填，列表靠它覆盖运行中的行）。
-    pub(in crate::root_view) terminal_live_title: Option<String>,
-    /// 当前终端的 live 工作目录（OSC 7；标题为空时 header 与列表都用它兜底）。
-    pub(in crate::root_view) terminal_live_cwd: Option<String>,
-    /// 当前终端启动时的工作目录（不依赖 shell 的 OSC 7，用于判断能否复用实例）。
-    pub(in crate::root_view) terminal_cwd: Option<std::path::PathBuf>,
-    /// 等待二次确认的替换目录（已有终端在跑时点历史记录）。
-    pub(in crate::root_view) pending_terminal_open: Option<std::path::PathBuf>,
     pub(in crate::root_view) native_runtime: Option<crate::native_runtime::NativeRuntimeHandle>,
     pub(in crate::root_view) native_scope: Option<crate::agent_scope::AgentScope>,
     pub(in crate::root_view) page_context: crate::page_context::PageContextState,
@@ -616,16 +597,8 @@ impl ShellState {
             native_agent_highlight: None,
             native_chat_mode: crate::chat_state::load_native_chat_mode().unwrap_or(true),
             native_agent_view: None,
-            terminal_view: None,
+            terminal_panel: Default::default(),
             theme_subscription: None,
-            last_terminal_cwd: None,
-            terminal_session_id: None,
-            terminal_visible: false,
-            terminal_custom_title: None,
-            terminal_live_title: None,
-            terminal_live_cwd: None,
-            terminal_cwd: None,
-            pending_terminal_open: None,
             native_runtime: None,
             native_scope: None,
             page_context: Default::default(),

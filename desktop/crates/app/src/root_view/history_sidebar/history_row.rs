@@ -56,6 +56,13 @@ impl RootView {
         let time_label = acp_history::relative_time_label(&entry.updated_at, now);
         let home = crate::root_view::controller::home_dir()
             .and_then(|path| path.to_str().map(str::to_string));
+        let live_terminal_id = thread_id
+            .strip_prefix("terminal:")
+            .filter(|id| self.terminal_panel.contains(id));
+        let same_dir_count = live_terminal_id
+            .and(working_directory.as_deref())
+            .map(|directory| self.terminal_panel.same_cwd_count(directory))
+            .unwrap_or(0);
         let is_current = match source {
             HistorySource::Acp => entry
                 .session_id
@@ -64,8 +71,9 @@ impl RootView {
             HistorySource::Native => self.native_agent_view.as_ref().is_some_and(|view| {
                 view.read(cx).current_thread_id().as_deref() == Some(thread_id.as_str())
             }),
-            // 终端行的 key 是历史记录 id，不跟踪当前活动实例。
-            HistorySource::Terminal => false,
+            HistorySource::Terminal => {
+                live_terminal_id.is_some_and(|id| self.terminal_panel.is_active(id))
+            }
         };
         let renaming = self
             .history_sidebar
@@ -177,10 +185,15 @@ impl RootView {
                                     .working_directory
                                     .as_deref()
                                     .map(|directory| {
-                                        format!(
-                                            "{} · {time_label}",
-                                            acp_history::abbreviate_cwd(directory, home.as_deref())
-                                        )
+                                        let cwd =
+                                            acp_history::abbreviate_cwd(directory, home.as_deref());
+                                        if same_dir_count > 1 {
+                                            format!(
+                                                "同目录 ×{same_dir_count} · {cwd} · {time_label}"
+                                            )
+                                        } else {
+                                            format!("{cwd} · {time_label}")
+                                        }
                                     })
                                     .unwrap_or_else(|| format!("{agent_label} · {time_label}")),
                                 _ => format!("{agent_label} · {time_label}"),
