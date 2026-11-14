@@ -14,6 +14,17 @@ pub(crate) struct WorkspaceState {
     /// 最近一次使用的工作区 slug；`/` 的落点与启动恢复用它。
     pub(crate) last_workspace: Option<String>,
     pub(crate) workspaces: BTreeMap<String, WorkspaceEntry>,
+    /// 全局（不按 workspace 分桶）：重启后要恢复的面板意图。
+    pub(crate) panel: PanelIntent,
+}
+
+/// 上次可见的面板条目。只记意图，不记实例/进程。
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct PanelIntent {
+    /// `"terminal"` 或 `"thread"`；`None` 表示没有记录。
+    pub(crate) active_kind: Option<String>,
+    /// 仅 terminal：启动时重建实例的目录。
+    pub(crate) terminal_cwd: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -243,6 +254,7 @@ pub(crate) fn load() -> WorkspaceState {
             .get("last_workspace")
             .and_then(Value::as_str)
             .map(str::to_string),
+        panel: parse_panel(value.get("panel")),
         ..WorkspaceState::default()
     };
     let Some(workspaces) = value.get("workspaces").and_then(Value::as_object) else {
@@ -364,9 +376,17 @@ pub(crate) fn save(state: &WorkspaceState) {
             (workspace_id.clone(), value)
         })
         .collect::<serde_json::Map<_, _>>();
+    let panel = json!({
+        "version": 1,
+        "active": state.panel.active_kind.as_ref().map(|kind| json!({
+            "kind": kind,
+            "cwd": state.panel.terminal_cwd,
+        })),
+    });
     let raw = serde_json::to_string_pretty(&json!({
         "last_workspace": state.last_workspace,
         "workspaces": workspaces,
+        "panel": panel,
     }))
     .unwrap_or_else(|_| "{\"workspaces\":{}}".to_string());
     let _ = std::fs::write(path, raw);
@@ -395,6 +415,34 @@ pub(crate) fn save_entry(workspace_id: &str, entry: WorkspaceEntry) {
     let mut state = load();
     state.workspaces.insert(workspace_id.to_string(), entry);
     save(&state);
+}
+
+fn parse_panel(value: Option<&Value>) -> PanelIntent {
+    let active = value.and_then(|panel| panel.get("active"));
+    PanelIntent {
+        active_kind: active
+            .and_then(|active| active.get("kind"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        terminal_cwd: active
+            .and_then(|active| active.get("cwd"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
+    }
+}
+
+/// 记录上次可见的面板条目；`kind` 为 `terminal` 时附带重建目录。
+pub(crate) fn save_panel_intent(kind: &str, cwd: Option<&str>) {
+    let mut state = load();
+    state.panel = PanelIntent {
+        active_kind: Some(kind.to_string()),
+        terminal_cwd: cwd.map(str::to_string),
+    };
+    save(&state);
+}
+
+pub(crate) fn panel_intent() -> PanelIntent {
+    load().panel
 }
 
 /// 测试用的进程级环境锁：`CGC_WORKSPACE_STATE_FILE` 是进程级 env，凡是临时改写它的
@@ -493,6 +541,37 @@ mod tests {
             Some("2046"),
             "saving another workspace entry must not drop the last workspace"
         );
+        if let Some(previous) = previous {
+            std::env::set_var("CGC_WORKSPACE_STATE_FILE", previous);
+        } else {
+            std::env::remove_var("CGC_WORKSPACE_STATE_FILE");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn panel_intent_round_trips_and_stays_global() {
+        let _env = test_env_lock::acquire();
+        let dir = std::env::temp_dir().join(format!("cgc-workspace-panel-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let path = dir.join("workspace_state.json");
+        let previous = std::env::var_os("CGC_WORKSPACE_STATE_FILE");
+        std::env::set_var("CGC_WORKSPACE_STATE_FILE", &path);
+
+        save_panel_intent("terminal", Some("/tmp/project"));
+        let intent = panel_intent();
+        assert_eq!(intent.active_kind.as_deref(), Some("terminal"));
+        assert_eq!(intent.terminal_cwd.as_deref(), Some("/tmp/project"));
+        assert!(
+            load().workspaces.is_empty(),
+            "panel 意图是全局段，不写进 workspace 分桶"
+        );
+
+        save_panel_intent("thread", None);
+        let intent = panel_intent();
+        assert_eq!(intent.active_kind.as_deref(), Some("thread"));
+        assert_eq!(intent.terminal_cwd, None, "线程意图不保留终端 cwd");
+
         if let Some(previous) = previous {
             std::env::set_var("CGC_WORKSPACE_STATE_FILE", previous);
         } else {

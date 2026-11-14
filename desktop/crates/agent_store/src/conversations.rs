@@ -553,6 +553,18 @@ impl ConversationStore {
         Ok(())
     }
 
+    /// 启动时收尾上一次进程留下的「活着」行（`closed_at IS NULL`）。
+    pub fn close_orphan_terminal_sessions(
+        &self,
+        closed_at: &str,
+    ) -> Result<usize, ConversationStoreError> {
+        let changed = self.conn.execute(
+            "UPDATE sidebar_terminal_sessions SET closed_at = ?1 WHERE closed_at IS NULL",
+            params![closed_at],
+        )?;
+        Ok(changed)
+    }
+
     /// 重命名终端会话（`None`/空白清除自定义标题，回退到程序标题）。
     pub fn rename_terminal_session(
         &self,
@@ -968,6 +980,56 @@ mod tests {
             Some("term-1".to_string())
         );
         assert!(store.terminal_session("missing").expect("lookup").is_none());
+    }
+
+    #[test]
+    fn orphan_terminal_sessions_close_once() {
+        let store = ConversationStore::open_in_memory().expect("store");
+        let session = |id: &str, closed: Option<&str>| TerminalSession {
+            terminal_id: id.into(),
+            title: Some("t".into()),
+            custom_title: None,
+            working_directory: Some("/tmp/x".into()),
+            created_at: "2026-01-01T00:00:00Z".into(),
+            closed_at: closed.map(str::to_string),
+            exit_code: None,
+        };
+        store
+            .upsert_terminal_session(&session("open", None))
+            .expect("insert open");
+        store
+            .upsert_terminal_session(&session("done", Some("2026-01-01T00:05:00Z")))
+            .expect("insert done");
+
+        assert_eq!(
+            store
+                .close_orphan_terminal_sessions("2026-01-02T00:00:00Z")
+                .expect("sweep"),
+            1,
+            "只收尾上次进程留下的 NULL 行"
+        );
+        let rows = store.list_terminal_sessions(10).expect("list");
+        let open = rows
+            .iter()
+            .find(|row| row.terminal_id == "open")
+            .expect("open");
+        assert_eq!(open.closed_at.as_deref(), Some("2026-01-02T00:00:00Z"));
+        let done = rows
+            .iter()
+            .find(|row| row.terminal_id == "done")
+            .expect("done");
+        assert_eq!(
+            done.closed_at.as_deref(),
+            Some("2026-01-01T00:05:00Z"),
+            "已关闭的行不被改写"
+        );
+        assert_eq!(
+            store
+                .close_orphan_terminal_sessions("2026-01-03T00:00:00Z")
+                .expect("second sweep"),
+            0,
+            "幂等：第二次没有孤儿"
+        );
     }
 
     #[test]

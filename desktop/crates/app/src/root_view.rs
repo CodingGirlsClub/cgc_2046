@@ -769,6 +769,15 @@ impl Render for RootView {
                     this.sync_terminal_theme(cx)
                 }));
         }
+        if self.panel_restore_pending
+            && self.session.signed_in().is_some()
+            && self.native_scope.is_some()
+        {
+            self.panel_restore_pending = false;
+            cx.defer_in(window, |this, window, cx| {
+                this.restore_panel_intent(window, cx);
+            });
+        }
         let fullscreen = window.is_fullscreen() || window.is_simple_fullscreen();
         let previous_page = self.page_context.visible();
         self.refresh_page_context();

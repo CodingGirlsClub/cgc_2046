@@ -9,6 +9,9 @@ use state::SiteTreeSection;
 /// 终端实例上限：达到后拒绝新建并提示，不静默淘汰。
 const TERMINAL_LIMIT: usize = 5;
 
+/// 启动时自动重建的终端数量上限（budget）。只恢复上次 active 的那一个。
+const RESTORE_BUDGET: usize = 1;
+
 #[cfg(all(test, cgc_ui_tests))]
 #[path = "workspace_layout_tests.rs"]
 mod workspace_layout_tests;
@@ -2436,8 +2439,66 @@ impl RootView {
     pub(in crate::root_view) fn dismiss_terminal_for_chat(&mut self, cx: &mut Context<Self>) {
         if self.terminal_panel.active_id().is_some() {
             self.terminal_panel.hide();
+            self.persist_panel_intent();
             cx.notify();
         }
+    }
+
+    /// 记录上次可见的面板条目，供下次启动恢复（budget=1）。
+    fn persist_panel_intent(&self) {
+        match screens::panel_content(self) {
+            screens::AgentPanelContent::Terminal => {
+                let cwd = self.terminal_panel.active().and_then(|terminal| {
+                    terminal.live_cwd.clone().or_else(|| {
+                        terminal
+                            .spawn_cwd
+                            .as_deref()
+                            .and_then(std::path::Path::to_str)
+                            .map(str::to_string)
+                    })
+                });
+                crate::workspace_state::save_panel_intent("terminal", cwd.as_deref());
+            }
+            _ => crate::workspace_state::save_panel_intent("thread", None),
+        }
+    }
+
+    /// 启动恢复：先收尾上次进程留下的孤儿行，再按意图重建一个终端。
+    pub(in crate::root_view) fn restore_panel_intent(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // 单实例锁：另一个实例在跑时不能收尾它的活行，也不重复恢复。
+        let lock_path = AppPaths::from_env().data_root.join("instance.lock");
+        let lock = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(&lock_path)
+            .ok();
+        let exclusive = lock.as_ref().is_some_and(|file| file.try_lock().is_ok());
+        if !exclusive {
+            return;
+        }
+        self.instance_lock = lock;
+        // 上次进程已退出：所有 `closed_at IS NULL` 的终端行都是孤儿。
+        if let Ok(store) = crate::acp_history::open_conversation_store() {
+            let now = cgc_agent_store::now_utc_rfc3339();
+            if let Err(error) = store.close_orphan_terminal_sessions(&now) {
+                log::warn!(target: "terminal", "收尾孤儿终端会话失败：{error}");
+            }
+        }
+        let intent = crate::workspace_state::panel_intent();
+        if !should_restore_terminal(intent.active_kind.as_deref()) {
+            return;
+        }
+        if RESTORE_BUDGET == 0 || !self.terminal_panel.can_open(TERMINAL_LIMIT) {
+            return;
+        }
+        let cwd =
+            persisted_cwd_or_fallback(intent.terminal_cwd.as_deref(), self.default_terminal_cwd());
+        self.spawn_terminal(cwd, window, cx);
     }
 
     /// 「+」菜单选择 CGC Agent：在 Agent Panel 内切到 native agent。
@@ -2493,6 +2554,7 @@ impl RootView {
             {
                 view.update(cx, |view, cx| view.focus(window, cx));
             }
+            self.persist_panel_intent();
             cx.notify();
             return;
         }
@@ -2603,6 +2665,7 @@ impl RootView {
                 live_cwd: None,
                 spawn_cwd: cwd.clone(),
             });
+        self.persist_panel_intent();
         self.chat.history = self.load_unified_history();
         cx.notify();
 
@@ -2635,6 +2698,7 @@ impl RootView {
                         let Some(terminal) = root.terminal_panel.get_mut(&id) else {
                             return false;
                         };
+                        let cwd_changed = terminal.live_cwd != cwd;
                         terminal.live_title = title.clone();
                         terminal.live_cwd = cwd.clone();
                         let custom = terminal.custom_title.clone();
@@ -2643,6 +2707,9 @@ impl RootView {
                             .as_deref()
                             .and_then(std::path::Path::to_str)
                             .map(str::to_string);
+                        if cwd_changed && root.terminal_panel.is_active(&id) {
+                            root.persist_panel_intent();
+                        }
                         let resolved = crate::acp_history::live_terminal_title(
                             title.as_deref(),
                             custom.as_deref(),
@@ -2703,6 +2770,7 @@ impl RootView {
         };
         self.terminal_panel.set_last_cwd(cwd);
         self.terminal_panel.remove(&session_id);
+        self.persist_panel_intent();
         if let Some(view) = self
             .terminal_panel
             .active()
@@ -3987,4 +4055,77 @@ pub(in crate::root_view) fn terminal_cwd<'a>(
     home: Option<&'a std::path::Path>,
 ) -> Option<&'a std::path::Path> {
     last.or(scope_root).or(home)
+}
+
+/// 启动恢复只认「上次停在终端」这一种意图。
+fn should_restore_terminal(kind: Option<&str>) -> bool {
+    kind == Some("terminal")
+}
+
+/// 恢复目录：存值仍是目录就用，否则走默认回退链。
+fn persisted_cwd_or_fallback(
+    persisted: Option<&str>,
+    fallback: Option<std::path::PathBuf>,
+) -> Option<std::path::PathBuf> {
+    persisted
+        .map(std::path::PathBuf::from)
+        .filter(|path| path.is_dir())
+        .or(fallback)
+}
+
+#[cfg(test)]
+mod restart_recovery_tests {
+    use super::{persisted_cwd_or_fallback, should_restore_terminal};
+    use std::fs::OpenOptions;
+
+    #[test]
+    fn instance_lock_rejects_a_second_holder() {
+        let path = std::env::temp_dir().join(format!("cgc-instance-lock-{}", std::process::id()));
+        let first = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(&path)
+            .expect("open first");
+        assert!(first.try_lock().is_ok(), "第一个实例拿到锁");
+        let second = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(&path)
+            .expect("open second");
+        assert!(second.try_lock().is_err(), "第二个实例拿不到锁");
+        drop(first);
+        assert!(second.try_lock().is_ok(), "释放后可以接管");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn only_terminal_intent_restores_an_instance() {
+        assert!(should_restore_terminal(Some("terminal")));
+        assert!(!should_restore_terminal(Some("thread")));
+        assert!(!should_restore_terminal(None));
+    }
+
+    #[test]
+    fn persisted_cwd_must_still_exist() {
+        let dir = std::env::temp_dir().join(format!("cgc-restore-cwd-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let saved = dir.to_string_lossy().to_string();
+        assert_eq!(
+            persisted_cwd_or_fallback(Some(&saved), Some("/fallback".into())),
+            Some(dir.clone()),
+            "存值仍是目录时优先"
+        );
+        assert_eq!(
+            persisted_cwd_or_fallback(Some("/definitely/missing"), Some("/fallback".into())),
+            Some("/fallback".into()),
+            "目录不存在时回退"
+        );
+        assert_eq!(
+            persisted_cwd_or_fallback(None, Some("/fallback".into())),
+            Some("/fallback".into())
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
