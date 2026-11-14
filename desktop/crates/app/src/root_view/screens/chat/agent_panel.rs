@@ -72,10 +72,11 @@ impl ShellState {
             .terminal_cwd
             .as_deref()
             .and_then(std::path::Path::to_str);
-        crate::acp_history::terminal_title(
+        crate::acp_history::live_terminal_title(
             Some(view.title()),
             self.terminal_custom_title.as_deref(),
-            view.cwd().filter(|cwd| !cwd.is_empty()).or(spawn_cwd),
+            view.cwd(),
+            spawn_cwd,
         )
     }
 }
