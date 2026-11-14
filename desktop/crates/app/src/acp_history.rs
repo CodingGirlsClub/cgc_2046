@@ -251,7 +251,7 @@ pub fn merge_history_with_native_archived(
         acp_threads,
         native_archived,
         Vec::new(),
-        None,
+        &[],
     )
 }
 
@@ -438,7 +438,7 @@ pub fn merge_history_with_terminals(
     acp_threads: Vec<SidebarThread>,
     native_archived: &std::collections::HashSet<String>,
     terminal_sessions: Vec<cgc_agent_store::TerminalSession>,
-    live_terminal: Option<(&str, Option<&str>, Option<&str>)>,
+    live_terminals: &[(String, Option<String>, Option<String>)],
 ) -> Vec<HistoryEntry> {
     let mut entries: Vec<HistoryEntry> = native_threads
         .into_iter()
@@ -479,33 +479,31 @@ pub fn merge_history_with_terminals(
         .chain(terminal_sessions.into_iter().map(|session| {
             // 运行中的终端：header 读 live OSC / OSC 7；DB 里的 title 与 cwd 只在关闭时回填。
             // 标题与副标题都从同一个 `working_directory` 派生，`cd` 后两处不会各显示一个目录。
-            let live_osc = match live_terminal {
-                Some((id, osc, _)) if id == session.terminal_id => {
-                    osc.filter(|title| !title.is_empty())
-                }
-                _ => None,
-            };
-            let live_cwd = match live_terminal {
-                Some((id, _, cwd)) if id == session.terminal_id => {
-                    cwd.filter(|cwd| !cwd.is_empty())
-                }
-                _ => None,
-            };
+            let live = live_terminals
+                .iter()
+                .find(|(id, _, _)| id == &session.terminal_id);
+            let live_osc = live
+                .and_then(|(_, title, _)| title.as_deref())
+                .filter(|title| !title.is_empty());
+            let live_cwd = live
+                .and_then(|(_, _, cwd)| cwd.as_deref())
+                .filter(|cwd| !cwd.is_empty());
             let working_directory = live_cwd
                 .map(str::to_string)
                 .or_else(|| session.working_directory.clone());
-            let title = match live_terminal {
-                Some((id, _, _)) if id == session.terminal_id => terminal_title(
+            let title = if live.is_some() {
+                terminal_title(
                     live_osc,
                     session.custom_title.as_deref(),
                     working_directory.as_deref(),
                 )
-                .or_else(|| session.title.clone()),
-                _ => terminal_title(
+                .or_else(|| session.title.clone())
+            } else {
+                terminal_title(
                     session.title.as_deref(),
                     session.custom_title.as_deref(),
                     working_directory.as_deref(),
-                ),
+                )
             };
             HistoryEntry {
                 // 前缀避免与 thread_id 冲突（重命名/点击都按这个 key 分派）。
@@ -1061,7 +1059,7 @@ mod tests {
                 terminal_session("t1", "2026-11-13T06:00:00Z", None),
                 terminal_session("t2", "2026-11-13T07:00:00Z", None),
             ],
-            None,
+            &[],
         );
         for entry in &merged {
             assert_eq!(
@@ -1094,7 +1092,7 @@ mod tests {
                 terminal_session("t1", "2026-11-13T06:00:10Z", None),
                 terminal_session("t2", "2026-11-13T06:00:10Z", None),
             ],
-            None,
+            &[],
         );
         let first = merged[0].display_title().expect("display title");
         let second = merged[1].display_title().expect("display title");
@@ -1139,7 +1137,7 @@ mod tests {
             vec![],
             &Default::default(),
             vec![terminal_session("t1", "2026-11-13T06:00:00Z", None)],
-            None,
+            &[],
         );
         assert_eq!(merged[0].title.as_deref(), Some("omp"), "不撞车就不加后缀");
     }
@@ -1155,7 +1153,7 @@ mod tests {
                 "2026-11-13T06:00:00Z",
                 Some("我的终端"),
             )],
-            None,
+            &[],
         );
         assert_eq!(merged[0].title.as_deref(), Some("我的终端"));
     }
@@ -1167,7 +1165,7 @@ mod tests {
             vec![],
             &Default::default(),
             vec![terminal_session("t1", "2026-11-13T06:00:00Z", None)],
-            Some(("t1", Some("live: ~/p"), None)),
+            &[("t1".to_string(), Some("live: ~/p".to_string()), None)],
         );
         assert_eq!(
             merged[0].title.as_deref(),
@@ -1184,7 +1182,7 @@ mod tests {
                 "2026-11-13T06:00:00Z",
                 Some("我的终端"),
             )],
-            Some(("t1", Some("live: ~/p"), None)),
+            &[("t1".to_string(), Some("live: ~/p".to_string()), None)],
         );
         assert_eq!(
             renamed[0].title.as_deref(),
@@ -1200,11 +1198,11 @@ mod tests {
             vec![],
             &Default::default(),
             vec![terminal_session("t1", "2026-11-13T06:00:00Z", None)],
-            Some((
-                "t1",
+            &[(
+                "t1".to_string(),
                 None,
-                Some("/tmp/cgc2046_workspace/assistant/884c7a2f"),
-            )),
+                Some("/tmp/cgc2046_workspace/assistant/884c7a2f".to_string()),
+            )],
         );
         assert_eq!(
             merged[0].title.as_deref(),
@@ -1260,7 +1258,7 @@ mod tests {
                 terminal_session("t1", "2026-11-13T06:00:00Z", None),
                 terminal_session("t2", "2026-11-13T07:00:00Z", None),
             ],
-            None,
+            &[],
         );
         assert!(
             update_live_terminal_row(&mut merged, "t1", Some("build"), Some("/tmp/y")),
@@ -1308,7 +1306,7 @@ mod tests {
             exit_code: None,
         };
         let merged =
-            merge_history_with_terminals(vec![], vec![], &Default::default(), vec![session], None);
+            merge_history_with_terminals(vec![], vec![], &Default::default(), vec![session], &[]);
         assert_eq!(merged.len(), 1);
         let row = &merged[0];
         assert_eq!(row.source, HistorySource::Terminal);

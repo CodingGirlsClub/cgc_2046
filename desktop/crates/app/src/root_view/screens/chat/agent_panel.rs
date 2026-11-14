@@ -30,51 +30,43 @@ pub(in crate::root_view) fn content_kind(
     }
 }
 
-/// 面板槽位的两个独立事实：终端实例是否存在（可能被隐藏）、它是否占据面板。
+/// 面板内容优先级：active 终端 > native > external。
 ///
-/// 切到 agent 时只隐藏终端（`RootView::dismiss_terminal_for_chat`），PTY 与输出保留，
-/// 所以「终端存在」不等于「终端占面板」。任何「当前显示什么」的判断都必须过这里，
-/// 不能再直接读 `terminal_view.is_some()`——那会把隐藏终端当成面板模式（issue #1269）。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(in crate::root_view) struct PanelSlot {
-    pub terminal_present: bool,
-    pub terminal_visible: bool,
-}
-
-impl PanelSlot {
-    /// 面板内容优先级：可见终端 > native > external。
-    pub fn content(self, native_mode: bool) -> AgentPanelContent {
-        if self.terminal_present && self.terminal_visible {
-            AgentPanelContent::Terminal
-        } else {
-            content_kind(native_mode, None)
-        }
+/// 切到 agent 时只隐藏实例（`TerminalPanel::hide`），PTY 保留；因此判定只看 active，
+/// 不看实例数量。
+pub(in crate::root_view) fn panel_content_for(
+    terminal_active: bool,
+    native_mode: bool,
+) -> AgentPanelContent {
+    if terminal_active {
+        AgentPanelContent::Terminal
+    } else {
+        content_kind(native_mode, None)
     }
 }
 
 /// 当前面板显示什么：唯一判定入口（header、标题、编辑入口都从这里派生）。
 pub(in crate::root_view) fn panel_content(state: &ShellState) -> AgentPanelContent {
-    PanelSlot {
-        terminal_present: state.terminal_view.is_some(),
-        terminal_visible: state.terminal_visible,
-    }
-    .content(state.native_chat_mode && RootView::native_agent_enabled())
+    panel_content_for(
+        state.terminal_panel.active_id().is_some(),
+        state.native_chat_mode && RootView::native_agent_enabled(),
+    )
 }
 
 impl ShellState {
-    /// 当前终端的展示标题：custom > live OSC > live cwd > spawn cwd。
+    /// 当前 active 终端的展示标题：custom > live OSC > live cwd > spawn cwd。
     ///
     /// header 与历史列表共用同一组输入，`cd` 之后不会各显示一个目录名（#1252 B2）。
     pub(in crate::root_view) fn terminal_display_title(&self, cx: &App) -> Option<String> {
-        let view = self.terminal_view.as_ref()?;
-        let view = view.read(cx);
-        let spawn_cwd = self
-            .terminal_cwd
+        let terminal = self.terminal_panel.active()?;
+        let view = terminal.view.read(cx);
+        let spawn_cwd = terminal
+            .spawn_cwd
             .as_deref()
             .and_then(std::path::Path::to_str);
         crate::acp_history::live_terminal_title(
             Some(view.title()),
-            self.terminal_custom_title.as_deref(),
+            terminal.custom_title.as_deref(),
             view.cwd(),
             spawn_cwd,
         )
@@ -161,9 +153,9 @@ pub(in crate::root_view) fn render_agent_panel(
     let panel = panel_content(ctx);
     let content: AnyElement = match panel {
         AgentPanelContent::Terminal => ctx
-            .terminal_view
-            .clone()
-            .map(IntoElement::into_any_element)
+            .terminal_panel
+            .active()
+            .map(|terminal| terminal.view.clone().into_any_element())
             .unwrap_or_else(|| div().into_any_element()),
         AgentPanelContent::Native => ctx
             .native_agent_view
@@ -363,7 +355,7 @@ pub(in crate::root_view) fn header(
     let add_menu_root = root.clone();
     let regenerate_root = root.clone();
     let settings_root = root.clone();
-    let terminal_open = ctx.terminal_view.is_some();
+    let terminal_open = ctx.terminal_panel.active_id().is_some();
 
     div()
         .id("agent-panel-header")
@@ -616,8 +608,9 @@ pub(in crate::root_view) fn header(
                     if terminal_open {
                         let close_root = settings_root.clone();
                         menu = menu.item(PopupMenuItem::new("Close Terminal").on_click(
-                            move |_, _, cx| {
-                                let _ = close_root.update(cx, |this, cx| this.close_terminal(cx));
+                            move |_, window, cx| {
+                                let _ = close_root
+                                    .update(cx, |this, cx| this.close_terminal(window, cx));
                             },
                         ));
                     }
@@ -649,34 +642,18 @@ fn threads_sidebar_shortcut_label() -> &'static str {
 mod tests {
     // 只做显式导入：父模块的 glob 会引入 gpui 的 test 宏。
     use super::{
-        header_model, terminal_panel_title, title_for, AgentPanelContent, HeaderIcon, PanelSlot,
+        header_model, panel_content_for, terminal_panel_title, title_for, AgentPanelContent,
+        HeaderIcon,
     };
 
-    /// 面板内容优先级：终端可见时占位；隐藏（切到 agent）后显示对话内容。
-    /// 原 bug（#1269）：隐藏终端仍被当成面板模式——本测试的 `hidden` 分支就是那条守卫。
+    /// 面板内容优先级：active 终端占位；切到 agent（隐藏实例）后显示对话内容。
     #[test]
-    fn terminal_owns_the_panel_only_while_visible() {
-        let visible = PanelSlot {
-            terminal_present: true,
-            terminal_visible: true,
-        };
-        assert_eq!(visible.content(true), AgentPanelContent::Terminal);
-        assert_eq!(visible.content(false), AgentPanelContent::Terminal);
-
-        // 隐藏终端后（进程仍在跑）面板回到对话内容。
-        let hidden = PanelSlot {
-            terminal_present: true,
-            terminal_visible: false,
-        };
-        assert_eq!(hidden.content(true), AgentPanelContent::Native);
-        assert_eq!(hidden.content(false), AgentPanelContent::External);
-
-        let absent = PanelSlot {
-            terminal_present: false,
-            terminal_visible: false,
-        };
-        assert_eq!(absent.content(true), AgentPanelContent::Native);
-        assert_eq!(absent.content(false), AgentPanelContent::External);
+    fn terminal_owns_the_panel_only_while_active() {
+        assert_eq!(panel_content_for(true, true), AgentPanelContent::Terminal);
+        assert_eq!(panel_content_for(true, false), AgentPanelContent::Terminal);
+        // 隐藏（active=None）后实例仍在，但面板回到对话内容。
+        assert_eq!(panel_content_for(false, true), AgentPanelContent::Native);
+        assert_eq!(panel_content_for(false, false), AgentPanelContent::External);
     }
 
     #[test]

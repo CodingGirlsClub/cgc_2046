@@ -597,6 +597,34 @@ impl ConversationStore {
         Ok(sessions)
     }
 
+    /// 读取单个终端会话：用于把超出列表窗口的活实例补回历史。
+    pub fn terminal_session(
+        &self,
+        terminal_id: &str,
+    ) -> Result<Option<TerminalSession>, ConversationStoreError> {
+        let mut statement = self.conn.prepare(
+            "SELECT terminal_id, title, custom_title, working_directory,
+                    created_at, closed_at, exit_code
+             FROM sidebar_terminal_sessions
+             WHERE terminal_id = ?1",
+        )?;
+        let mut rows = statement.query_map(params![terminal_id], |row| {
+            Ok(TerminalSession {
+                terminal_id: row.get(0)?,
+                title: row.get(1)?,
+                custom_title: row.get(2)?,
+                working_directory: row.get(3)?,
+                created_at: row.get(4)?,
+                closed_at: row.get(5)?,
+                exit_code: row.get(6)?,
+            })
+        })?;
+        match rows.next() {
+            Some(row) => Ok(Some(row?)),
+            None => Ok(None),
+        }
+    }
+
     /// 归档 / 取消归档（不动 updated_at，避免历史重排）；返回是否命中。
     pub fn set_archived(
         &self,
@@ -917,6 +945,29 @@ mod tests {
         let cleared = store.list_terminal_sessions(10).unwrap();
         assert!(cleared[0].custom_title.is_none());
         assert_eq!(cleared[0].title.as_deref(), Some("build"));
+    }
+
+    #[test]
+    fn terminal_session_lookup_by_id() {
+        let store = ConversationStore::open_in_memory().expect("store");
+        let session = TerminalSession {
+            terminal_id: "term-1".into(),
+            title: Some("vim".into()),
+            custom_title: None,
+            working_directory: Some("/tmp/x".into()),
+            created_at: "2026-01-01T00:00:00Z".into(),
+            closed_at: None,
+            exit_code: None,
+        };
+        store.upsert_terminal_session(&session).expect("insert");
+        assert_eq!(
+            store
+                .terminal_session("term-1")
+                .expect("lookup")
+                .map(|row| row.terminal_id),
+            Some("term-1".to_string())
+        );
+        assert!(store.terminal_session("missing").expect("lookup").is_none());
     }
 
     #[test]
