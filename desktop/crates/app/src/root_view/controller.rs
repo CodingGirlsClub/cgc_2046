@@ -2469,6 +2469,19 @@ impl RootView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // 单实例锁：另一个实例在跑时不能收尾它的活行，也不重复恢复。
+        let lock_path = AppPaths::from_env().data_root.join("instance.lock");
+        let lock = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(&lock_path)
+            .ok();
+        let exclusive = lock.as_ref().is_some_and(|file| file.try_lock().is_ok());
+        if !exclusive {
+            return;
+        }
+        self.instance_lock = lock;
         // 上次进程已退出：所有 `closed_at IS NULL` 的终端行都是孤儿。
         if let Ok(store) = crate::acp_history::open_conversation_store() {
             let now = cgc_agent_store::now_utc_rfc3339();
@@ -4063,6 +4076,29 @@ fn persisted_cwd_or_fallback(
 #[cfg(test)]
 mod restart_recovery_tests {
     use super::{persisted_cwd_or_fallback, should_restore_terminal};
+    use std::fs::OpenOptions;
+
+    #[test]
+    fn instance_lock_rejects_a_second_holder() {
+        let path = std::env::temp_dir().join(format!("cgc-instance-lock-{}", std::process::id()));
+        let first = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(&path)
+            .expect("open first");
+        assert!(first.try_lock().is_ok(), "第一个实例拿到锁");
+        let second = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(&path)
+            .expect("open second");
+        assert!(second.try_lock().is_err(), "第二个实例拿不到锁");
+        drop(first);
+        assert!(second.try_lock().is_ok(), "释放后可以接管");
+        let _ = std::fs::remove_file(&path);
+    }
 
     #[test]
     fn only_terminal_intent_restores_an_instance() {
