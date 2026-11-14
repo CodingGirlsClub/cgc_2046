@@ -380,6 +380,8 @@ pub struct ShellState {
         Option<gpui_kit::Entity<crate::native_agent_view::NativeAgentView>>,
     /// 终端实例表（B1）：身份按 id，切到 agent 只隐藏，PTY 保留。
     pub(in crate::root_view) terminal_panel: crate::root_view::terminal_panel::LiveTerminalPanel,
+    /// 启动恢复只尝试一次（登录态/scope 就绪后由 render 触发）。
+    pub(in crate::root_view) panel_restore_pending: bool,
     /// 应用主题变化订阅：切换主题时把新配色同步给已打开的终端。
     pub(in crate::root_view) theme_subscription: Option<Subscription>,
     pub(in crate::root_view) native_runtime: Option<crate::native_runtime::NativeRuntimeHandle>,
@@ -598,6 +600,7 @@ impl ShellState {
             native_chat_mode: crate::chat_state::load_native_chat_mode().unwrap_or(true),
             native_agent_view: None,
             terminal_panel: Default::default(),
+            panel_restore_pending: true,
             theme_subscription: None,
             native_runtime: None,
             native_scope: None,
