@@ -4,9 +4,10 @@
 //! 解析必须宽容：单条坏数据不能拖垮整张列表。
 
 use crate::error::ProviderError;
+use serde::{Deserialize, Serialize};
 
 /// 远程列表里的一个模型；`None` 表示供应商没有说明该字段。
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RemoteModel {
     pub id: String,
     pub name: Option<String>,

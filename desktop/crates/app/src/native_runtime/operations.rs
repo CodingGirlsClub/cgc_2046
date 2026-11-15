@@ -465,6 +465,7 @@ mod tests {
                 .collect(),
             builtin: false,
             protocol: cgc_agent_provider::ProviderProtocol::OpenAiCompatible,
+            ..Default::default()
         }
     }
 

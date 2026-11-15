@@ -225,6 +225,7 @@ mod tests {
             builtin: false,
             enabled: true,
             protocol: cgc_agent_provider::ProviderProtocol::OpenAiCompatible,
+            ..Default::default()
         }
     }
 

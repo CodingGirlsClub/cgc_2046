@@ -106,6 +106,14 @@ pub(crate) fn fill_missing_efforts(
         .collect()
 }
 
+/// 当前 unix 秒，用于记录供应商目录的获取时间。
+pub(crate) fn now_unix() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

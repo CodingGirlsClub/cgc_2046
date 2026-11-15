@@ -35,11 +35,11 @@ use crate::build_info;
 use crate::i18n::{translate, Key, Language};
 use crate::native_runtime::{NativeRuntimeError, NativeRuntimeHandle};
 use crate::preferences::{self, CursorBlinkPreference};
-use crate::provider_fetch::{fill_missing_efforts, merge_remote_models};
+use crate::provider_fetch::{fill_missing_efforts, merge_remote_models, now_unix};
 use crate::provider_settings::{ProviderPrefsChange, ProviderSettings};
 use crate::root_view::{title_bar_left_inset, TITLEBAR_HEIGHT};
 use crate::settings_provider::{
-    append_reasoning_efforts, edited_models, efforts_in_text, format_model_lines,
+    append_reasoning_efforts, catalog_status, edited_models, efforts_in_text, format_model_lines,
     next_provider_name, optional, parse_model_lines, KeyValidation, KeyValidationAction,
     ModelFieldInputs, ProviderDraft,
 };
@@ -296,6 +296,10 @@ impl SettingsWindowView {
                     .default_value(value)
             });
             self.provider_drafts[index].models_url_input = Some(input);
+        }
+        if draft.model_id_input.is_none() {
+            let input = cx.new(|cx| InputState::new(window, cx).placeholder("添加模型 ID…"));
+            self.provider_drafts[index].model_id_input = Some(input);
         }
     }
 
@@ -790,6 +794,8 @@ impl SettingsWindowView {
             builtin: draft.builtin || is_builtin_provider_id(&draft.id),
             enabled: draft.enabled,
             protocol: draft.protocol,
+            available_models: draft.remote_models.clone(),
+            models_fetched_at: draft.models_fetched_at,
         };
         if let Some(api_key_input) = draft.api_key_input.clone() {
             let api_key = api_key_input.read(cx).value().trim().to_string();
@@ -1022,6 +1028,7 @@ impl SettingsWindowView {
                     Some("供应商返回了空列表：请检查 URL，或用批量编辑手填模型".to_string());
             }
             Ok(models) => {
+                draft.models_fetched_at = now_unix();
                 draft.remote_models = models;
                 draft.fetch_error = None;
             }
@@ -1070,17 +1077,14 @@ impl SettingsWindowView {
             cx.notify();
             return;
         }
-        let mut models: Vec<String> = draft
+        let models: Vec<String> = draft
             .model_params
             .iter()
             .filter(|model| model.enabled)
             .map(|model| model.id.clone())
             .collect();
         if models.is_empty() {
-            models = parse_model_lines(&draft.models).0;
-        }
-        if models.is_empty() {
-            self.error = Some("没有可检测的模型".to_string());
+            self.error = Some("请先启用要测试的模型".to_string());
             cx.notify();
             return;
         }
@@ -1197,6 +1201,46 @@ impl SettingsWindowView {
             input.update(cx, |state, cx| state.set_value(text, window, cx));
         }
         cx.notify();
+    }
+
+    /// 「添加模型 ID」：输入框里的 id 直接加入；远程目录有元数据就一并带上。
+    fn add_model_by_id(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(draft) = self.provider_drafts.get(index).cloned() else {
+            return;
+        };
+        let Some(input) = draft.model_id_input.clone() else {
+            return;
+        };
+        let id = input.read(cx).value().trim().to_string();
+        if id.is_empty() {
+            return;
+        }
+        if draft.model_params.iter().any(|model| model.id == id) {
+            self.error = Some(format!("模型 {id} 已存在"));
+            cx.notify();
+            return;
+        }
+        let params = if draft.remote_models.iter().any(|remote| remote.id == id) {
+            let chosen: std::collections::BTreeSet<String> = std::iter::once(id.clone()).collect();
+            let catalog: Vec<ModelPrefs> = builtin_providers()
+                .into_iter()
+                .flat_map(|provider| provider.model_params)
+                .collect();
+            merge_remote_models(&draft.remote_models, &draft.model_params, &chosen, &catalog).1
+        } else {
+            let mut params = draft.model_params.clone();
+            params.push(ModelPrefs {
+                enabled: true,
+                ..ModelPrefs::new(&id)
+            });
+            params
+        };
+        if let Some(slot) = self.provider_drafts.get_mut(index) {
+            slot.model_params = params;
+            slot.model_fields.clear();
+        }
+        input.update(cx, |state, cx| state.set_value(String::new(), window, cx));
+        self.flush_models_text(index, window, cx);
     }
 
     fn dismiss_fetched_models(&mut self, index: usize, cx: &mut Context<Self>) {
@@ -2681,6 +2725,34 @@ fn render_provider_cards(
                         .child(
                             div()
                                 .id(SharedString::from(format!(
+                                    "settings-models-test-{index}"
+                                )))
+                                .role(Role::Button)
+                                .aria_label("逐个测试已选模型")
+                                .px(space(2))
+                                .py(px(3.0))
+                                .rounded(px(RADIUS_SMALL))
+                                .border_1()
+                                .border_color(palette.line)
+                                .text_size(px(11.0))
+                                .text_color(palette.ink_2)
+                                .child(if draft.testing_models {
+                                    "测试中…"
+                                } else {
+                                    "逐个测试已选模型"
+                                })
+                                .on_click({
+                                    let test_weak = weak.clone();
+                                    move |_, _, cx| {
+                                        let _ = test_weak.update(cx, |this, cx| {
+                                            this.test_all_models(index, cx);
+                                        });
+                                    }
+                                }),
+                        )
+                        .child(
+                            div()
+                                .id(SharedString::from(format!(
                                     "settings-provider-endpoints-{index}"
                                 )))
                                 .role(Role::Button)
@@ -2957,9 +3029,22 @@ fn render_provider_cards(
                                 .gap(space(2))
                                 .child(
                                     div()
-                                        .text_size(px(11.0))
-                                        .text_color(palette.ink_3)
-                                        .child("Models"),
+                                        .flex()
+                                        .flex_row()
+                                        .items_center()
+                                        .gap(space(2))
+                                        .child(
+                                            div()
+                                                .text_size(px(11.0))
+                                                .text_color(palette.ink_3)
+                                                .child("Models"),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_size(px(10.0))
+                                                .text_color(palette.ink_3)
+                                                .child(catalog_status(draft)),
+                                        ),
                                 )
                                 .child(
                                     div()
@@ -2967,62 +3052,6 @@ fn render_provider_cards(
                                         .flex_row()
                                         .items_center()
                                         .gap(space(1))
-                                        .child(
-                                            div()
-                                                .id(SharedString::from(format!(
-                                                    "settings-model-fetch-{index}"
-                                                )))
-                                                .role(Role::Button)
-                                                .aria_label("获取模型列表")
-                                                .px(space(2))
-                                                .py(px(3.0))
-                                                .rounded(px(RADIUS_SMALL))
-                                                .border_1()
-                                                .border_color(palette.line)
-                                                .text_size(px(11.0))
-                                                .child(if draft.fetching_models {
-                                                    "获取中…"
-                                                } else if draft.remote_models.is_empty() {
-                                                    "获取模型"
-                                                } else {
-                                                    "重新获取"
-                                                })
-                                                .on_click({
-                                                    let fetch_weak = weak.clone();
-                                                    move |_, _, cx| {
-                                                        let _ = fetch_weak.update(cx, |this, cx| {
-                                                            this.fetch_models(index, cx);
-                                                        });
-                                                    }
-                                                }),
-                                        )
-                                        .child(
-                                            div()
-                                                .id(SharedString::from(format!(
-                                                    "settings-models-test-{index}"
-                                                )))
-                                                .role(Role::Button)
-                                                .aria_label("测试模型")
-                                                .px(space(2))
-                                                .py(px(3.0))
-                                                .rounded(px(RADIUS_SMALL))
-                                                .border_1()
-                                                .border_color(palette.line)
-                                                .text_size(px(11.0))
-                                                .child(if draft.testing_models {
-                                                    "测试中…"
-                                                } else {
-                                                    "测试模型"
-                                                })
-                                                .on_click({
-                                                    let test_weak = weak.clone();
-                                                    move |_, _, cx| {
-                                                        let _ = test_weak.update(cx, |this, cx| {
-                                                            this.test_all_models(index, cx);
-                                                        });
-                                                    }
-                                                }),
-                                        )
                                         .child(
                                             div()
                                                 .id(SharedString::from(format!(
@@ -3080,6 +3109,67 @@ fn render_provider_cards(
                                         ),
                                 ),
                         )
+                        .child({
+                            let add_weak = weak.clone();
+                            let fetch_weak = weak.clone();
+                            div()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap(space(1))
+                                .children(draft.model_id_input.clone().map(|input| {
+                                    div()
+                                        .w(px(320.0))
+                                        .child(Input::new(&input))
+                                        .into_any_element()
+                                }))
+                                .child(
+                                    div()
+                                        .id(SharedString::from(format!(
+                                            "settings-model-add-id-{index}"
+                                        )))
+                                        .role(Role::Button)
+                                        .aria_label("添加模型")
+                                        .px(space(2))
+                                        .py(px(3.0))
+                                        .rounded(px(RADIUS_SMALL))
+                                        .border_1()
+                                        .border_color(palette.line)
+                                        .text_size(px(11.0))
+                                        .child("添加模型")
+                                        .on_click(move |_, window, cx| {
+                                            let _ = add_weak.update(cx, |this, cx| {
+                                                this.add_model_by_id(index, window, cx);
+                                            });
+                                        }),
+                                )
+                                .child(
+                                    div()
+                                        .id(SharedString::from(format!(
+                                            "settings-model-fetch-{index}"
+                                        )))
+                                        .role(Role::Button)
+                                        .aria_label("获取模型列表")
+                                        .px(space(2))
+                                        .py(px(3.0))
+                                        .rounded(px(RADIUS_SMALL))
+                                        .border_1()
+                                        .border_color(palette.line)
+                                        .text_size(px(11.0))
+                                        .child(if draft.fetching_models {
+                                            "获取中…"
+                                        } else if draft.remote_models.is_empty() {
+                                            "获取模型"
+                                        } else {
+                                            "重新获取"
+                                        })
+                                        .on_click(move |_, _, cx| {
+                                            let _ = fetch_weak.update(cx, |this, cx| {
+                                                this.fetch_models(index, cx);
+                                            });
+                                        }),
+                                )
+                        })
                         .children(draft.models_advanced_open.then(|| {
                             div()
                                 .w_full()

@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use cgc_agent_core::SelectedModel;
+use cgc_agent_provider::probe::RemoteModel;
 use cgc_agent_provider::{ProviderProtocol, ThinkingMode};
 use serde::{Deserialize, Serialize};
 
@@ -31,6 +32,12 @@ pub struct ProviderPrefs {
     pub enabled: bool,
     /// 是否来自内置目录（内置条目不需要写入用户文件）。
     pub builtin: bool,
+    /// 最近一次从供应商拉取的完整模型目录（含未选），重开表单直接展示。
+    #[serde(default)]
+    pub available_models: Vec<RemoteModel>,
+    /// 目录获取时间（unix 秒）；0 表示从未获取。
+    #[serde(default)]
+    pub models_fetched_at: u64,
 }
 
 fn default_true() -> bool {
@@ -280,6 +287,8 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
             enabled: true,
             builtin: true,
             protocol: ProviderProtocol::OpenAiCompatible,
+            available_models: Vec::new(),
+            models_fetched_at: 0,
         }
     }
 

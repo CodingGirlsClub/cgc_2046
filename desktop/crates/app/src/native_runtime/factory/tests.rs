@@ -146,6 +146,7 @@ fn prefs_with_provider(production: &Production, has_key: bool, model_enabled: bo
             ],
             builtin: false,
             protocol: ProviderProtocol::OpenAiCompatible,
+            ..Default::default()
         }],
         ..Default::default()
     };

@@ -43,8 +43,12 @@ pub(crate) struct ProviderDraft {
     pub(crate) model_fields: Vec<ModelFieldInputs>,
     pub(crate) key_editing: bool,
     pub(crate) confirm_clear: bool,
-    /// 最近一次"获取模型"的结果；空表示尚未获取。
+    /// 最近一次"获取模型"的结果（含未选）；重开表单时来自 prefs 的目录。
     pub(crate) remote_models: Vec<RemoteModel>,
+    /// 目录获取时间（unix 秒）。
+    pub(crate) models_fetched_at: u64,
+    /// 「添加模型 ID」输入框。
+    pub(crate) model_id_input: Option<Entity<InputState>>,
     pub(crate) fetching_models: bool,
     pub(crate) fetch_error: Option<String>,
     /// 批量编辑：按文本编辑模型行。
@@ -66,6 +70,27 @@ pub(crate) struct ProviderDraft {
 pub(crate) fn optional(value: &str) -> Option<String> {
     let value = value.trim();
     (!value.is_empty()).then(|| value.to_string())
+}
+
+/// 供应商目录状态：`供应商列表 · 12 个 · 3 小时前`。
+pub(crate) fn catalog_status(draft: &ProviderDraft) -> String {
+    if draft.remote_models.is_empty() {
+        return "供应商列表 · 尚未获取".to_string();
+    }
+    let now = crate::provider_fetch::now_unix();
+    let age = now.saturating_sub(draft.models_fetched_at);
+    let when = if draft.models_fetched_at == 0 {
+        "未知时间".to_string()
+    } else if age < 60 {
+        "刚刚".to_string()
+    } else if age < 3_600 {
+        format!("{} 分钟前", age / 60)
+    } else if age < 86_400 {
+        format!("{} 小时前", age / 3_600)
+    } else {
+        format!("{} 天前", age / 86_400)
+    };
+    format!("供应商列表 · {} 个 · {when}", draft.remote_models.len())
 }
 
 pub(crate) use cgc_agent_store::model_lines::{
@@ -128,7 +153,9 @@ impl ProviderDraft {
             model_fields: Vec::new(),
             key_editing: false,
             confirm_clear: false,
-            remote_models: Vec::new(),
+            remote_models: provider.available_models.clone(),
+            models_fetched_at: provider.models_fetched_at,
+            model_id_input: None,
             fetching_models: false,
             fetch_error: None,
             models_advanced_open: false,
@@ -169,6 +196,8 @@ impl ProviderDraft {
             key_editing: false,
             confirm_clear: false,
             remote_models: Vec::new(),
+            models_fetched_at: 0,
+            model_id_input: None,
             fetching_models: false,
             fetch_error: None,
             models_advanced_open: false,
@@ -200,6 +229,8 @@ impl ProviderDraft {
             model_params,
             builtin: self.builtin,
             enabled: self.enabled,
+            available_models: self.remote_models.clone(),
+            models_fetched_at: self.models_fetched_at,
         }
     }
 
