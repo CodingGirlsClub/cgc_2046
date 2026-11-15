@@ -14,7 +14,7 @@ use cgc_agent_provider::{
 };
 use cgc_agent_store::{
     builtin_providers, is_builtin_provider_id, next_provider_id, normalized_provider_name,
-    ProviderPrefs,
+    ModelPrefs, ProviderPrefs,
 };
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::checkbox::Checkbox;
@@ -1114,8 +1114,16 @@ impl SettingsWindowView {
             cx.notify();
             return;
         }
-        let (models, params) =
-            merge_remote_models(&draft.remote_models, &draft.model_params, &chosen);
+        let catalog: Vec<ModelPrefs> = builtin_providers()
+            .into_iter()
+            .flat_map(|provider| provider.model_params)
+            .collect();
+        let (models, params) = merge_remote_models(
+            &draft.remote_models,
+            &draft.model_params,
+            &chosen,
+            &catalog,
+        );
         let text = format_model_lines(&ProviderPrefs {
             models: models.clone(),
             model_params: params.clone(),
