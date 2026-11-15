@@ -1120,7 +1120,7 @@ impl SettingsWindowView {
     }
 
     /// 把勾选的远程模型并入草稿（本地已有参数保留），随后由 ensure 重建模型卡片。
-    fn apply_fetched_models(&mut self, index: usize, cx: &mut Context<Self>) {
+    fn apply_fetched_models(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         let Some(draft) = self.provider_drafts.get(index).cloned() else {
             return;
         };
@@ -1142,12 +1142,16 @@ impl SettingsWindowView {
             ..Default::default()
         });
         if let Some(slot) = self.provider_drafts.get_mut(index) {
-            slot.models = text;
+            slot.models = text.clone();
             slot.model_params = params;
             slot.model_fields.clear();
             slot.remote_models.clear();
             slot.remote_selected.clear();
             slot.fetch_error = None;
+            // 文本区必须同步，否则保存时“文本优先”会把刚加入的模型覆盖回去。
+            if let Some(input) = slot.models_input.clone() {
+                input.update(cx, |state, cx| state.set_value(text, window, cx));
+            }
         }
         self.error = None;
         self.notice = Some(format!("已加入 {} 个模型（保存后生效）", models.len()));
@@ -3244,9 +3248,9 @@ fn render_provider_cards(
                                                 .text_color(palette.canvas)
                                                 .text_size(px(11.0))
                                                 .child("加入选中模型")
-                                                .on_click(move |_, _, cx| {
+                                                .on_click(move |_, window, cx| {
                                                     let _ = apply_weak.update(cx, |this, cx| {
-                                                        this.apply_fetched_models(index, cx);
+                                                        this.apply_fetched_models(index, window, cx);
                                                     });
                                                 }),
                                         )
