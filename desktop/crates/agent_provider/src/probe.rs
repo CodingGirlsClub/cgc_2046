@@ -160,6 +160,8 @@ pub fn list_models(base_url: &str, api_key: &str) -> Result<Vec<RemoteModel>, Pr
 }
 
 /// 在指定的模型列表地址上读取列表（供应商把列表放在非标准路径时使用）。
+///
+/// 支持 `has_more` / `last_id` 游标分页（Anthropic 默认 20 条一页）。
 pub fn list_models_at(url: &str, api_key: &str) -> Result<Vec<RemoteModel>, ProviderError> {
     if let Some(note) = socks_proxy_note() {
         return Err(ProviderError::transport(note));
@@ -170,6 +172,28 @@ pub fn list_models_at(url: &str, api_key: &str) -> Result<Vec<RemoteModel>, Prov
             .timeout_global(Some(std::time::Duration::from_secs(10)))
             .build(),
     );
+    let mut models = Vec::new();
+    let mut next: Option<String> = None;
+    // 防御性上限：游标异常时不至于无限请求。
+    for _ in 0..50 {
+        let page_url = match &next {
+            Some(cursor) => {
+                let separator = if url.contains('?') { '&' } else { '?' };
+                format!("{url}{separator}after_id={cursor}")
+            }
+            None => url.to_string(),
+        };
+        let text = fetch_page(&agent, &page_url, api_key)?;
+        models.extend(parse_models(&text)?);
+        match pagination_cursor(&text) {
+            Some(cursor) => next = Some(cursor),
+            None => return Ok(models),
+        }
+    }
+    Ok(models)
+}
+
+fn fetch_page(agent: &ureq::Agent, url: &str, api_key: &str) -> Result<String, ProviderError> {
     let mut response = agent
         .get(url)
         .header("authorization", format!("Bearer {api_key}"))
@@ -183,7 +207,20 @@ pub fn list_models_at(url: &str, api_key: &str) -> Result<Vec<RemoteModel>, Prov
     if !status.is_success() {
         return Err(ProviderError::api(status.as_u16(), truncate(&text, 500)));
     }
-    parse_models(&text)
+    Ok(text)
+}
+
+/// 读取下一页游标；一次性返回整表时为空。
+fn pagination_cursor(body: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(body).ok()?;
+    if value.get("has_more").and_then(serde_json::Value::as_bool) != Some(true) {
+        return None;
+    }
+    let cursor = value.get("last_id").and_then(serde_json::Value::as_str)?;
+    cursor
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+        .then(|| cursor.to_string())
 }
 
 /// 探测结果：端点可用 / 端点存在但 Key 被拒 / 该协议端点不存在。
@@ -618,6 +655,23 @@ mod tests {
         assert_eq!(
             anthropic_models_url("https://api.anthropic.com/v1"),
             "https://api.anthropic.com/v1/models"
+        );
+    }
+
+    #[test]
+    fn pagination_cursor_reads_has_more() {
+        assert_eq!(
+            pagination_cursor(r#"{"data":[],"has_more":true,"last_id":"model_1"}"#),
+            Some("model_1".to_string())
+        );
+        assert_eq!(
+            pagination_cursor(r#"{"data":[],"has_more":false,"last_id":"model_1"}"#),
+            None
+        );
+        assert_eq!(pagination_cursor(r#"{"data":[]}"#), None);
+        assert_eq!(
+            pagination_cursor(r#"{"has_more":true,"last_id":"bad cursor"}"#),
+            None
         );
     }
 
