@@ -2187,6 +2187,12 @@ impl SettingsWindowView {
             "cgc-settings-{}",
             self.settings_nonce
         )))
+        // 上游默认侧栏 250px：在 620px 宽的设置窗口里占 40%，内容区只剩
+        // 370px；而 page 标题只有 2~5 个中文字，留白过大。188px 仍能容纳
+        // 搜索框与「窗口与布局」这类最长标题（含二级子项缩进），内容区回到
+        // 432px；用户可在 168~300px 内拖拽调整。
+        .sidebar_width(px(188.0))
+        .sidebar_size_range(px(168.0)..px(300.0))
         .default_selected_index(SelectIndex {
             page_ix: self.settings_page,
             group_ix: None,

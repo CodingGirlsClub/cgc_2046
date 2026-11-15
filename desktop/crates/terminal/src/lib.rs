@@ -83,6 +83,40 @@ pub struct TerminalCore {
     match_buffer: libghostty_vt::search::MatchBuffer,
 }
 
+/// OSC 7 的 `file://host/path` 归一成路径；OSC 9/1337 的裸路径原样返回。
+fn normalize_pwd(value: &str) -> Option<String> {
+    if value.is_empty() {
+        return None;
+    }
+    match value.strip_prefix("file://") {
+        Some(rest) => {
+            let index = rest.find('/')?;
+            Some(percent_decode(&rest[index..]))
+        }
+        // 裸路径不是 URI：不 trim、不做 percent-decode（目录名可能真含 `%20` 或空格）。
+        None => Some(value.to_string()),
+    }
+}
+
+fn percent_decode(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            let hex = std::str::from_utf8(&bytes[index + 1..index + 3]).ok();
+            if let Some(byte) = hex.and_then(|hex| u8::from_str_radix(hex, 16).ok()) {
+                decoded.push(byte);
+                index += 3;
+                continue;
+            }
+        }
+        decoded.push(bytes[index]);
+        index += 1;
+    }
+    String::from_utf8_lossy(&decoded).into_owned()
+}
+
 impl TerminalCore {
     pub fn new(size: GridSize) -> Result<Self> {
         let mut terminal = Terminal::new(size.cols, size.rows)?;
@@ -103,9 +137,9 @@ impl TerminalCore {
         terminal.on_pwd_changed(move |term| {
             if let Ok(bytes) = term.pwd() {
                 if let Ok(text) = std::str::from_utf8(bytes) {
-                    pwd_events
-                        .borrow_mut()
-                        .push(CoreEvent::Pwd(text.to_string()));
+                    if let Some(path) = normalize_pwd(text) {
+                        pwd_events.borrow_mut().push(CoreEvent::Pwd(path));
+                    }
                 }
             }
         })?;
@@ -448,6 +482,30 @@ mod tests {
 
     fn size(cols: u16, rows: u16) -> GridSize {
         GridSize { cols, rows }
+    }
+
+    #[test]
+    fn normalizes_osc7_pwd_to_path() {
+        assert_eq!(
+            normalize_pwd("file://localhost/tmp").as_deref(),
+            Some("/tmp")
+        );
+        assert_eq!(
+            normalize_pwd("file:///tmp/a%20b").as_deref(),
+            Some("/tmp/a b")
+        );
+        assert_eq!(
+            normalize_pwd("/tmp/a%20b").as_deref(),
+            Some("/tmp/a%20b"),
+            "裸路径不解码：目录名可能真的包含 %20"
+        );
+        assert_eq!(
+            normalize_pwd("/tmp/with space ").as_deref(),
+            Some("/tmp/with space "),
+            "裸路径保留首尾空格"
+        );
+        assert_eq!(normalize_pwd("file://host").as_deref(), None);
+        assert_eq!(normalize_pwd("").as_deref(), None);
     }
 
     #[test]
