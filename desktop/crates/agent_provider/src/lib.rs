@@ -17,7 +17,9 @@ pub mod protocol;
 pub mod provider;
 pub mod registry;
 pub mod request;
+pub mod responses_compatible;
 pub mod sse;
+pub mod transport;
 pub mod unconfigured;
 pub mod validate;
 
@@ -36,5 +38,6 @@ pub use protocol::{ProviderProtocol, ThinkingMode};
 pub use provider::{CompletionStream, Provider};
 pub use registry::ProviderRegistry;
 pub use request::{Content, Message, Request, Role, ToolSchema};
+pub use responses_compatible::{ResponsesCompatibleConfig, ResponsesCompatibleProvider};
 pub use unconfigured::UnconfiguredProvider;
 pub use validate::validate_credentials;

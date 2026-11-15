@@ -3,7 +3,7 @@ use cgc_agent_core::{run_subagent, Agent, SelectedModel};
 use cgc_agent_provider::{
     AnthropicCompatibleConfig, AnthropicCompatibleProvider, EchoProvider, ModelCapabilities,
     ModelLimits, OpenAiCompatibleConfig, OpenAiCompatibleProvider, ProviderId, ProviderProtocol,
-    UnconfiguredProvider,
+    ResponsesCompatibleConfig, ResponsesCompatibleProvider, UnconfiguredProvider,
 };
 use cgc_agent_store::{provider_key_account, PrefsStore};
 use cgc_agent_tools::{
@@ -29,7 +29,9 @@ fn endpoint_url(provider: &ProviderPrefs) -> String {
             .clone()
             .filter(|url| !url.trim().is_empty())
             .unwrap_or_else(|| provider.base_url.clone()),
-        ProviderProtocol::OpenAiCompatible => provider.base_url.clone(),
+        ProviderProtocol::OpenAiCompatible | ProviderProtocol::OpenAiResponses => {
+            provider.base_url.clone()
+        }
     }
 }
 
@@ -211,6 +213,9 @@ fn provider(
             match protocol {
                 ProviderProtocol::OpenAiCompatible => Arc::new(OpenAiCompatibleProvider::new(
                     OpenAiCompatibleConfig::new(url, key, vec![model.clone()]),
+                )),
+                ProviderProtocol::OpenAiResponses => Arc::new(ResponsesCompatibleProvider::new(
+                    ResponsesCompatibleConfig::new(url, key, vec![model.clone()]),
                 )),
                 ProviderProtocol::AnthropicCompatible => {
                     Arc::new(AnthropicCompatibleProvider::new(
