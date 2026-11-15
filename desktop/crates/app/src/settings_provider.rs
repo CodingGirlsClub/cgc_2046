@@ -53,6 +53,8 @@ pub(crate) struct ProviderDraft {
     pub(crate) catalog_tab: CatalogTab,
     /// 供应商列表是否展开显示全部（默认只显示前 N 个）。
     pub(crate) catalog_expanded: bool,
+    /// 参数卡片区是否展开（默认收起，减少表单长度）。
+    pub(crate) models_settings_open: bool,
     pub(crate) fetching_models: bool,
     pub(crate) fetch_error: Option<String>,
     /// 批量编辑：按文本编辑模型行。
@@ -170,6 +172,7 @@ impl ProviderDraft {
             model_id_input: None,
             catalog_tab: CatalogTab::All,
             catalog_expanded: false,
+            models_settings_open: false,
             fetching_models: false,
             fetch_error: None,
             models_advanced_open: false,
@@ -214,6 +217,7 @@ impl ProviderDraft {
             model_id_input: None,
             catalog_tab: CatalogTab::All,
             catalog_expanded: false,
+            models_settings_open: false,
             fetching_models: false,
             fetch_error: None,
             models_advanced_open: false,

@@ -1257,6 +1257,13 @@ impl SettingsWindowView {
         cx.notify();
     }
 
+    fn toggle_models_settings(&mut self, index: usize, cx: &mut Context<Self>) {
+        if let Some(slot) = self.provider_drafts.get_mut(index) {
+            slot.models_settings_open = !slot.models_settings_open;
+        }
+        cx.notify();
+    }
+
     fn toggle_models_advanced(&mut self, index: usize, cx: &mut Context<Self>) {
         if let Some(slot) = self.provider_drafts.get_mut(index) {
             slot.models_advanced_open = !slot.models_advanced_open;
@@ -3143,6 +3150,38 @@ fn render_provider_cards(
                                         .child(
                                             div()
                                                 .id(SharedString::from(format!(
+                                                    "settings-models-settings-{index}"
+                                                )))
+                                                .role(Role::Button)
+                                                .aria_label("模型参数设置")
+                                                .px(space(2))
+                                                .py(px(3.0))
+                                                .rounded(px(RADIUS_SMALL))
+                                                .border_1()
+                                                .border_color(palette.line)
+                                                .text_size(px(11.0))
+                                                .text_color(if draft.models_settings_open {
+                                                    palette.accent
+                                                } else {
+                                                    palette.ink_2
+                                                })
+                                                .child(if draft.models_settings_open {
+                                                    "模型设置 ▴"
+                                                } else {
+                                                    "模型设置 ▾"
+                                                })
+                                                .on_click({
+                                                    let settings_weak = weak.clone();
+                                                    move |_, _, cx| {
+                                                        let _ = settings_weak.update(cx, |this, cx| {
+                                                            this.toggle_models_settings(index, cx);
+                                                        });
+                                                    }
+                                                }),
+                                        )
+                                        .child(
+                                            div()
+                                                .id(SharedString::from(format!(
                                                     "settings-models-advanced-{index}"
                                                 )))
                                                 .role(Role::Button)
@@ -3531,6 +3570,9 @@ fn render_provider_cards(
                         }))
                         .children(draft.model_fields.iter().enumerate().map(
                             |(model_index, field)| {
+                                if !draft.models_settings_open {
+                                    return div().into_any_element();
+                                }
                                 let enabled = field.enabled;
                                 let thinking = field.thinking;
                                 let supports_tools = field.supports_tools;
@@ -3576,9 +3618,22 @@ fn render_provider_cards(
                                             )
                                             .child(
                                                 div()
-                                                    .text_size(px(12.0))
-                                                    .text_color(palette.ink_2)
-                                                    .child(format!("Model {}", model_index + 1)),
+                                                    .flex()
+                                                    .flex_row()
+                                                    .items_center()
+                                                    .gap(space(1))
+                                                    .child(
+                                                        div()
+                                                            .text_size(px(12.0))
+                                                            .text_color(palette.ink_2)
+                                                            .child(field.model_id.clone()),
+                                                    )
+                                                    .child(
+                                                        div()
+                                                            .text_size(px(10.0))
+                                                            .text_color(palette.ink_3)
+                                                            .child(format!("#{}", model_index + 1)),
+                                                    ),
                                             )
                                             .children(
                                                 draft
@@ -3789,6 +3844,7 @@ fn render_provider_cards(
                                                     .child("模型支持图片输入。"),
                                             ),
                                     )
+                                    .into_any_element()
                             },
                         ))
                 )
