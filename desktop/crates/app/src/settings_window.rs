@@ -1170,6 +1170,27 @@ impl SettingsWindowView {
         cx.notify();
     }
 
+    /// 批量编辑文本优先：文本区与草稿不一致时，以文本为准重建模型参数。
+    ///
+    /// 与 `save_provider` 的 `edited_models` 同一规则；chips 操作前先做这一步，
+    /// 避免用卡片旧值覆盖用户刚在批量编辑里写的内容。
+    fn reconcile_bulk_text(&mut self, index: usize, cx: &App) {
+        let Some(draft) = self.provider_drafts.get(index).cloned() else {
+            return;
+        };
+        let Some(input) = draft.models_input.clone() else {
+            return;
+        };
+        let edited = input.read(cx).value().to_string();
+        if let Some((_, params)) = edited_models(&draft.models, &edited) {
+            if let Some(slot) = self.provider_drafts.get_mut(index) {
+                slot.models = edited;
+                slot.model_params = params;
+                slot.model_fields.clear();
+            }
+        }
+    }
+
     /// 本地模型 chip：切换是否启用（picker 里可见）。
     fn toggle_model_enabled(
         &mut self,
@@ -1178,6 +1199,7 @@ impl SettingsWindowView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.reconcile_bulk_text(index, cx);
         self.sync_model_fields(index, window, cx);
         {
             let Some(slot) = self.provider_drafts.get_mut(index) else {
@@ -1198,6 +1220,7 @@ impl SettingsWindowView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.reconcile_bulk_text(index, cx);
         self.sync_model_fields(index, window, cx);
         {
             let Some(slot) = self.provider_drafts.get_mut(index) else {
@@ -1218,6 +1241,7 @@ impl SettingsWindowView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.reconcile_bulk_text(index, cx);
         self.sync_model_fields(index, window, cx);
         let Some(draft) = self.provider_drafts.get(index).cloned() else {
             return;
@@ -1260,6 +1284,7 @@ impl SettingsWindowView {
 
     /// 「添加模型 ID」：输入框里的 id 直接加入；远程目录有元数据就一并带上。
     fn add_model_by_id(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.reconcile_bulk_text(index, cx);
         self.sync_model_fields(index, window, cx);
         let Some(draft) = self.provider_drafts.get(index).cloned() else {
             return;
