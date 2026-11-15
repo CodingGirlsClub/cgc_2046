@@ -142,9 +142,9 @@ fn resolve_forgot_password_url(api: &str) -> String {
 
     match Url::parse(api) {
         Ok(url)
-            if url
-                .host_str()
-                .is_some_and(|host| host == OFFICIAL_ROOT_DOMAIN || host.ends_with(&official_suffix)) =>
+            if url.host_str().is_some_and(|host| {
+                host == OFFICIAL_ROOT_DOMAIN || host.ends_with(&official_suffix)
+            }) =>
         {
             // Web 只在根域部署（`web/config/deploy.yml` 的 proxy.hosts 仅裸域 + www），
             // 所以 api / staging-api 等官方主机一律收敛到根域，而不是保留一个必然 404 的 API 主机。
