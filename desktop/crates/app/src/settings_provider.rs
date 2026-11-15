@@ -49,6 +49,8 @@ pub(crate) struct ProviderDraft {
     pub(crate) models_fetched_at: u64,
     /// 「添加模型 ID」输入框。
     pub(crate) model_id_input: Option<Entity<InputState>>,
+    /// 模型区视图：供应商列表 / 仅所选。
+    pub(crate) catalog_tab: CatalogTab,
     pub(crate) fetching_models: bool,
     pub(crate) fetch_error: Option<String>,
     /// 批量编辑：按文本编辑模型行。
@@ -64,6 +66,14 @@ pub(crate) struct ProviderDraft {
     /// 协议探测结果与进行中状态。
     pub(crate) protocol_probes: Vec<(ProviderProtocol, cgc_agent_provider::ProbeState)>,
     pub(crate) probing_protocols: bool,
+}
+
+/// 模型区顶部的视图切换：供应商列表（含未选）/ 仅所选。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum CatalogTab {
+    #[default]
+    All,
+    Selected,
 }
 
 /// 空串视为未设置，避免把空白地址写进 prefs。
@@ -156,6 +166,7 @@ impl ProviderDraft {
             remote_models: provider.available_models.clone(),
             models_fetched_at: provider.models_fetched_at,
             model_id_input: None,
+            catalog_tab: CatalogTab::All,
             fetching_models: false,
             fetch_error: None,
             models_advanced_open: false,
@@ -198,6 +209,7 @@ impl ProviderDraft {
             remote_models: Vec::new(),
             models_fetched_at: 0,
             model_id_input: None,
+            catalog_tab: CatalogTab::All,
             fetching_models: false,
             fetch_error: None,
             models_advanced_open: false,

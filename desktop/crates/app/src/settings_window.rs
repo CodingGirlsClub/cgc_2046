@@ -40,8 +40,8 @@ use crate::provider_settings::{ProviderPrefsChange, ProviderSettings};
 use crate::root_view::{title_bar_left_inset, TITLEBAR_HEIGHT};
 use crate::settings_provider::{
     append_reasoning_efforts, catalog_status, edited_models, efforts_in_text, format_model_lines,
-    next_provider_name, optional, parse_model_lines, KeyValidation, KeyValidationAction,
-    ModelFieldInputs, ProviderDraft,
+    next_provider_name, optional, parse_model_lines, CatalogTab, KeyValidation,
+    KeyValidationAction, ModelFieldInputs, ProviderDraft,
 };
 use crate::theme::{self, space, RADIUS_MEDIUM, RADIUS_SMALL};
 use cgc_platform::session::AuthApi;
@@ -1243,10 +1243,9 @@ impl SettingsWindowView {
         self.flush_models_text(index, window, cx);
     }
 
-    fn dismiss_fetched_models(&mut self, index: usize, cx: &mut Context<Self>) {
+    fn set_catalog_tab(&mut self, index: usize, tab: CatalogTab, cx: &mut Context<Self>) {
         if let Some(slot) = self.provider_drafts.get_mut(index) {
-            slot.remote_models.clear();
-            slot.fetch_error = None;
+            slot.catalog_tab = tab;
         }
         cx.notify();
     }
@@ -3039,6 +3038,88 @@ fn render_provider_cards(
                                                 .text_color(palette.ink_3)
                                                 .child("Models"),
                                         )
+                                        .child({
+                                            let all_weak = weak.clone();
+                                            let selected_weak = weak.clone();
+                                            div()
+                                                .flex()
+                                                .flex_row()
+                                                .items_center()
+                                                .gap(px(2.0))
+                                                .rounded(px(RADIUS_SMALL))
+                                                .bg(palette.soft)
+                                                .p(px(1.0))
+                                                .child(
+                                                    div()
+                                                        .id(SharedString::from(format!(
+                                                            "settings-catalog-tab-all-{index}"
+                                                        )))
+                                                        .role(Role::Button)
+                                                        .aria_label("供应商列表")
+                                                        .px(space(2))
+                                                        .py(px(2.0))
+                                                        .rounded(px(RADIUS_SMALL))
+                                                        .text_size(px(10.0))
+                                                        .text_color(if draft.catalog_tab
+                                                            == CatalogTab::All
+                                                        {
+                                                            palette.canvas
+                                                        } else {
+                                                            palette.ink_2
+                                                        })
+                                                        .when(
+                                                            draft.catalog_tab == CatalogTab::All,
+                                                            |style| style.bg(palette.accent),
+                                                        )
+                                                        .child("供应商列表")
+                                                        .on_click(move |_, _, cx| {
+                                                            let _ = all_weak.update(cx, |this, cx| {
+                                                                this.set_catalog_tab(
+                                                                    index,
+                                                                    CatalogTab::All,
+                                                                    cx,
+                                                                );
+                                                            });
+                                                        }),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .id(SharedString::from(format!(
+                                                            "settings-catalog-tab-selected-{index}"
+                                                        )))
+                                                        .role(Role::Button)
+                                                        .aria_label("仅所选")
+                                                        .px(space(2))
+                                                        .py(px(2.0))
+                                                        .rounded(px(RADIUS_SMALL))
+                                                        .text_size(px(10.0))
+                                                        .text_color(if draft.catalog_tab
+                                                            == CatalogTab::Selected
+                                                        {
+                                                            palette.canvas
+                                                        } else {
+                                                            palette.ink_2
+                                                        })
+                                                        .when(
+                                                            draft.catalog_tab
+                                                                == CatalogTab::Selected,
+                                                            |style| style.bg(palette.accent),
+                                                        )
+                                                        .child("仅所选")
+                                                        .on_click(move |_, _, cx| {
+                                                            let _ = selected_weak.update(
+                                                                cx,
+                                                                |this, cx| {
+                                                                    this.set_catalog_tab(
+                                                                        index,
+                                                                        CatalogTab::Selected,
+                                                                        cx,
+                                                                    );
+                                                                },
+                                                            );
+                                                        }),
+                                                )
+                                        })
                                         .child(
                                             div()
                                                 .text_size(px(10.0))
@@ -3340,10 +3421,10 @@ fn render_provider_cards(
                                                 .remote_models
                                                 .iter()
                                                 .filter(|remote| {
-                                                    !draft
-                                                        .model_params
-                                                        .iter()
-                                                        .any(|local| local.id == remote.id)
+                                                    draft.catalog_tab == CatalogTab::All
+                                                        && !draft.model_params.iter().any(|local| {
+                                                            local.id == remote.id
+                                                        })
                                                 })
                                                 .map(|model| {
                                                     let id = model.id.clone();
@@ -3374,35 +3455,6 @@ fn render_provider_cards(
                                                                 );
                                                             });
                                                         })
-                                                }),
-                                        ),
-                                )
-                                .child(
-                                    div()
-                                        .flex()
-                                        .flex_row()
-                                        .items_center()
-                                        .gap(space(1))
-                                        .child(
-                                            div()
-                                                .id(SharedString::from(format!(
-                                                    "settings-model-fetch-dismiss-{index}"
-                                                )))
-                                                .role(Role::Button)
-                                                .px(space(2))
-                                                .py(px(3.0))
-                                                .rounded(px(RADIUS_SMALL))
-                                                .text_size(px(11.0))
-                                                .text_color(palette.ink_3)
-                                                .hover(|style| style.bg(palette.soft))
-                                                .child("收起供应商列表")
-                                                .on_click({
-                                                    let dismiss_weak = weak.clone();
-                                                    move |_, _, cx| {
-                                                        let _ = dismiss_weak.update(cx, |this, cx| {
-                                                            this.dismiss_fetched_models(index, cx);
-                                                        });
-                                                    }
                                                 }),
                                         ),
                                 )
