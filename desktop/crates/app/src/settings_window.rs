@@ -3166,9 +3166,9 @@ fn render_provider_cards(
                                                     palette.ink_2
                                                 })
                                                 .child(if draft.models_settings_open {
-                                                    "模型设置 ▴"
+                                                    "模型参数 ▴"
                                                 } else {
-                                                    "模型设置 ▾"
+                                                    "模型参数 ▾"
                                                 })
                                                 .on_click({
                                                     let settings_weak = weak.clone();
@@ -3568,6 +3568,53 @@ fn render_provider_cards(
                                 .child(error)
                                 .into_any_element()
                         }))
+                        .child({
+                            let settings_weak = weak.clone();
+                            div()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap(space(1))
+                                .child(
+                                    div()
+                                        .text_size(px(10.0))
+                                        .text_color(palette.ink_3)
+                                        .child(format!(
+                                            "模型参数（{} 个）{}",
+                                            draft.model_params.len(),
+                                            if draft.models_settings_open {
+                                                "已展开"
+                                            } else {
+                                                "已收起"
+                                            }
+                                        )),
+                                )
+                                .child(
+                                    div()
+                                        .id(SharedString::from(format!(
+                                            "settings-models-toggle-{index}"
+                                        )))
+                                        .role(Role::Button)
+                                        .aria_label("展开模型参数")
+                                        .px(space(2))
+                                        .py(px(2.0))
+                                        .rounded(px(RADIUS_SMALL))
+                                        .border_1()
+                                        .border_color(palette.line)
+                                        .text_size(px(10.0))
+                                        .text_color(palette.accent)
+                                        .child(if draft.models_settings_open {
+                                            "收起 ▴"
+                                        } else {
+                                            "展开 ▾"
+                                        })
+                                        .on_click(move |_, _, cx| {
+                                            let _ = settings_weak.update(cx, |this, cx| {
+                                                this.toggle_models_settings(index, cx);
+                                            });
+                                        }),
+                                )
+                        })
                         .children(draft.model_fields.iter().enumerate().map(
                             |(model_index, field)| {
                                 if !draft.models_settings_open {
