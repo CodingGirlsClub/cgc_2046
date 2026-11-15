@@ -919,7 +919,6 @@ impl SettingsWindowView {
         copy.api_key_input = None;
         copy.model_fields.clear();
         copy.remote_models.clear();
-        copy.remote_selected.clear();
         copy.fetching_models = false;
         copy.fetch_error = None;
         copy.models_advanced_open = false;
@@ -1019,23 +1018,19 @@ impl SettingsWindowView {
         match result {
             Ok(models) if models.is_empty() => {
                 draft.remote_models.clear();
-                draft.remote_selected.clear();
                 draft.fetch_error =
                     Some("供应商返回了空列表：请检查 URL，或用批量编辑手填模型".to_string());
             }
             Ok(models) => {
-                draft.remote_selected = models.iter().map(|model| model.id.clone()).collect();
                 draft.remote_models = models;
                 draft.fetch_error = None;
             }
             Err(error) if list_unsupported(&error) => {
                 draft.remote_models.clear();
-                draft.remote_selected.clear();
                 draft.fetch_error = Some("该服务不提供模型列表，请用批量编辑手填".to_string());
             }
             Err(error) => {
                 draft.remote_models.clear();
-                draft.remote_selected.clear();
                 let detail: String = error.to_string().chars().take(140).collect();
                 draft.fetch_error = Some(format!(
                     "获取失败：{}（{detail}）",
@@ -1119,76 +1114,96 @@ impl SettingsWindowView {
         cx.notify();
     }
 
-    /// 把勾选的远程模型并入草稿（本地已有参数保留），随后由 ensure 重建模型卡片。
-    fn apply_fetched_models(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+    /// 本地模型 chip：切换是否启用（picker 里可见）。
+    fn toggle_model_enabled(
+        &mut self,
+        index: usize,
+        id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        {
+            let Some(slot) = self.provider_drafts.get_mut(index) else {
+                return;
+            };
+            let Some(model) = slot.model_params.iter_mut().find(|model| model.id == id) else {
+                return;
+            };
+            model.enabled = !model.enabled;
+        }
+        self.flush_models_text(index, window, cx);
+    }
+
+    fn set_all_models_enabled(
+        &mut self,
+        index: usize,
+        enabled: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        {
+            let Some(slot) = self.provider_drafts.get_mut(index) else {
+                return;
+            };
+            for model in &mut slot.model_params {
+                model.enabled = enabled;
+            }
+        }
+        self.flush_models_text(index, window, cx);
+    }
+
+    /// 未加入的远程模型 chip：直接加入，保留供应商元数据。
+    fn add_remote_model(
+        &mut self,
+        index: usize,
+        id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(draft) = self.provider_drafts.get(index).cloned() else {
             return;
         };
-        let chosen = draft.remote_selected.clone();
-        if chosen.is_empty() {
-            self.error = Some("请至少选择一个模型".to_string());
-            cx.notify();
-            return;
-        }
+        let chosen: std::collections::BTreeSet<String> = std::iter::once(id.to_string()).collect();
         let catalog: Vec<ModelPrefs> = builtin_providers()
             .into_iter()
             .flat_map(|provider| provider.model_params)
             .collect();
-        let (models, params) =
+        let (_, params) =
             merge_remote_models(&draft.remote_models, &draft.model_params, &chosen, &catalog);
-        let text = format_model_lines(&ProviderPrefs {
-            models: models.clone(),
-            model_params: params.clone(),
-            ..Default::default()
-        });
         if let Some(slot) = self.provider_drafts.get_mut(index) {
-            slot.models = text.clone();
             slot.model_params = params;
             slot.model_fields.clear();
-            slot.remote_models.clear();
-            slot.remote_selected.clear();
-            slot.fetch_error = None;
-            // 文本区必须同步，否则保存时“文本优先”会把刚加入的模型覆盖回去。
-            if let Some(input) = slot.models_input.clone() {
-                input.update(cx, |state, cx| state.set_value(text, window, cx));
-            }
         }
-        self.error = None;
-        self.notice = Some(format!("已加入 {} 个模型（保存后生效）", models.len()));
+        self.flush_models_text(index, window, cx);
+    }
+
+    /// chips 改动后把模型参数写回文本与文本区。
+    fn flush_models_text(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(draft) = self.provider_drafts.get_mut(index) else {
+            return;
+        };
+        let text = format_model_lines(&ProviderPrefs {
+            models: draft
+                .model_params
+                .iter()
+                .map(|model| model.id.clone())
+                .collect(),
+            model_params: draft.model_params.clone(),
+            ..Default::default()
+        });
+        draft.models = text.clone();
+        draft.model_fields.clear();
+        if let Some(input) = draft.models_input.clone() {
+            input.update(cx, |state, cx| state.set_value(text, window, cx));
+        }
         cx.notify();
     }
 
     fn dismiss_fetched_models(&mut self, index: usize, cx: &mut Context<Self>) {
         if let Some(slot) = self.provider_drafts.get_mut(index) {
             slot.remote_models.clear();
-            slot.remote_selected.clear();
             slot.fetch_error = None;
         }
-        cx.notify();
-    }
-
-    fn toggle_remote_selection(&mut self, index: usize, id: &str, cx: &mut Context<Self>) {
-        let Some(slot) = self.provider_drafts.get_mut(index) else {
-            return;
-        };
-        if !slot.remote_selected.remove(id) {
-            slot.remote_selected.insert(id.to_string());
-        }
-        cx.notify();
-    }
-
-    fn set_all_remote_selection(&mut self, index: usize, selected: bool, cx: &mut Context<Self>) {
-        let Some(slot) = self.provider_drafts.get_mut(index) else {
-            return;
-        };
-        slot.remote_selected = if selected {
-            slot.remote_models
-                .iter()
-                .map(|model| model.id.clone())
-                .collect()
-        } else {
-            std::collections::BTreeSet::new()
-        };
         cx.notify();
     }
 
@@ -2958,7 +2973,7 @@ fn render_provider_cards(
                                                     "settings-model-fetch-{index}"
                                                 )))
                                                 .role(Role::Button)
-                                                .aria_label("获取模型")
+                                                .aria_label("获取模型列表")
                                                 .px(space(2))
                                                 .py(px(3.0))
                                                 .rounded(px(RADIUS_SMALL))
@@ -2967,8 +2982,10 @@ fn render_provider_cards(
                                                 .text_size(px(11.0))
                                                 .child(if draft.fetching_models {
                                                     "获取中…"
+                                                } else if draft.remote_models.is_empty() {
+                                                    "获取模型"
                                                 } else {
-                                                    "⟳ 获取模型"
+                                                    "重新获取"
                                                 })
                                                 .on_click({
                                                     let fetch_weak = weak.clone();
@@ -2985,7 +3002,7 @@ fn render_provider_cards(
                                                     "settings-models-test-{index}"
                                                 )))
                                                 .role(Role::Button)
-                                                .aria_label("检测模型")
+                                                .aria_label("测试模型")
                                                 .px(space(2))
                                                 .py(px(3.0))
                                                 .rounded(px(RADIUS_SMALL))
@@ -2993,9 +3010,9 @@ fn render_provider_cards(
                                                 .border_color(palette.line)
                                                 .text_size(px(11.0))
                                                 .child(if draft.testing_models {
-                                                    "检测中…"
+                                                    "测试中…"
                                                 } else {
-                                                    "检测模型"
+                                                    "测试模型"
                                                 })
                                                 .on_click({
                                                     let test_weak = weak.clone();
@@ -3095,19 +3112,20 @@ fn render_provider_cards(
                                 )
                                 .into_any_element()
                         }))
-                        .children((!draft.remote_models.is_empty()).then(|| {
-                            let apply_weak = weak.clone();
-                            let dismiss_weak = weak.clone();
+                        .child({
                             let all_weak = weak.clone();
                             let none_weak = weak.clone();
+                            let enabled = draft
+                                .model_params
+                                .iter()
+                                .filter(|model| model.enabled)
+                                .count();
                             div()
+                                .w_full()
                                 .flex()
                                 .flex_col()
                                 .gap(space(1))
-                                .p(space(1))
-                                .rounded(px(RADIUS_MEDIUM))
-                                .border_1()
-                                .border_color(palette.line)
+                                .pt(space(1))
                                 .child(
                                     div()
                                         .flex()
@@ -3120,9 +3138,9 @@ fn render_provider_cards(
                                                 .text_size(px(10.0))
                                                 .text_color(palette.ink_3)
                                                 .child(format!(
-                                                    "已获取 {} 个模型，已选 {}；点标签切换",
-                                                    draft.remote_models.len(),
-                                                    draft.remote_selected.len()
+                                                    "{} 个模型 · 已启用 {}，点击标签切换",
+                                                    draft.model_params.len(),
+                                                    enabled
                                                 )),
                                         )
                                         .child(
@@ -3145,10 +3163,10 @@ fn render_provider_cards(
                                                         .text_size(px(10.0))
                                                         .text_color(palette.ink_2)
                                                         .child("全选")
-                                                        .on_click(move |_, _, cx| {
+                                                        .on_click(move |_, window, cx| {
                                                             let _ = all_weak.update(cx, |this, cx| {
-                                                                this.set_all_remote_selection(
-                                                                    index, true, cx,
+                                                                this.set_all_models_enabled(
+                                                                    index, true, window, cx,
                                                                 );
                                                             });
                                                         }),
@@ -3168,10 +3186,10 @@ fn render_provider_cards(
                                                         .text_size(px(10.0))
                                                         .text_color(palette.ink_2)
                                                         .child("全不选")
-                                                        .on_click(move |_, _, cx| {
+                                                        .on_click(move |_, window, cx| {
                                                             let _ = none_weak.update(cx, |this, cx| {
-                                                                this.set_all_remote_selection(
-                                                                    index, false, cx,
+                                                                this.set_all_models_enabled(
+                                                                    index, false, window, cx,
                                                                 );
                                                             });
                                                         }),
@@ -3184,49 +3202,90 @@ fn render_provider_cards(
                                         .flex_row()
                                         .flex_wrap()
                                         .gap(space(1))
-                                        .children(draft.remote_models.iter().map(|model| {
+                                        .children(draft.model_params.iter().map(|model| {
                                             let id = model.id.clone();
-                                            let selected = draft.remote_selected.contains(&id);
+                                            let enabled = model.enabled;
                                             let toggle_weak = weak.clone();
-                                            let label =
-                                                model.name.clone().unwrap_or_else(|| id.clone());
+                                            let label = id.clone();
                                             div()
                                                 .id(SharedString::from(format!(
-                                                    "settings-remote-{index}-{id}"
+                                                    "settings-model-chip-{index}-{id}"
                                                 )))
                                                 .role(Role::Button)
                                                 .aria_label(format!(
-                                                    "{} {}",
-                                                    if selected { "取消" } else { "选择" },
-                                                    label
+                                                    "{} {label}",
+                                                    if enabled { "停用" } else { "启用" }
                                                 ))
                                                 .px(space(2))
                                                 .py(px(3.0))
                                                 .rounded(px(999.0))
                                                 .border_1()
-                                                .border_color(if selected {
+                                                .border_color(if enabled {
                                                     palette.accent
                                                 } else {
                                                     palette.line
                                                 })
-                                                .text_color(if selected {
+                                                .text_color(if enabled {
                                                     palette.accent
                                                 } else {
-                                                    palette.ink_2
+                                                    palette.ink_3
                                                 })
                                                 .text_size(px(11.0))
-                                                .child(if selected {
+                                                .child(if enabled {
                                                     format!("✓ {label}")
                                                 } else {
                                                     label
                                                 })
-                                                .on_click(move |_, _, cx| {
+                                                .on_click(move |_, window, cx| {
                                                     let id = id.clone();
                                                     let _ = toggle_weak.update(cx, |this, cx| {
-                                                        this.toggle_remote_selection(index, &id, cx);
+                                                        this.toggle_model_enabled(
+                                                            index, &id, window, cx,
+                                                        );
                                                     });
                                                 })
-                                        })),
+                                        }))
+                                        .children(
+                                            draft
+                                                .remote_models
+                                                .iter()
+                                                .filter(|remote| {
+                                                    !draft
+                                                        .model_params
+                                                        .iter()
+                                                        .any(|local| local.id == remote.id)
+                                                })
+                                                .map(|model| {
+                                                    let id = model.id.clone();
+                                                    let add_weak = weak.clone();
+                                                    let label = model
+                                                        .name
+                                                        .clone()
+                                                        .unwrap_or_else(|| id.clone());
+                                                    div()
+                                                        .id(SharedString::from(format!(
+                                                            "settings-model-pending-{index}-{id}"
+                                                        )))
+                                                        .role(Role::Button)
+                                                        .aria_label(format!("添加 {label}"))
+                                                        .px(space(2))
+                                                        .py(px(3.0))
+                                                        .rounded(px(999.0))
+                                                        .border_1()
+                                                        .border_color(palette.line)
+                                                        .text_color(palette.ink_3)
+                                                        .text_size(px(11.0))
+                                                        .child(label)
+                                                        .on_click(move |_, window, cx| {
+                                                            let id = id.clone();
+                                                            let _ = add_weak.update(cx, |this, cx| {
+                                                                this.add_remote_model(
+                                                                    index, &id, window, cx,
+                                                                );
+                                                            });
+                                                        })
+                                                }),
+                                        ),
                                 )
                                 .child(
                                     div()
@@ -3234,26 +3293,6 @@ fn render_provider_cards(
                                         .flex_row()
                                         .items_center()
                                         .gap(space(1))
-                                        .child(
-                                            div()
-                                                .id(SharedString::from(format!(
-                                                    "settings-model-fetch-apply-{index}"
-                                                )))
-                                                .role(Role::Button)
-                                                .aria_label("加入选中的模型")
-                                                .px(space(2))
-                                                .py(px(3.0))
-                                                .rounded(px(RADIUS_SMALL))
-                                                .bg(palette.accent)
-                                                .text_color(palette.canvas)
-                                                .text_size(px(11.0))
-                                                .child("加入选中模型")
-                                                .on_click(move |_, window, cx| {
-                                                    let _ = apply_weak.update(cx, |this, cx| {
-                                                        this.apply_fetched_models(index, window, cx);
-                                                    });
-                                                }),
-                                        )
                                         .child(
                                             div()
                                                 .id(SharedString::from(format!(
@@ -3266,16 +3305,19 @@ fn render_provider_cards(
                                                 .text_size(px(11.0))
                                                 .text_color(palette.ink_3)
                                                 .hover(|style| style.bg(palette.soft))
-                                                .child("取消")
-                                                .on_click(move |_, _, cx| {
-                                                    let _ = dismiss_weak.update(cx, |this, cx| {
-                                                        this.dismiss_fetched_models(index, cx);
-                                                    });
+                                                .child("收起供应商列表")
+                                                .on_click({
+                                                    let dismiss_weak = weak.clone();
+                                                    move |_, _, cx| {
+                                                        let _ = dismiss_weak.update(cx, |this, cx| {
+                                                            this.dismiss_fetched_models(index, cx);
+                                                        });
+                                                    }
                                                 }),
                                         ),
                                 )
                                 .into_any_element()
-                        }))
+                        })
                         .children(draft.fetching_models.then(|| {
                             div()
                                 .text_size(px(10.0))

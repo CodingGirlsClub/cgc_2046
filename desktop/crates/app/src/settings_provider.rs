@@ -6,8 +6,6 @@ use cgc_agent_store::{ModelPrefs, ProviderPrefs};
 use gpui_kit::component::input::{InputState, TextareaState};
 use gpui_kit::*;
 
-use std::collections::BTreeSet;
-
 #[derive(Clone)]
 pub(crate) struct ModelFieldInputs {
     pub(crate) model_id: String,
@@ -47,8 +45,6 @@ pub(crate) struct ProviderDraft {
     pub(crate) confirm_clear: bool,
     /// 最近一次"获取模型"的结果；空表示尚未获取。
     pub(crate) remote_models: Vec<RemoteModel>,
-    /// 已勾选的远程模型 id（获取后默认全选）。
-    pub(crate) remote_selected: BTreeSet<String>,
     pub(crate) fetching_models: bool,
     pub(crate) fetch_error: Option<String>,
     /// 批量编辑：按文本编辑模型行。
@@ -133,7 +129,6 @@ impl ProviderDraft {
             key_editing: false,
             confirm_clear: false,
             remote_models: Vec::new(),
-            remote_selected: BTreeSet::new(),
             fetching_models: false,
             fetch_error: None,
             models_advanced_open: false,
@@ -174,7 +169,6 @@ impl ProviderDraft {
             key_editing: false,
             confirm_clear: false,
             remote_models: Vec::new(),
-            remote_selected: BTreeSet::new(),
             fetching_models: false,
             fetch_error: None,
             models_advanced_open: false,
