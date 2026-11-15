@@ -1274,12 +1274,15 @@ impl RootView {
                 None
             };
             let launch_options = if dsh_required {
-                let dsh_home = cgc_platform::paths::AppPaths::from_env().dsh_home_root();
-                ensure_dsh_home(&dsh_home).map_err(|error| ChatStartError {
-                    message: format!("cannot prepare DSH_HOME: {error}"),
-                    detected: guidance.clone(),
-                    node_found: node_found.clone(),
-                })?;
+                let (dsh_home, shared) = crate::dsh_agent::resolve_dsh_home();
+                // 共享模式指向用户自己的 DSH 目录：不创建、不改权限。
+                if !shared {
+                    ensure_dsh_home(&dsh_home).map_err(|error| ChatStartError {
+                        message: format!("cannot prepare DSH_HOME: {error}"),
+                        detected: guidance.clone(),
+                        node_found: node_found.clone(),
+                    })?;
+                }
                 // 决策 A：DSH Desktop 仅检测展示，openma 统一使用自带 bundled dsh。
                 crate::dsh_agent::dsh_launch_options(dsh_home, crate::dsh_agent::dsh_launch_env())
             } else {
@@ -3179,14 +3182,18 @@ impl RootView {
             let registry = Registry::builtin().map_err(|error| error.diagnostic())?;
             let managed = NodeRuntime::new(NodeRuntimeManager::default_manager().root);
             let rows = detect_all(&registry, Some(&managed));
-            Ok::<_, String>(rows)
+            let share_local = crate::dsh_agent::dsh_share_local_home();
+            Ok::<_, String>((rows, share_local))
         });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
                 this.agent_registry_loading = false;
                 match result {
-                    Ok(rows) => this.agent_registry_rows = rows,
+                    Ok((rows, share_local)) => {
+                        this.agent_registry_rows = rows;
+                        this.dsh_share_local_home = share_local;
+                    }
                     Err(error) => this.agent_registry_error = Some(error),
                 }
                 cx.notify();
@@ -3290,8 +3297,10 @@ impl RootView {
         let task = cx.background_executor().spawn(async move {
             let manager = NodeRuntimeManager::default_manager();
             let node = manager.installed_runtime();
-            let dsh_home = cgc_platform::paths::AppPaths::from_env().dsh_home_root();
-            uninstall_entry(&entry, node.as_ref(), Some(&dsh_home))
+            // 共享模式：DSH_HOME 属于用户自己的 DSH 数据，卸载只删 CGC 安装包。
+            let (dsh_home, shared) = crate::dsh_agent::resolve_dsh_home();
+            let remove_home = (!shared).then_some(dsh_home);
+            uninstall_entry(&entry, node.as_ref(), remove_home.as_deref())
                 .map_err(|error| error.to_string())
         });
         cx.spawn(async move |this, cx| {
@@ -3315,6 +3324,21 @@ impl RootView {
             });
         })
         .detach();
+    }
+
+    /// 切换 ADR-0030 D3 的本地 DSH 共享开关。
+    ///
+    /// 只改下次启动参数：已在跑的 DSH host 不会被迁移，用户下次新建对话才生效。
+    pub(in crate::root_view) fn toggle_dsh_share_local_home(&mut self, cx: &mut Context<Self>) {
+        let next = !self.dsh_share_local_home;
+        match crate::dsh_agent::set_dsh_share_local_home(next) {
+            Ok(()) => {
+                self.dsh_share_local_home = next;
+                self.agent_install_error = None;
+            }
+            Err(error) => self.agent_install_error = Some(error),
+        }
+        cx.notify();
     }
 
     /// 切到 external ACP agent 前的面板状态重置（不含 host 生命周期与启动）。

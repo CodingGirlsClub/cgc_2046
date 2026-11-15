@@ -381,6 +381,10 @@ agent.registry.runtime_download
 agent.registry.dsh_desktop_detected
 agent.registry.dsh_runtime_detected
 agent.registry.dsh_desktop_missing
+agent.registry.dsh_share_local
+agent.registry.dsh_share_local_hint
+agent.registry.dsh_share_local_on
+agent.registry.dsh_share_version_warn
 app.settings.cursor_blink
 app.settings.cursor_blink_hint
 app.settings.cursor_blink_blinking

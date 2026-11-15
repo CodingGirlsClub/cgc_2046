@@ -33,13 +33,20 @@ CGC 托管的 DeepSeek Key 以本机 keychain 为唯一真源。启动 ACP 子�
 - 密钥不进入 settings、日志、遥测、崩溃报告与对话内容；日志沿用现有 `telemetry::redact_sensitive` 脱敏。
 - keychain 读取失败或无凭据时不启动带空 key 的进程：按 `-32000 auth_required` 走「登录」入口（P3）。
 
-### D3 会话隔离：独立 `DSH_HOME`
+### D3 会话隔离：默认独立 `DSH_HOME`，可显式共享本地 DSH
 
-客户端为 DSH ACP 集成创建**独立的 `DSH_HOME`**（位于客户端数据根下，如 `<data_root>/dsh-home`，P1 固定具体路径），不复用用户自己的 `~/.dsh`，也不与 DSH Desktop 的会话/凭据目录混用。
+客户端为 DSH ACP 集成默认创建**独立的 `DSH_HOME`**（位于客户端数据根下，如 `<data_root>/dsh-home`），不复用用户自己的 `~/.dsh`，也不与 DSH Desktop 的会话/凭据目录混用。
 
 - 学员对话、profile、会话记录只落在该隔离目录，不进入用户自己的 DSH Desktop 数据；多账号 / 多工作台按数据根隔离。
 - 目录权限 0700；卸载时删除包与隔离 `DSH_HOME`（P4）。
 - 启动 ACP 子进程时显式设置 `DSH_HOME` 覆盖，禁止依赖用户环境中的同名变量。
+
+**opt-in 共享（个人开发场景）**：Agent Registry 的 DeepSeek 条目提供「与本地 DSH 共享会话」开关（`AgentPrefs.dsh_share_local_home`，默认关闭）。开启后：
+
+- `DSH_HOME` 指向本地 DSH 数据目录（`DSH_HOME` 环境变量 > `~/.dsh`），adapter 的会话日志与 DSH Desktop/Web 共用同一份，CGC 侧栏仍通过 `session/list` 合并展示；
+- 卸载只删 CGC 安装包，**不删除**共享目录；共享目录视为用户数据，由用户自行管理；
+- 多账号 / 多工作台不再隔离：同一台机器上各账号会看到彼此的 DSH 会话；UI 必须提示这一点；
+- 本地 DSH 版本与 adapter 内置运行时不一致时只警告（当前 0.2.2 vs 0.2.1-rc.5），不阻断，兼容性由用户判断。
 
 ### D4 DSH Desktop 缺失不阻断安装/启动
 

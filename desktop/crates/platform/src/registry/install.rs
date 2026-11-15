@@ -329,6 +329,32 @@ mod tests {
     }
 
     #[test]
+    fn shared_local_dsh_home_is_never_removed() {
+        let root = std::env::temp_dir().join(format!(
+            "cgc-uninstall-shared-{}-{}",
+            std::process::id(),
+            NEXT_INSTALL.fetch_add(1, Ordering::Relaxed)
+        ));
+        let runtime = NodeRuntime::new(root.join("node24"));
+        let dsh_entry = entry("dsh-test", "@openma/deepseek-harness-acp", true);
+        let package_dir = install_dir(&dsh_entry, &runtime);
+        std::fs::create_dir_all(package_dir.join("node_modules")).unwrap();
+        let shared_home = root.join("local-dsh");
+        std::fs::create_dir_all(&shared_home).unwrap();
+        std::fs::write(shared_home.join("settings.yaml"), b"llm").unwrap();
+
+        // 共享模式由调用方传 None：卸载只删 CGC 安装包。
+        let result = uninstall_entry(&dsh_entry, Some(&runtime), None).unwrap();
+        assert!(result.removed_package);
+        assert!(!result.removed_dsh_home);
+        assert!(
+            shared_home.join("settings.yaml").exists(),
+            "shared DSH data must survive uninstall"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn non_dsh_uninstall_keeps_dsh_home() {
         let root = std::env::temp_dir().join(format!(
             "cgc-uninstall-plain-{}-{}",

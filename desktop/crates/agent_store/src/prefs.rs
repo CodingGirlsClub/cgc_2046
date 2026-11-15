@@ -125,6 +125,11 @@ pub struct AgentPrefs {
     pub selected_model: Option<SelectedModel>,
     pub selected_provider: Option<String>,
     pub providers: Vec<ProviderPrefs>,
+    /// ADR-0030 D3（opt-in）：与本地 DSH 共享会话数据（`~/.dsh`），而不是使用
+    /// 客户端隔离目录。默认关闭；开启后 CGC 会话会出现在 DSH Desktop/Web，
+    /// 且卸载不会删除该目录。
+    #[serde(default)]
+    pub dsh_share_local_home: bool,
 }
 
 impl Default for AgentPrefs {
@@ -134,6 +139,7 @@ impl Default for AgentPrefs {
             selected_model: None,
             selected_provider: None,
             providers: Vec::new(),
+            dsh_share_local_home: false,
         }
     }
 }
@@ -430,6 +436,7 @@ mod tests {
             selected_model: Some(selected()),
             selected_provider: Some("deepseek".to_string()),
             providers: vec![provider("deepseek", "https://api.deepseek.com/v1")],
+            dsh_share_local_home: true,
         };
         store.save(&prefs).expect("save");
         assert_eq!(store.load(), prefs);
@@ -506,6 +513,7 @@ mod tests {
                 builtin: true,
                 protocol: ProviderProtocol::OpenAiCompatible,
             }],
+            dsh_share_local_home: false,
         };
         store.save(&prefs).expect("save");
         let loaded = store.load();

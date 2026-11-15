@@ -3,6 +3,7 @@
 use super::super::super::*;
 use super::super::ScreenContext;
 use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::skeleton::Skeleton;
 use gpui_kit::component::tag::Tag;
 use gpui_kit::component::Disableable;
@@ -132,6 +133,10 @@ pub(in crate::root_view) fn render_agent_registry(
             let id = entry.id.clone();
             let uninstall_id = entry.id.clone();
             let is_ready = matches!(row.status, AgentStatus::Ready { .. });
+            let dsh_share_local = ctx.dsh_share_local_home;
+            let dsh_version_mismatch = row.runtime.version != row.runtime.bundled_version;
+            let dsh_desktop_version = row.runtime.version.clone().unwrap_or_default();
+            let dsh_bundled_version = row.runtime.bundled_version.clone().unwrap_or_default();
             cards.push(
                 div()
                     .id(SharedString::from(format!("agent-card-{}", entry.id)))
@@ -210,6 +215,60 @@ pub(in crate::root_view) fn render_agent_registry(
                         language,
                         palette,
                     ))
+                    .children(entry.uses_dsh_runtime().then(|| {
+                        let root = cx.entity().downgrade();
+                        div()
+                            .id(SharedString::from(format!("agent-dsh-share-{}", entry.id)))
+                            .flex()
+                            .flex_col()
+                            .gap(px(3.0))
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap(space(1))
+                                    .child(
+                                        Checkbox::new("agent-dsh-share-local")
+                                            .checked(dsh_share_local)
+                                            .on_click(move |_, _, cx| {
+                                                let _ = root.update(cx, |this, cx| {
+                                                    this.toggle_dsh_share_local_home(cx);
+                                                });
+                                            }),
+                                    )
+                                    .child(
+                                        div().text_size(px(11.0)).text_color(palette.ink_2).child(
+                                            translate(language, Key::AgentRegistryDshShareLocal),
+                                        ),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(10.0))
+                                    .text_color(if dsh_share_local {
+                                        palette.warning
+                                    } else {
+                                        palette.ink_3
+                                    })
+                                    .child(translate(
+                                        language,
+                                        if dsh_share_local {
+                                            Key::AgentRegistryDshShareLocalOn
+                                        } else {
+                                            Key::AgentRegistryDshShareLocalHint
+                                        },
+                                    )),
+                            )
+                            .children((dsh_share_local && dsh_version_mismatch).then(|| {
+                                div().text_size(px(10.0)).text_color(palette.warning).child(
+                                    translate(language, Key::AgentRegistryDshShareVersionWarn)
+                                        .replace("{desktop}", &dsh_desktop_version)
+                                        .replace("{bundled}", &dsh_bundled_version),
+                                )
+                            }))
+                            .into_any_element()
+                    }))
                     .children(if is_installing {
                         install_stage.clone().map(|stage| {
                             div()

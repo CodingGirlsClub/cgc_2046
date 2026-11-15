@@ -201,6 +201,21 @@ impl AppPaths {
     }
 }
 
+/// 本地 DSH 数据目录（ADR-0030 D3 opt-in 共享）：`DSH_HOME` > `~/.dsh`。
+///
+/// 返回 `None` 表示无法确定（没有 HOME），调用方必须回退到隔离目录，
+/// 绝不能把空路径当作共享目录传给子进程。
+pub fn local_dsh_home(env: impl Fn(&str) -> Option<PathBuf>) -> Option<PathBuf> {
+    if let Some(path) = env("DSH_HOME").filter(|path| !path.as_os_str().is_empty()) {
+        return Some(path);
+    }
+    env("HOME").map(|home| home.join(".dsh"))
+}
+
+pub fn local_dsh_home_from_env() -> Option<PathBuf> {
+    local_dsh_home(|key| std::env::var_os(key).map(PathBuf::from))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -230,6 +245,36 @@ mod tests {
         assert!(!prod.data_root.to_string_lossy().contains("staging"));
         assert_eq!(dev.dsh_home_root(), dev.data_root.join("dsh-home"));
         assert_ne!(dev.dsh_home_root(), dev.data_root);
+    }
+
+    #[test]
+    fn local_dsh_home_prefers_explicit_dsh_home_then_user_home() {
+        fn read(values: &HashMap<String, PathBuf>, key: &str) -> Option<PathBuf> {
+            values.get(key).cloned()
+        }
+        let mut values = HashMap::new();
+        values.insert("HOME".to_string(), PathBuf::from("/Users/example"));
+        values.insert("DSH_HOME".to_string(), PathBuf::from("/data/custom-dsh"));
+        assert_eq!(
+            local_dsh_home(|key| read(&values, key)),
+            Some(PathBuf::from("/data/custom-dsh"))
+        );
+
+        values.remove("DSH_HOME");
+        assert_eq!(
+            local_dsh_home(|key| read(&values, key)),
+            Some(PathBuf::from("/Users/example/.dsh"))
+        );
+
+        // 空 DSH_HOME 不能当作有效共享目录。
+        values.insert("DSH_HOME".to_string(), PathBuf::new());
+        assert_eq!(
+            local_dsh_home(|key| read(&values, key)),
+            Some(PathBuf::from("/Users/example/.dsh"))
+        );
+
+        values.clear();
+        assert_eq!(local_dsh_home(|key| read(&values, key)), None);
     }
 
     #[test]

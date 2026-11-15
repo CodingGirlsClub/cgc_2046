@@ -320,6 +320,8 @@ pub struct ShellState {
     pub(in crate::root_view) agent_auto_install_attempted: bool,
     pub(in crate::root_view) agent_install_error: Option<String>,
     pub(in crate::root_view) agent_registry_query: String,
+    /// ADR-0030 D3 opt-in：与本地 DSH 共享会话数据（切换后下一次新对话生效）。
+    pub(in crate::root_view) dsh_share_local_home: bool,
     pub(in crate::root_view) chat_input: Option<Entity<gpui_kit::component::input::TextareaState>>,
     pub(in crate::root_view) chat_input_subscription: Option<Subscription>,
     pub(in crate::root_view) chat_input_pending_clear: bool,
@@ -571,6 +573,8 @@ impl ShellState {
             agent_auto_install_attempted: false,
             agent_install_error: None,
             agent_registry_query: String::new(),
+            // 进入 Agent Registry 时从 prefs 刷新；构造期不读用户文件（测试隔离）。
+            dsh_share_local_home: false,
             agent_registry_search_focused: false,
             chat_input: None,
             chat_input_subscription: None,
