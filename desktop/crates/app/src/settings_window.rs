@@ -600,7 +600,11 @@ impl SettingsWindowView {
         let task_models_url = task_provider
             .models_url
             .clone()
-            .filter(|url| !url.trim().is_empty());
+            .filter(|url| !url.trim().is_empty())
+            .or_else(|| {
+                (task_provider.protocol == ProviderProtocol::AnthropicCompatible)
+                    .then(|| anthropic_models_url(&task_provider.base_url))
+            });
         let task = cx.background_executor().spawn(async move {
             validate_credentials(
                 &task_provider.base_url,
