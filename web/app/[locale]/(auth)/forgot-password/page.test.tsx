@@ -1,3 +1,4 @@
+import type * as ApolloReact from "@apollo/client/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { render } from "@/test-utils";
@@ -9,10 +10,13 @@ const { requestMock, mutationState } = vi.hoisted(() => ({
 }));
 
 vi.mock("@apollo/client/react", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@apollo/client/react")>();
+  const actual = await importOriginal<typeof ApolloReact>();
   return {
     ...actual,
     useMutation: () => [requestMock, mutationState],
+    // 主路径的小程序码在测试里固定为空：页面走文字降级分支，
+    // 邮箱折叠区仍可操作（details 子节点在 DOM 中）。
+    useQuery: () => ({ data: { passwordCenterQr: null }, loading: false }),
   };
 });
 

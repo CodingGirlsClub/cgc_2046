@@ -5028,6 +5028,8 @@ export type RootMutationType = {
   revokeToken?: Maybe<Scalars['Boolean']['output']>;
   /** Speaker 保存分享材料（落 WorkflowRun.facts[materials]；Speaker 本人自助或 Owner/Admin 兜底；materials 为 JSON 字符串） */
   saveSpeakerMaterials?: Maybe<SpeakerInvitationActionPayload>;
+  /** 登录态设置/重设密码（小程序密码中心）：免旧密码；成功后当前会话换发新 token，其他端全部失效 */
+  setPassword?: Maybe<SetPasswordResult>;
   /** 设置当前用户在某工作台的 UI 主题偏好（ADR-0004 per-workspace） */
   setWorkspaceTheme?: Maybe<WorkspaceProfile>;
   /** 账号密码登录（plan 002 U2：login 含 @ 走邮箱，否则手机号归一化；token 经 httpOnly cookie 交付） */
@@ -5820,6 +5822,11 @@ export type RootMutationTypeSaveSpeakerMaterialsArgs = {
 };
 
 
+export type RootMutationTypeSetPasswordArgs = {
+  password: Scalars['String']['input'];
+};
+
+
 export type RootMutationTypeSetWorkspaceThemeArgs = {
   input: SetWorkspaceThemeInput;
   workspaceId: Scalars['ID']['input'];
@@ -6173,6 +6180,8 @@ export type RootQueryType = {
   offeringReadiness?: Maybe<OfferingReadinessPayload>;
   /** 订单状态轮询（2s×30s 轻量面，R14） */
   orderStatus?: Maybe<Order>;
+  /** 忘记密码页的固定小程序码（scene=pw，直达小程序密码页；匿名可读，生成失败返回 null） */
+  passwordCenterQr?: Maybe<Scalars['String']['output']>;
   /** 当前用户作为 Owner/Admin 的跨工作台可操作待办总数（Enrollment + JoinRequest + Sponsorship 的 pending 且未过审批截止）；已过期不计（KTD8 口径，与 /approvals 展示含过期行存在有意差异） */
   pendingApprovalsCount: Scalars['Int']['output'];
   /** 角色权限矩阵（#66 Rbac）：五角色 × 八能力，对齐前端权限表（需登录；#1 能力接口：abilities 为通用列表） */
@@ -6788,6 +6797,11 @@ export type RootQueryTypeWorkspaceProfileArgs = {
   workspaceId: Scalars['ID']['input'];
 };
 
+/** 登录态设置/重设密码结果（成功后当前会话已换发新 token） */
+export type SetPasswordResult = {
+  ok: Scalars['Boolean']['output'];
+};
+
 export type SetWorkspaceThemeInput = {
   /** setWorkspaceTheme 输入：uiThemePreference 必填，仅 dark | light */
   uiThemePreference: Scalars['String']['input'];
@@ -6807,6 +6821,7 @@ export type SignInWithPhoneCodeResult = {
 
 export type SignInWithPlatformResult = {
   email?: Maybe<Scalars['String']['output']>;
+  hasPassword: Scalars['Boolean']['output'];
   id: Scalars['ID']['output'];
   isPlatformAdmin: Scalars['Boolean']['output'];
 };

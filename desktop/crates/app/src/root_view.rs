@@ -134,6 +134,9 @@ enum LoginField {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum LoginMode {
     Password,
+    // 客户端入口已移交 Web 找回页；保留 Reset 是因为 controller 的表单状态机与
+    // 邮件 token 重置 mutation 仍在（未来深链可能复用），删除会牵连登录流程。
+    #[allow(dead_code)]
     Reset,
 }
 
