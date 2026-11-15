@@ -150,10 +150,14 @@ fn is_socks_url(value: &str) -> bool {
 
 /// 用当前 Base URL 与 API Key 读取供应商的模型列表；同时验证 Key 是否被接受。
 pub fn list_models(base_url: &str, api_key: &str) -> Result<Vec<RemoteModel>, ProviderError> {
+    list_models_at(&models_url(base_url), api_key)
+}
+
+/// 在指定的模型列表地址上读取列表（供应商把列表放在非标准路径时使用）。
+pub fn list_models_at(url: &str, api_key: &str) -> Result<Vec<RemoteModel>, ProviderError> {
     if let Some(note) = socks_proxy_note() {
         return Err(ProviderError::transport(note));
     }
-    let url = models_url(base_url);
     let agent = ureq::Agent::new_with_config(
         ureq::Agent::config_builder()
             .http_status_as_error(false)
@@ -161,7 +165,7 @@ pub fn list_models(base_url: &str, api_key: &str) -> Result<Vec<RemoteModel>, Pr
             .build(),
     );
     let mut response = agent
-        .get(&url)
+        .get(url)
         .header("authorization", format!("Bearer {api_key}"))
         .call()
         .map_err(map_ureq_error)?;

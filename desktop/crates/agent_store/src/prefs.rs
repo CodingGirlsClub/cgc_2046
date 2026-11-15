@@ -10,6 +10,15 @@ pub struct ProviderPrefs {
     pub id: String,
     pub name: String,
     pub base_url: String,
+    /// 可选：Anthropic 协议地址；空则回落到 `base_url`。
+    #[serde(default)]
+    pub anthropic_url: Option<String>,
+    /// 可选：Responses 协议地址（预留，native 暂不使用）。
+    #[serde(default)]
+    pub responses_url: Option<String>,
+    /// 可选：模型列表的完整地址；空则用 `{base_url}/models`。
+    #[serde(default)]
+    pub models_url: Option<String>,
     #[serde(default)]
     pub protocol: ProviderProtocol,
     pub models: Vec<String>,
@@ -262,6 +271,9 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
             id: id.to_string(),
             name: name.to_string(),
             base_url: base_url.to_string(),
+            anthropic_url: None,
+            responses_url: None,
+            models_url: None,
             models: Vec::new(),
             has_key: false,
             model_params: Vec::new(),
@@ -445,6 +457,9 @@ mod tests {
             id: id.to_string(),
             name: "Test".to_string(),
             base_url: base_url.to_string(),
+            anthropic_url: None,
+            responses_url: None,
+            models_url: None,
             models: vec!["model-a".to_string()],
             has_key: true,
             model_params: Vec::new(),
@@ -533,6 +548,9 @@ mod tests {
                 id: "deepseek".to_string(),
                 name: "DeepSeek".to_string(),
                 base_url: "https://api.deepseek.com".to_string(),
+                anthropic_url: None,
+                responses_url: None,
+                models_url: None,
                 models: vec!["deepseek-flash".to_string()],
                 has_key: true,
                 model_params: vec![flash],
@@ -599,6 +617,9 @@ mod model_param_tests {
             id: id.to_string(),
             name: "Test".to_string(),
             base_url: base_url.to_string(),
+            anthropic_url: None,
+            responses_url: None,
+            models_url: None,
             models: vec!["model-a".to_string()],
             has_key: true,
             model_params: Vec::new(),

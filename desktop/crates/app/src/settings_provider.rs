@@ -28,6 +28,9 @@ pub(crate) struct ProviderDraft {
     pub(crate) id: String,
     pub(crate) name: String,
     pub(crate) base_url: String,
+    pub(crate) anthropic_url: String,
+    pub(crate) responses_url: String,
+    pub(crate) models_url: String,
     pub(crate) protocol: ProviderProtocol,
     pub(crate) models: String,
     pub(crate) has_key: bool,
@@ -51,6 +54,17 @@ pub(crate) struct ProviderDraft {
     /// 逐个检测模型的进行中状态与结果（model id → 是否可用）。
     pub(crate) testing_models: bool,
     pub(crate) model_tests: std::collections::BTreeMap<String, Result<(), String>>,
+    /// 更多端点：Anthropic / Responses / 模型列表地址的输入框与展开状态。
+    pub(crate) anthropic_url_input: Option<Entity<InputState>>,
+    pub(crate) responses_url_input: Option<Entity<InputState>>,
+    pub(crate) models_url_input: Option<Entity<InputState>>,
+    pub(crate) endpoints_open: bool,
+}
+
+/// 空串视为未设置，避免把空白地址写进 prefs。
+pub(crate) fn optional(value: &str) -> Option<String> {
+    let value = value.trim();
+    (!value.is_empty()).then(|| value.to_string())
 }
 
 pub(crate) use cgc_agent_store::model_lines::{
@@ -79,6 +93,9 @@ impl ProviderDraft {
             id: provider.id.clone(),
             name: provider.name.clone(),
             base_url: provider.base_url.clone(),
+            anthropic_url: provider.anthropic_url.clone().unwrap_or_default(),
+            responses_url: provider.responses_url.clone().unwrap_or_default(),
+            models_url: provider.models_url.clone().unwrap_or_default(),
             protocol: provider.protocol,
             models: format_model_lines(provider),
             has_key: provider.has_key,
@@ -99,6 +116,10 @@ impl ProviderDraft {
             models_advanced_open: false,
             testing_models: false,
             model_tests: std::collections::BTreeMap::new(),
+            anthropic_url_input: None,
+            responses_url_input: None,
+            models_url_input: None,
+            endpoints_open: false,
         }
     }
 
@@ -111,6 +132,9 @@ impl ProviderDraft {
             id: format!("custom-{serial}"),
             name: protocol.name().to_string(),
             base_url: protocol.default_url().to_string(),
+            anthropic_url: String::new(),
+            responses_url: String::new(),
+            models_url: String::new(),
             protocol,
             models: match protocol {
                 ProviderProtocol::OpenAiCompatible => {
@@ -136,6 +160,10 @@ impl ProviderDraft {
             models_advanced_open: false,
             testing_models: false,
             model_tests: std::collections::BTreeMap::new(),
+            anthropic_url_input: None,
+            responses_url_input: None,
+            models_url_input: None,
+            endpoints_open: false,
         }
     }
 
@@ -147,6 +175,9 @@ impl ProviderDraft {
             id: self.id.clone(),
             name: name.trim().to_string(),
             base_url: base_url.trim().to_string(),
+            anthropic_url: optional(&self.anthropic_url),
+            responses_url: optional(&self.responses_url),
+            models_url: optional(&self.models_url),
             protocol: self.protocol,
             models,
             has_key: self.has_key,
@@ -258,6 +289,21 @@ mod tests {
                 &["DeepSeek".to_string(), "deepseek 2".to_string()]
             ),
             "DeepSeek 3"
+        );
+    }
+
+    #[test]
+    fn blank_endpoints_are_not_saved() {
+        let mut draft =
+            ProviderDraft::new_custom(cgc_agent_provider::ProviderProtocol::OpenAiCompatible);
+        draft.anthropic_url = "   ".into();
+        let prefs = draft.to_prefs_with("https://example.test", "Example");
+        assert_eq!(prefs.anthropic_url, None);
+        draft.anthropic_url = "https://anthropic.example".into();
+        let prefs = draft.to_prefs_with("https://example.test", "Example");
+        assert_eq!(
+            prefs.anthropic_url.as_deref(),
+            Some("https://anthropic.example")
         );
     }
 

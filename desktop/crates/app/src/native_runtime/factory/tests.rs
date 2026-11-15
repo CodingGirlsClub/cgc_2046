@@ -131,6 +131,9 @@ fn prefs_with_provider(production: &Production, has_key: bool, model_enabled: bo
             id: "deepseek".to_string(),
             name: "DeepSeek".to_string(),
             base_url: "https://example.invalid".to_string(),
+            anthropic_url: None,
+            responses_url: None,
+            models_url: None,
             models: vec!["chat".to_string(), "flash".to_string()],
             has_key,
             enabled: true,
@@ -305,4 +308,19 @@ fn startup_without_enabled_models_stays_unconfigured() {
             let _ = std::fs::remove_dir_all(root);
         }
     }
+}
+
+#[test]
+fn endpoint_url_follows_protocol() {
+    let mut provider = cgc_agent_store::ProviderPrefs {
+        base_url: "https://openai.example/v1".into(),
+        anthropic_url: Some("https://anthropic.example".into()),
+        ..Default::default()
+    };
+    provider.protocol = cgc_agent_provider::ProviderProtocol::OpenAiCompatible;
+    assert_eq!(super::endpoint_url(&provider), "https://openai.example/v1");
+    provider.protocol = cgc_agent_provider::ProviderProtocol::AnthropicCompatible;
+    assert_eq!(super::endpoint_url(&provider), "https://anthropic.example");
+    provider.anthropic_url = None;
+    assert_eq!(super::endpoint_url(&provider), "https://openai.example/v1");
 }

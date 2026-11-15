@@ -9,8 +9,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use cgc_agent_provider::{
-    list_models, list_unsupported, probe::RemoteModel, test_models, validate_credentials,
-    ProviderError, ProviderErrorCategory, ProviderProtocol, ThinkingMode,
+    list_models, list_models_at, list_unsupported, probe::RemoteModel, test_models,
+    validate_credentials, ProviderError, ProviderErrorCategory, ProviderProtocol, ThinkingMode,
 };
 use cgc_agent_store::{
     builtin_providers, is_builtin_provider_id, next_provider_id, normalized_provider_name,
@@ -40,7 +40,7 @@ use crate::provider_fetch::merge_remote_models;
 use crate::provider_settings::{ProviderPrefsChange, ProviderSettings};
 use crate::root_view::{title_bar_left_inset, TITLEBAR_HEIGHT};
 use crate::settings_provider::{
-    append_reasoning_efforts, format_model_lines, next_provider_name, parse_model_lines,
+    append_reasoning_efforts, format_model_lines, next_provider_name, optional, parse_model_lines,
     KeyValidation, KeyValidationAction, ModelFieldInputs, ProviderDraft,
 };
 use crate::theme::{self, space, RADIUS_MEDIUM, RADIUS_SMALL};
@@ -266,6 +266,33 @@ impl SettingsWindowView {
             let input =
                 cx.new(|cx| InputState::new(window, cx).placeholder("API Key（保存到系统钥匙串）"));
             self.provider_drafts[index].api_key_input = Some(input);
+        }
+        if draft.anthropic_url_input.is_none() {
+            let value = draft.anthropic_url.clone();
+            let input = cx.new(|cx| {
+                InputState::new(window, cx)
+                    .placeholder("https://api.example.com/anthropic（可选）")
+                    .default_value(value)
+            });
+            self.provider_drafts[index].anthropic_url_input = Some(input);
+        }
+        if draft.responses_url_input.is_none() {
+            let value = draft.responses_url.clone();
+            let input = cx.new(|cx| {
+                InputState::new(window, cx)
+                    .placeholder("https://api.example.com/v1（可选）")
+                    .default_value(value)
+            });
+            self.provider_drafts[index].responses_url_input = Some(input);
+        }
+        if draft.models_url_input.is_none() {
+            let value = draft.models_url.clone();
+            let input = cx.new(|cx| {
+                InputState::new(window, cx)
+                    .placeholder("https://api.example.com/models（可选）")
+                    .default_value(value)
+            });
+            self.provider_drafts[index].models_url_input = Some(input);
         }
         if !draft.remote_models.is_empty() && draft.remote_picker.is_none() {
             let items: Vec<String> = draft
@@ -512,6 +539,7 @@ impl SettingsWindowView {
             return;
         }
         self.sync_model_fields(index, window, cx);
+        self.sync_endpoint_inputs(index, cx);
         let Some(draft) = self.provider_drafts.get(index).cloned() else {
             return;
         };
@@ -739,6 +767,9 @@ impl SettingsWindowView {
             id: draft.id.clone(),
             name: name.clone(),
             base_url,
+            anthropic_url: optional(&draft.anthropic_url),
+            responses_url: optional(&draft.responses_url),
+            models_url: optional(&draft.models_url),
             models,
             has_key: draft.has_key,
             model_params,
@@ -880,6 +911,10 @@ impl SettingsWindowView {
         copy.models_advanced_open = false;
         copy.testing_models = false;
         copy.model_tests.clear();
+        copy.anthropic_url_input = None;
+        copy.responses_url_input = None;
+        copy.models_url_input = None;
+        copy.endpoints_open = false;
         let provider = copy.to_prefs_with(&copy.base_url, &copy.name);
         match self
             .provider_settings
@@ -941,9 +976,13 @@ impl SettingsWindowView {
         }
         self.error = None;
         cx.notify();
-        let task = cx
-            .background_executor()
-            .spawn(async move { list_models(&base_url, &key) });
+        let list_url = optional(&draft.models_url);
+        let task = cx.background_executor().spawn(async move {
+            match list_url {
+                Some(url) => list_models_at(&url, &key),
+                None => list_models(&base_url, &key),
+            }
+        });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| this.finish_fetch_models(index, result, cx));
@@ -1107,6 +1146,46 @@ impl SettingsWindowView {
     fn toggle_models_advanced(&mut self, index: usize, cx: &mut Context<Self>) {
         if let Some(slot) = self.provider_drafts.get_mut(index) {
             slot.models_advanced_open = !slot.models_advanced_open;
+        }
+        cx.notify();
+    }
+
+    /// 把“更多端点”输入框的当前值写回草稿（保存与验证前调用）。
+    fn sync_endpoint_inputs(&mut self, index: usize, cx: &App) {
+        let Some(draft) = self.provider_drafts.get(index).cloned() else {
+            return;
+        };
+        let read = |input: &Option<Entity<InputState>>| {
+            input
+                .as_ref()
+                .map(|input| input.read(cx).value().trim().to_string())
+                .unwrap_or_default()
+        };
+        let anthropic_url = read(&draft.anthropic_url_input);
+        let responses_url = read(&draft.responses_url_input);
+        let models_url = read(&draft.models_url_input);
+        if let Some(slot) = self.provider_drafts.get_mut(index) {
+            slot.anthropic_url = anthropic_url;
+            slot.responses_url = responses_url;
+            slot.models_url = models_url;
+        }
+    }
+
+    fn set_provider_protocol(
+        &mut self,
+        index: usize,
+        protocol: ProviderProtocol,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(slot) = self.provider_drafts.get_mut(index) {
+            slot.protocol = protocol;
+        }
+        cx.notify();
+    }
+
+    fn toggle_endpoints(&mut self, index: usize, cx: &mut Context<Self>) {
+        if let Some(slot) = self.provider_drafts.get_mut(index) {
+            slot.endpoints_open = !slot.endpoints_open;
         }
         cx.notify();
     }
@@ -2377,6 +2456,116 @@ fn render_provider_cards(
                     base_input,
                     palette,
                 ))
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(space(1))
+                        .child(div().text_size(px(11.0)).text_color(palette.ink_3).child("协议"))
+                        .children(
+                            [
+                                (ProviderProtocol::OpenAiCompatible, "OpenAI 兼容"),
+                                (ProviderProtocol::AnthropicCompatible, "Anthropic 兼容"),
+                            ]
+                            .into_iter()
+                            .map(|(protocol, label)| {
+                                let selected = draft.protocol == protocol;
+                                let protocol_weak = weak.clone();
+                                div()
+                                    .id(SharedString::from(format!(
+                                        "settings-provider-protocol-{index}-{label}"
+                                    )))
+                                    .role(Role::Button)
+                                    .aria_label(label)
+                                    .px(space(2))
+                                    .py(px(3.0))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .border_1()
+                                    .border_color(if selected {
+                                        palette.accent
+                                    } else {
+                                        palette.line
+                                    })
+                                    .text_size(px(11.0))
+                                    .text_color(if selected {
+                                        palette.accent
+                                    } else {
+                                        palette.ink_2
+                                    })
+                                    .child(label)
+                                    .on_click(move |_, _, cx| {
+                                        let _ = protocol_weak.update(cx, |this, cx| {
+                                            this.set_provider_protocol(index, protocol, cx);
+                                        });
+                                    })
+                            }),
+                        )
+                        .child(div().flex_1())
+                        .child(
+                            div()
+                                .id(SharedString::from(format!(
+                                    "settings-provider-endpoints-{index}"
+                                )))
+                                .role(Role::Button)
+                                .aria_label("更多端点")
+                                .px(space(2))
+                                .py(px(3.0))
+                                .rounded(px(RADIUS_SMALL))
+                                .border_1()
+                                .border_color(palette.line)
+                                .text_size(px(11.0))
+                                .text_color(if draft.endpoints_open {
+                                    palette.accent
+                                } else {
+                                    palette.ink_2
+                                })
+                                .child(if draft.endpoints_open {
+                                    "更多端点 ▴"
+                                } else {
+                                    "更多端点 ▾"
+                                })
+                                .on_click({
+                                    let endpoints_weak = weak.clone();
+                                    move |_, _, cx| {
+                                        let _ = endpoints_weak.update(cx, |this, cx| {
+                                            this.toggle_endpoints(index, cx);
+                                        });
+                                    }
+                                }),
+                        ),
+                )
+                .children(draft.endpoints_open.then(|| {
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(space(1))
+                        .children(draft.anthropic_url_input.clone().map(|input| {
+                            SettingsWindowView::render_provider_field(
+                                "Anthropic 地址（可选）",
+                                Some("选 Anthropic 协议时优先使用；留空则用 API URL。"),
+                                input,
+                                palette,
+                            )
+                        }))
+                        .children(draft.responses_url_input.clone().map(|input| {
+                            SettingsWindowView::render_provider_field(
+                                "Responses 地址（可选）",
+                                Some("预留字段，当前 native 运行时暂不使用。"),
+                                input,
+                                palette,
+                            )
+                        }))
+                        .children(draft.models_url_input.clone().map(|input| {
+                            SettingsWindowView::render_provider_field(
+                                "模型列表地址（可选）",
+                                Some("完整 URL；留空则用 API URL/models。"),
+                                input,
+                                palette,
+                            )
+                        }))
+                        .into_any_element()
+                }))
                 .children({
                     let edit_weak = weak.clone();
                     let reset_weak = weak.clone();

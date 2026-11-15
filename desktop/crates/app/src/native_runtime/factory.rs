@@ -21,6 +21,18 @@ pub(super) struct PendingCredentials {
     pub protocol: ProviderProtocol,
 }
 
+/// 按协议取地址：Anthropic 协议优先用单独的 Anthropic 地址，空则回落到主地址。
+fn endpoint_url(provider: &ProviderPrefs) -> String {
+    match provider.protocol {
+        ProviderProtocol::AnthropicCompatible => provider
+            .anthropic_url
+            .clone()
+            .filter(|url| !url.trim().is_empty())
+            .unwrap_or_else(|| provider.base_url.clone()),
+        ProviderProtocol::OpenAiCompatible => provider.base_url.clone(),
+    }
+}
+
 pub(super) struct Production {
     pub host: NativePanelHost,
     pub providers: Arc<Vec<ProviderPrefs>>,
@@ -124,7 +136,7 @@ pub(super) fn initialize_with_keychain(
     let base_url = std::env::var("CGC_AGENT_BASE_URL")
         .ok()
         .filter(|value| !value.is_empty())
-        .or_else(|| active.map(|provider| provider.base_url.clone()));
+        .or_else(|| active.map(endpoint_url));
     // 只读环境变量：钥匙串留到首次 turn（Production::pending）。
     let env_key = std::env::var("CGC_AGENT_API_KEY")
         .ok()
@@ -237,7 +249,7 @@ pub(super) fn prepare_model(
     let (provider, model_setup) = provider(
         &model,
         configured.protocol,
-        Some(configured.base_url.clone()),
+        Some(endpoint_url(configured)),
         key,
         production.allow_echo,
     );
@@ -295,7 +307,7 @@ pub(super) fn summary_title_model(
     let (provider, model_setup) = provider(
         &model,
         configured.protocol,
-        Some(configured.base_url.clone()),
+        Some(endpoint_url(configured)),
         Some(key),
         production.allow_echo,
     );
