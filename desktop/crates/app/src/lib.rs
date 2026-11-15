@@ -38,6 +38,7 @@ pub mod notifications;
 pub mod page_context;
 pub mod permission_ui;
 pub mod preferences;
+pub mod provider_fetch;
 pub(crate) mod provider_settings;
 pub mod qr;
 pub mod registration;
@@ -49,5 +50,7 @@ pub mod theme;
 pub mod user_settings;
 pub mod workspace_state;
 
+#[cfg(all(test, cgc_ui_tests))]
+mod provider_ui_tests;
 #[cfg(all(test, cgc_ui_tests))]
 mod shared_view_tests;

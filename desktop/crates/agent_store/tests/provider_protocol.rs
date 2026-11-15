@@ -48,10 +48,15 @@ fn adaptive_effort_capabilities_survive_model_line_editing() {
         name: "Custom".into(),
         protocol: ProviderProtocol::AnthropicCompatible,
         base_url: "https://example.test".into(),
+        anthropic_url: None,
+        responses_url: None,
+        models_url: None,
         models: vec!["model".into()],
         has_key: false,
         builtin: false,
+        enabled: true,
         model_params: vec![model],
+        ..Default::default()
     };
     let (_, edited) = cgc_agent_store::model_lines::parse_model_lines(
         &cgc_agent_store::model_lines::format_model_lines(&prefs),

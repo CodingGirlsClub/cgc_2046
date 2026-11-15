@@ -3,7 +3,7 @@ use cgc_agent_core::{run_subagent, Agent, SelectedModel};
 use cgc_agent_provider::{
     AnthropicCompatibleConfig, AnthropicCompatibleProvider, EchoProvider, ModelCapabilities,
     ModelLimits, OpenAiCompatibleConfig, OpenAiCompatibleProvider, ProviderId, ProviderProtocol,
-    UnconfiguredProvider,
+    ResponsesCompatibleConfig, ResponsesCompatibleProvider, UnconfiguredProvider,
 };
 use cgc_agent_store::{provider_key_account, PrefsStore};
 use cgc_agent_tools::{
@@ -19,6 +19,20 @@ pub(super) struct PendingCredentials {
     pub provider_id: String,
     pub base_url: String,
     pub protocol: ProviderProtocol,
+}
+
+/// 按协议取地址：Anthropic 协议优先用单独的 Anthropic 地址，空则回落到主地址。
+fn endpoint_url(provider: &ProviderPrefs) -> String {
+    match provider.protocol {
+        ProviderProtocol::AnthropicCompatible => provider
+            .anthropic_url
+            .clone()
+            .filter(|url| !url.trim().is_empty())
+            .unwrap_or_else(|| provider.base_url.clone()),
+        ProviderProtocol::OpenAiCompatible | ProviderProtocol::OpenAiResponses => {
+            provider.base_url.clone()
+        }
+    }
 }
 
 pub(super) struct Production {
@@ -124,7 +138,7 @@ pub(super) fn initialize_with_keychain(
     let base_url = std::env::var("CGC_AGENT_BASE_URL")
         .ok()
         .filter(|value| !value.is_empty())
-        .or_else(|| active.map(|provider| provider.base_url.clone()));
+        .or_else(|| active.map(endpoint_url));
     // 只读环境变量：钥匙串留到首次 turn（Production::pending）。
     let env_key = std::env::var("CGC_AGENT_API_KEY")
         .ok()
@@ -171,7 +185,13 @@ pub(super) fn initialize_with_keychain(
         config,
         Production {
             host,
-            providers: Arc::new(prefs.providers),
+            providers: Arc::new(
+                prefs
+                    .providers
+                    .into_iter()
+                    .filter(|provider| provider.enabled)
+                    .collect(),
+            ),
             data_root,
             keychain,
             allow_echo,
@@ -193,6 +213,9 @@ fn provider(
             match protocol {
                 ProviderProtocol::OpenAiCompatible => Arc::new(OpenAiCompatibleProvider::new(
                     OpenAiCompatibleConfig::new(url, key, vec![model.clone()]),
+                )),
+                ProviderProtocol::OpenAiResponses => Arc::new(ResponsesCompatibleProvider::new(
+                    ResponsesCompatibleConfig::new(url, key, vec![model.clone()]),
                 )),
                 ProviderProtocol::AnthropicCompatible => {
                     Arc::new(AnthropicCompatibleProvider::new(
@@ -223,6 +246,9 @@ pub(super) fn prepare_model(
         .iter()
         .find(|provider| provider.id == provider_id)
         .ok_or_else(|| NativeRuntimeError::Configuration("Provider 不在当前配置中".into()))?;
+    if !configured.enabled {
+        return Err(NativeRuntimeError::Configuration("Provider 已停用".into()));
+    }
     let model = configured_model(configured, model_id)
         .ok_or_else(|| NativeRuntimeError::Configuration("模型不可用或已禁用".into()))?;
     let key = production
@@ -231,7 +257,7 @@ pub(super) fn prepare_model(
     let (provider, model_setup) = provider(
         &model,
         configured.protocol,
-        Some(configured.base_url.clone()),
+        Some(endpoint_url(configured)),
         key,
         production.allow_echo,
     );
@@ -276,6 +302,9 @@ pub(super) fn summary_title_model(
     let store = PrefsStore::new(production.data_root.join("agent_prefs.json"));
     let prefs = store.load();
     let configured = prefs.provider(selection.provider.as_str())?;
+    if !configured.enabled {
+        return None;
+    }
     let model = configured_model(configured, selection.model.as_str())?;
     if !configured.has_key {
         return None;
@@ -289,7 +318,7 @@ pub(super) fn summary_title_model(
     let (provider, model_setup) = provider(
         &model,
         configured.protocol,
-        Some(configured.base_url.clone()),
+        Some(endpoint_url(configured)),
         Some(key),
         production.allow_echo,
     );

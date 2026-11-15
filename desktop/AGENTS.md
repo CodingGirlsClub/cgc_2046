@@ -40,7 +40,7 @@ GPUI + gpui-kit 的原生桌面客户端。组织方式对齐 Zed：`crates/` �
   默认端点会推导出 `http://localhost:4000/mcp`；本地 backend 没启动时，ACP agent 会在 session 初始化阶段报 MCP `ECONNREFUSED`，工具卡失败并可能把面板卡在“思考中”。
 
 - **`CGC_AUTH=fake` 只用于纯 UI/假数据联调**：它只替换登录/数据 API，不会伪造 MCP server；fake lease token 发到生产 MCP 也会失败。验证 ACP 工具链必须用真实登录，不加 `CGC_AUTH=fake`。
-- Desktop 的 Provider HTTP 客户端（`ureq`）没有启用 `socks-proxy`；本地 shell 若注入 `ALL_PROXY=socks5h://...`，会导致 native 模型请求 `Connection refused`。启动前清掉 `ALL_PROXY/all_proxy`，或只保留可用的 HTTP 代理。
+- Desktop 的 Provider HTTP 客户端（`ureq`）没有启用 `socks-proxy`：只要环境里有 `ALL_PROXY=socks5h://...`，native 模型请求、Key 验证与「获取模型」都会失败（客户端会提示清除该变量）。终端启动一律带 `-u ALL_PROXY -u all_proxy`（见下方命令）；`open`/Finder 启动无法单次清变量，需要 `launchctl unsetenv ALL_PROXY all_proxy` 后重启客户端。HTTP 代理（`http://`）不受此限制：本机直连超时（Clash 等）时改用 `HTTPS_PROXY=http://127.0.0.1:7890 HTTP_PROXY=http://127.0.0.1:7890` 启动即可，`ureq` 原生支持 HTTP 代理，不需要新增依赖。
 
 ## 模块地图（对齐 Zed）
 

@@ -1,0 +1,696 @@
+//! 供应商模型列表的探测：`GET {base}/models` 的解析与错误分类。
+//!
+//! 只做只读取证，不发起对话请求。字段缺失是正常情况（多数网关只回 id），
+//! 解析必须宽容：单条坏数据不能拖垮整张列表。
+
+use crate::error::ProviderError;
+use serde::{Deserialize, Serialize};
+
+/// 远程列表里的一个模型；`None` 表示供应商没有说明该字段。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoteModel {
+    pub id: String,
+    pub name: Option<String>,
+    pub context_window: Option<u32>,
+    pub max_output_tokens: Option<u32>,
+    pub supports_images: Option<bool>,
+    pub reasoning_efforts: Vec<String>,
+}
+
+/// 一个模型 id 不能破坏 `name | context | …` 的行格式，也不能是空或超长。
+fn valid_model_id(id: &str) -> bool {
+    !id.is_empty() && id.chars().count() <= 128 && !id.chars().any(|c| c == '|' || c.is_control())
+}
+
+fn number(value: Option<&serde_json::Value>) -> Option<u32> {
+    match value? {
+        serde_json::Value::Number(n) => n.as_u64().and_then(|n| u32::try_from(n).ok()),
+        serde_json::Value::String(s) => s.trim().parse::<u32>().ok(),
+        _ => None,
+    }
+}
+
+fn images(row: &serde_json::Value) -> Option<bool> {
+    let list = row.get("input_modalities")?.as_array()?;
+    Some(list.iter().any(|value| value.as_str() == Some("image")))
+}
+
+fn efforts(row: &serde_json::Value) -> Vec<String> {
+    let levels = row
+        .get("effort")
+        .and_then(|effort| effort.get("supported_levels"))
+        .and_then(serde_json::Value::as_array)
+        .or_else(|| {
+            row.get("supported_reasoning_levels")
+                .and_then(serde_json::Value::as_array)
+        })
+        .or_else(|| {
+            // magpie / 自家网关的列表格式。
+            row.get("reasoning_levels")
+                .and_then(serde_json::Value::as_array)
+        });
+    levels
+        .map(|levels| {
+            levels
+                .iter()
+                .filter_map(|value| match value {
+                    serde_json::Value::String(level) => Some(level.clone()),
+                    serde_json::Value::Object(object) => {
+                        object.get("effort")?.as_str().map(str::to_string)
+                    }
+                    _ => None,
+                })
+                .filter(|level| !level.is_empty() && level.chars().count() <= 32)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// 解析 `/models` 的响应体：`data[]` 或 `models[]`，字段缺失即 `None`。
+pub fn parse_models(body: &str) -> Result<Vec<RemoteModel>, ProviderError> {
+    let value: serde_json::Value = serde_json::from_str(body)
+        .map_err(|_| ProviderError::invalid_response("not a model list"))?;
+    let rows = value
+        .get("data")
+        .and_then(serde_json::Value::as_array)
+        .or_else(|| value.get("models").and_then(serde_json::Value::as_array))
+        .ok_or_else(|| ProviderError::invalid_response("not a model list"))?;
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for row in rows {
+        let id = row
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .or_else(|| row.get("name").and_then(serde_json::Value::as_str))
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        if !valid_model_id(&id) || !seen.insert(id.clone()) {
+            continue;
+        }
+        out.push(RemoteModel {
+            name: row
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string),
+            context_window: number(row.get("context_window"))
+                .or_else(|| number(row.get("context_length"))),
+            max_output_tokens: number(row.get("max_output_tokens")),
+            supports_images: images(row),
+            reasoning_efforts: efforts(row),
+            id,
+        });
+    }
+    Ok(out)
+}
+
+/// 该错误是否表示"这个端点没有模型列表"，而不是 Key 被拒。
+pub fn list_unsupported(error: &ProviderError) -> bool {
+    match error {
+        ProviderError::Api {
+            status: Some(404), ..
+        } => true,
+        ProviderError::InvalidResponse(message) => message.contains("not a model list"),
+        _ => false,
+    }
+}
+
+fn map_ureq_error(error: ureq::Error) -> ProviderError {
+    match error {
+        ureq::Error::StatusCode(status) => ProviderError::api(status, "http status error"),
+        ureq::Error::Timeout(_) => ProviderError::transport("request timed out"),
+        ureq::Error::Io(error) => ProviderError::transport(error.to_string()),
+        other => ProviderError::transport(other.to_string()),
+    }
+}
+
+fn truncate(text: &str, max_chars: usize) -> String {
+    text.chars().take(max_chars).collect()
+}
+
+/// `/models` 的地址：去掉 Base URL 末尾的斜杠再拼接。
+pub fn models_url(base_url: &str) -> String {
+    format!("{}/models", base_url.trim_end_matches('/'))
+}
+
+/// 当前构建的 ureq 没启用 `socks-proxy`：环境里有 SOCKS 代理时请求必然失败，
+/// 且底层报错含义不明。发请求前直接给出可操作的提示。
+fn socks_proxy_note() -> Option<String> {
+    ["ALL_PROXY", "all_proxy", "HTTPS_PROXY", "https_proxy"]
+        .iter()
+        .filter_map(|key| std::env::var(key).ok())
+        .find(|value| is_socks_url(value))
+        .map(|_| {
+            "检测到 SOCKS 代理（ALL_PROXY/HTTPS_PROXY），当前客户端不支持；请清除该环境变量后重启再试"
+                .to_string()
+        })
+}
+
+fn is_socks_url(value: &str) -> bool {
+    let value = value.trim().to_ascii_lowercase();
+    value.starts_with("socks4://")
+        || value.starts_with("socks4a://")
+        || value.starts_with("socks5://")
+        || value.starts_with("socks5h://")
+}
+
+/// 用当前 Base URL 与 API Key 读取供应商的模型列表；同时验证 Key 是否被接受。
+pub fn list_models(base_url: &str, api_key: &str) -> Result<Vec<RemoteModel>, ProviderError> {
+    list_models_at(&models_url(base_url), api_key)
+}
+
+/// 在指定的模型列表地址上读取列表（供应商把列表放在非标准路径时使用）。
+///
+/// 支持 `has_more` / `last_id` 游标分页（Anthropic 默认 20 条一页）。
+pub fn list_models_at(url: &str, api_key: &str) -> Result<Vec<RemoteModel>, ProviderError> {
+    if let Some(note) = socks_proxy_note() {
+        return Err(ProviderError::transport(note));
+    }
+    let agent = ureq::Agent::new_with_config(
+        ureq::Agent::config_builder()
+            .http_status_as_error(false)
+            .timeout_global(Some(std::time::Duration::from_secs(10)))
+            .build(),
+    );
+    let mut models = Vec::new();
+    let mut next: Option<String> = None;
+    // 防御性上限：游标异常时不至于无限请求。
+    for _ in 0..50 {
+        let page_url = match &next {
+            Some(cursor) => {
+                let separator = if url.contains('?') { '&' } else { '?' };
+                format!("{url}{separator}after_id={cursor}")
+            }
+            None => url.to_string(),
+        };
+        let text = fetch_page(&agent, &page_url, api_key)?;
+        models.extend(parse_models(&text)?);
+        match pagination_cursor(&text) {
+            Some(cursor) => next = Some(cursor),
+            None => return Ok(models),
+        }
+    }
+    Ok(models)
+}
+
+fn fetch_page(agent: &ureq::Agent, url: &str, api_key: &str) -> Result<String, ProviderError> {
+    let mut response = agent
+        .get(url)
+        .header("authorization", format!("Bearer {api_key}"))
+        .call()
+        .map_err(map_ureq_error)?;
+    let status = response.status();
+    let text = response
+        .body_mut()
+        .read_to_string()
+        .map_err(|error| ProviderError::transport(error.to_string()))?;
+    if !status.is_success() {
+        return Err(ProviderError::api(status.as_u16(), truncate(&text, 500)));
+    }
+    Ok(text)
+}
+
+/// 读取下一页游标；一次性返回整表时为空。
+fn pagination_cursor(body: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(body).ok()?;
+    if value.get("has_more").and_then(serde_json::Value::as_bool) != Some(true) {
+        return None;
+    }
+    let cursor = value.get("last_id").and_then(serde_json::Value::as_str)?;
+    cursor
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+        .then(|| cursor.to_string())
+}
+
+/// 探测结果：端点可用 / 端点存在但 Key 被拒 / 该协议端点不存在。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProbeState {
+    Supported,
+    Unauthorized,
+    Missing,
+}
+
+/// Anthropic 的消息端点：根 base 补 `/v1`，已带 `/v1` 则只补 `/messages`。
+pub fn anthropic_messages_url(base_url: &str) -> String {
+    let base = base_url.trim_end_matches('/');
+    if base.ends_with("/v1") {
+        format!("{base}/messages")
+    } else {
+        format!("{base}/v1/messages")
+    }
+}
+
+/// Anthropic 的模型列表端点：`/v1/models`（base 已带 /v1 则不重复）。
+pub fn anthropic_models_url(base_url: &str) -> String {
+    let base = base_url.trim_end_matches('/');
+    if base.ends_with("/v1") {
+        format!("{base}/models")
+    } else {
+        format!("{base}/v1/models")
+    }
+}
+
+/// Anthropic 端点的判定：参数错误（400/422）说明端点存在；404 说明不是 Anthropic。
+pub fn classify_probe_status(status: u16) -> ProbeState {
+    match status {
+        400 | 422 => ProbeState::Supported,
+        401 | 403 => ProbeState::Unauthorized,
+        _ => ProbeState::Missing,
+    }
+}
+
+pub fn classify_status(status: u16) -> ProbeState {
+    match status {
+        200..=299 => ProbeState::Supported,
+        401 | 403 => ProbeState::Unauthorized,
+        _ => ProbeState::Missing,
+    }
+}
+
+/// 对同一 Base URL 试三种协议，只读探测、不产生对话费用。
+pub fn detect_protocols(
+    base_url: &str,
+    api_key: &str,
+) -> Vec<(crate::protocol::ProviderProtocol, ProbeState)> {
+    use crate::protocol::ProviderProtocol;
+    vec![
+        (
+            ProviderProtocol::OpenAiCompatible,
+            probe_openai(base_url, api_key),
+        ),
+        (
+            ProviderProtocol::OpenAiResponses,
+            probe_responses(base_url, api_key),
+        ),
+        (
+            ProviderProtocol::AnthropicCompatible,
+            probe_anthropic(base_url, api_key),
+        ),
+    ]
+}
+
+fn probe_openai(base_url: &str, api_key: &str) -> ProbeState {
+    match list_models(base_url, api_key) {
+        Ok(_) => ProbeState::Supported,
+        Err(ProviderError::Api {
+            status: Some(status),
+            ..
+        }) => classify_status(status),
+        Err(_) => ProbeState::Missing,
+    }
+}
+
+fn probe_anthropic(base_url: &str, api_key: &str) -> ProbeState {
+    if socks_proxy_note().is_some() {
+        return ProbeState::Missing;
+    }
+    let agent = ureq::Agent::new_with_config(
+        ureq::Agent::config_builder()
+            .http_status_as_error(false)
+            .timeout_global(Some(std::time::Duration::from_secs(10)))
+            .build(),
+    );
+    // 空 body 会得到参数错误（400/422），端点不存在则是 404；不会产生对话费用。
+    match agent
+        .post(&anthropic_messages_url(base_url))
+        .header("x-api-key", api_key)
+        .header("anthropic-version", "2023-06-01")
+        .header("content-type", "application/json")
+        .send("{}")
+    {
+        Ok(response) => classify_probe_status(response.status().as_u16()),
+        Err(ureq::Error::StatusCode(status)) => classify_probe_status(status),
+        Err(_) => ProbeState::Missing,
+    }
+}
+
+fn probe_responses(base_url: &str, api_key: &str) -> ProbeState {
+    if socks_proxy_note().is_some() {
+        return ProbeState::Missing;
+    }
+    let agent = ureq::Agent::new_with_config(
+        ureq::Agent::config_builder()
+            .http_status_as_error(false)
+            .timeout_global(Some(std::time::Duration::from_secs(10)))
+            .build(),
+    );
+    // 空 body 会得到参数错误（400/422），端点不存在则是 404；不会产生对话费用。
+    match agent
+        .post(&responses_url(base_url))
+        .header("authorization", format!("Bearer {api_key}"))
+        .header("content-type", "application/json")
+        .send("{}")
+    {
+        Ok(response) => classify_probe_status(response.status().as_u16()),
+        Err(ureq::Error::StatusCode(status)) => classify_probe_status(status),
+        Err(_) => ProbeState::Missing,
+    }
+}
+
+/// Responses 的创建地址；与 Chat 一致，Base URL 需包含版本前缀（如 `/v1`）。
+pub fn responses_url(base_url: &str) -> String {
+    format!("{}/responses", base_url.trim_end_matches('/'))
+}
+
+/// 检测单个模型的最小对话请求地址。
+pub fn chat_url(base_url: &str) -> String {
+    format!("{}/chat/completions", base_url.trim_end_matches('/'))
+}
+
+/// 检测用的最小对话请求体：一句话，最多 1 个 token。
+pub fn chat_body(model: &str) -> serde_json::Value {
+    serde_json::json!({
+        "model": model,
+        "messages": [{"role": "user", "content": "ping"}],
+        "max_tokens": 1,
+        "stream": false
+    })
+}
+
+/// 逐个模型发最小对话请求，找出供应商列表里其实不可用的模型。
+/// 每批 4 个并发；结果顺序与输入一致。
+pub fn test_models(
+    base_url: &str,
+    api_key: &str,
+    models: &[String],
+) -> Vec<(String, Result<(), ProviderError>)> {
+    if let Some(note) = socks_proxy_note() {
+        return models
+            .iter()
+            .map(|model| (model.clone(), Err(ProviderError::transport(note.clone()))))
+            .collect();
+    }
+    let mut results = Vec::with_capacity(models.len());
+    for chunk in models.chunks(4) {
+        let mut batch: Vec<(String, Result<(), ProviderError>)> = std::thread::scope(|scope| {
+            let handles: Vec<_> = chunk
+                .iter()
+                .map(|model| {
+                    let model = model.clone();
+                    scope.spawn(move || {
+                        let result = test_model(base_url, api_key, &model);
+                        (model, result)
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|handle| handle.join().expect("model probe thread"))
+                .collect()
+        });
+        results.append(&mut batch);
+    }
+    results
+}
+
+fn test_model(base_url: &str, api_key: &str, model: &str) -> Result<(), ProviderError> {
+    let agent = ureq::Agent::new_with_config(
+        ureq::Agent::config_builder()
+            .http_status_as_error(false)
+            .timeout_global(Some(std::time::Duration::from_secs(20)))
+            .build(),
+    );
+    let mut response = agent
+        .post(&chat_url(base_url))
+        .header("authorization", format!("Bearer {api_key}"))
+        .header("content-type", "application/json")
+        .send_json(chat_body(model))
+        .map_err(map_ureq_error)?;
+    let status = response.status();
+    if status.is_success() {
+        return Ok(());
+    }
+    let text = response.body_mut().read_to_string().unwrap_or_default();
+    Err(ProviderError::api(status.as_u16(), truncate(&text, 300)))
+}
+
+/// 按协议检测模型：Chat、Responses、Anthropic 各发一次最小请求。
+pub fn test_models_for(
+    protocol: crate::protocol::ProviderProtocol,
+    base_url: &str,
+    api_key: &str,
+    models: &[String],
+) -> Vec<(String, Result<(), ProviderError>)> {
+    use crate::protocol::ProviderProtocol;
+    if let Some(note) = socks_proxy_note() {
+        return models
+            .iter()
+            .map(|model| (model.clone(), Err(ProviderError::transport(note.clone()))))
+            .collect();
+    }
+    let mut results = Vec::with_capacity(models.len());
+    for chunk in models.chunks(4) {
+        let mut batch: Vec<(String, Result<(), ProviderError>)> = std::thread::scope(|scope| {
+            let handles: Vec<_> = chunk
+                .iter()
+                .map(|model| {
+                    let model = model.clone();
+                    scope.spawn(move || {
+                        let result = match protocol {
+                            ProviderProtocol::OpenAiCompatible => {
+                                test_model(base_url, api_key, &model)
+                            }
+                            ProviderProtocol::OpenAiResponses => {
+                                test_responses_model(base_url, api_key, &model)
+                            }
+                            ProviderProtocol::AnthropicCompatible => {
+                                test_anthropic_model(base_url, api_key, &model)
+                            }
+                        };
+                        (model, result)
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|handle| handle.join().expect("model probe thread"))
+                .collect()
+        });
+        results.append(&mut batch);
+    }
+    results
+}
+
+fn probe_agent() -> ureq::Agent {
+    ureq::Agent::new_with_config(
+        ureq::Agent::config_builder()
+            .http_status_as_error(false)
+            .timeout_global(Some(std::time::Duration::from_secs(20)))
+            .build(),
+    )
+}
+
+fn test_responses_model(base_url: &str, api_key: &str, model: &str) -> Result<(), ProviderError> {
+    let mut response = probe_agent()
+        .post(&responses_url(base_url))
+        .header("authorization", format!("Bearer {api_key}"))
+        .header("content-type", "application/json")
+        .send_json(serde_json::json!({
+            "model": model,
+            "input": "ping",
+            "max_output_tokens": 16,
+            "store": false,
+            "stream": false,
+        }))
+        .map_err(map_ureq_error)?;
+    let status = response.status();
+    if status.is_success() {
+        return Ok(());
+    }
+    let text = response.body_mut().read_to_string().unwrap_or_default();
+    Err(ProviderError::api(status.as_u16(), truncate(&text, 300)))
+}
+
+fn test_anthropic_model(base_url: &str, api_key: &str, model: &str) -> Result<(), ProviderError> {
+    let mut response = probe_agent()
+        .post(&anthropic_messages_url(base_url))
+        .header("x-api-key", api_key)
+        .header("anthropic-version", "2023-06-01")
+        .header("content-type", "application/json")
+        .send_json(serde_json::json!({
+            "model": model,
+            "max_tokens": 1,
+            "messages": [{ "role": "user", "content": "ping" }],
+        }))
+        .map_err(map_ureq_error)?;
+    let status = response.status();
+    if status.is_success() {
+        return Ok(());
+    }
+    let text = response.body_mut().read_to_string().unwrap_or_default();
+    Err(ProviderError::api(status.as_u16(), truncate(&text, 300)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_metadata_with_efforts_and_modalities() {
+        let body = r#"{"object":"list","data":[
+            {"id":"deepseek-flash","object":"model","owned_by":"deepseek","name":"DeepSeek-V4.1-Flash",
+             "context_window":1048576,"max_output_tokens":393216,
+             "input_modalities":["text","image"],
+             "effort":{"supported_levels":["low","high","max"],"default_level":"high"}},
+            {"id":"deepseek-v4-pro","context_window":1048576,"max_output_tokens":393216,
+             "input_modalities":["text"],
+             "effort":{"supported_levels":["low","high","max"]}}
+        ]}"#;
+        let models = parse_models(body).expect("parse");
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].id, "deepseek-flash");
+        assert_eq!(models[0].context_window, Some(1_048_576));
+        assert_eq!(models[0].max_output_tokens, Some(393_216));
+        assert_eq!(models[0].supports_images, Some(true));
+        assert_eq!(models[0].reasoning_efforts, vec!["low", "high", "max"]);
+        assert_eq!(models[1].supports_images, Some(false));
+    }
+
+    #[test]
+    fn parses_a_list_of_ids_alone() {
+        let body = r#"{"object":"list","data":[{"id":"gpt-x"},{"id":"gpt-y"}]}"#;
+        let models = parse_models(body).expect("parse");
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].context_window, None);
+        assert_eq!(models[0].supports_images, None);
+        assert!(models[0].reasoning_efforts.is_empty());
+    }
+
+    #[test]
+    fn accepts_models_array_and_numeric_strings() {
+        let body = r#"{"models":[{"id":"m1","context_window":"128000","max_output_tokens":8192}]}"#;
+        let models = parse_models(body).expect("parse");
+        assert_eq!(models[0].context_window, Some(128_000));
+        assert_eq!(models[0].max_output_tokens, Some(8_192));
+    }
+
+    #[test]
+    fn reads_alternate_context_length_field() {
+        let body = r#"{"data":[{"id":"claude-x","context_length":200000}]}"#;
+        let models = parse_models(body).expect("parse");
+        assert_eq!(models[0].context_window, Some(200_000));
+    }
+
+    #[test]
+    fn drops_ids_that_would_corrupt_the_model_lines() {
+        let body = r#"{"data":[{"id":"ok"},{"id":"bad|pipe"},{"id":"bad\nnewline"},{"id":""}]}"#;
+        let models = parse_models(body).expect("parse");
+        assert_eq!(
+            models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+            vec!["ok"]
+        );
+    }
+
+    #[test]
+    fn a_non_list_body_is_an_unsupported_endpoint() {
+        let error = parse_models("<html>nope</html>").expect_err("not a list");
+        assert!(list_unsupported(&error));
+    }
+
+    #[test]
+    fn not_found_is_an_unsupported_endpoint() {
+        assert!(list_unsupported(&ProviderError::api(404, "not found")));
+        assert!(!list_unsupported(&ProviderError::api(401, "unauthorized")));
+    }
+
+    #[test]
+    fn chat_probe_targets_completions_with_a_tiny_body() {
+        assert_eq!(
+            chat_url("https://api.deepseek.com/"),
+            "https://api.deepseek.com/chat/completions"
+        );
+        let body = chat_body("deepseek-flash");
+        assert_eq!(body["model"], "deepseek-flash");
+        assert_eq!(body["max_tokens"], 1);
+        assert_eq!(body["stream"], false);
+        assert_eq!(body["messages"][0]["content"], "ping");
+    }
+
+    #[test]
+    fn socks_proxy_urls_are_recognized() {
+        assert!(is_socks_url("socks5h://127.0.0.1:7890"));
+        assert!(is_socks_url("SOCKS5://host:1080"));
+        assert!(is_socks_url(" socks4a://x "));
+        assert!(!is_socks_url("http://127.0.0.1:8080"));
+        assert!(!is_socks_url(""));
+    }
+
+    #[test]
+    fn anthropic_messages_url_follows_the_base_shape() {
+        assert_eq!(
+            anthropic_messages_url("https://api.anthropic.com"),
+            "https://api.anthropic.com/v1/messages"
+        );
+        assert_eq!(
+            anthropic_messages_url("https://gateway.example/v1/"),
+            "https://gateway.example/v1/messages"
+        );
+    }
+
+    #[test]
+    fn messages_statuses_are_classified() {
+        assert_eq!(classify_probe_status(400), ProbeState::Supported);
+        assert_eq!(classify_probe_status(422), ProbeState::Supported);
+        assert_eq!(classify_probe_status(401), ProbeState::Unauthorized);
+        assert_eq!(classify_probe_status(404), ProbeState::Missing);
+        assert_eq!(classify_probe_status(500), ProbeState::Missing);
+    }
+
+    #[test]
+    fn protocol_statuses_are_classified() {
+        assert_eq!(classify_status(200), ProbeState::Supported);
+        assert_eq!(classify_status(401), ProbeState::Unauthorized);
+        assert_eq!(classify_status(403), ProbeState::Unauthorized);
+        assert_eq!(classify_status(404), ProbeState::Missing);
+        assert_eq!(classify_status(500), ProbeState::Missing);
+    }
+
+    #[test]
+    fn anthropic_models_url_adds_v1_once() {
+        assert_eq!(
+            anthropic_models_url("https://api.anthropic.com"),
+            "https://api.anthropic.com/v1/models"
+        );
+        assert_eq!(
+            anthropic_models_url("https://api.anthropic.com/v1"),
+            "https://api.anthropic.com/v1/models"
+        );
+    }
+
+    #[test]
+    fn pagination_cursor_reads_has_more() {
+        assert_eq!(
+            pagination_cursor(r#"{"data":[],"has_more":true,"last_id":"model_1"}"#),
+            Some("model_1".to_string())
+        );
+        assert_eq!(
+            pagination_cursor(r#"{"data":[],"has_more":false,"last_id":"model_1"}"#),
+            None
+        );
+        assert_eq!(pagination_cursor(r#"{"data":[]}"#), None);
+        assert_eq!(
+            pagination_cursor(r#"{"has_more":true,"last_id":"bad cursor"}"#),
+            None
+        );
+    }
+
+    #[test]
+    fn reads_top_level_reasoning_levels() {
+        let body = r#"{"data":[{"id":"auto/gpt-6-luna","reasoning_levels":["low","high","max"]}]}"#;
+        let models = parse_models(body).expect("parse");
+        assert_eq!(models[0].reasoning_efforts, vec!["low", "high", "max"]);
+    }
+
+    #[test]
+    fn models_url_normalizes_trailing_slashes() {
+        assert_eq!(
+            models_url("https://api.deepseek.com"),
+            "https://api.deepseek.com/models"
+        );
+        assert_eq!(
+            models_url("https://api.moonshot.cn/v1/"),
+            "https://api.moonshot.cn/v1/models"
+        );
+    }
+}

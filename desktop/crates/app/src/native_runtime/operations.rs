@@ -367,7 +367,14 @@ impl Owner {
             .as_mut()
             .ok_or_else(|| NativeRuntimeError::Configuration("runtime 未配置模型目录".into()))?;
         let prefs = PrefsStore::new(production.data_root.join("agent_prefs.json")).load();
-        production.providers = Arc::new(prefs.providers.clone());
+        production.providers = Arc::new(
+            prefs
+                .providers
+                .iter()
+                .filter(|provider| provider.enabled)
+                .cloned()
+                .collect(),
+        );
         self.providers = Arc::new(prefs.providers.clone());
         let active = prefs.active_provider();
         let model_id = active.and_then(|active| {
@@ -450,8 +457,12 @@ mod tests {
             id: "test".into(),
             name: "Test".into(),
             base_url: "https://example.test/v1".into(),
+            anthropic_url: None,
+            responses_url: None,
+            models_url: None,
             models: models.iter().map(|(id, _)| id.to_string()).collect(),
             has_key: true,
+            enabled: true,
             model_params: models
                 .iter()
                 .map(|(id, enabled)| ModelPrefs {
@@ -461,6 +472,7 @@ mod tests {
                 .collect(),
             builtin: false,
             protocol: cgc_agent_provider::ProviderProtocol::OpenAiCompatible,
+            ..Default::default()
         }
     }
 
