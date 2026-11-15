@@ -254,7 +254,7 @@ fn empty_hint(palette: &theme::Palette, text: &str) -> AnyElement {
 fn group_by_agent(entries: &[HistoryEntry]) -> Vec<(String, Vec<&HistoryEntry>)> {
     let mut groups: Vec<(String, Vec<&HistoryEntry>)> = Vec::new();
     for entry in entries {
-        let agent = entry.agent_label().to_string();
+        let agent = acp_history::agent_display_name(entry.agent_label());
         match groups.iter_mut().find(|(name, _)| *name == agent) {
             Some((_, rows)) => rows.push(entry),
             None => groups.push((agent, vec![entry])),
@@ -290,12 +290,17 @@ mod history_sidebar_tests {
             entry("acp-4", "native"),
         ];
         let groups = group_by_agent(&entries);
+        let expected = vec![
+            crate::acp_history::agent_display_name("omp"),
+            crate::acp_history::agent_display_name("codex"),
+            crate::acp_history::agent_display_name("native"),
+        ];
         assert_eq!(
             groups
                 .iter()
-                .map(|(agent, _)| agent.as_str())
+                .map(|(agent, _)| agent.clone())
                 .collect::<Vec<_>>(),
-            vec!["omp", "codex", "native"],
+            expected,
             "按 agent 分组（Zed 按项目），组序 = 首次出现顺序"
         );
         assert_eq!(groups[0].1.len(), 2);

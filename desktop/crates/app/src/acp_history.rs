@@ -80,6 +80,30 @@ impl HistoryEntry {
     }
 }
 
+/// 历史侧栏展示名：与 Agent Registry 的 `display_name` 对齐
+/// （`deepseek` → `DeepSeek Harness`），未知 id 原样返回。
+///
+/// 分组标题与行内标签共用，避免侧栏出现裸内部 id。
+static AGENT_DISPLAY_NAMES: std::sync::LazyLock<std::collections::HashMap<String, String>> =
+    std::sync::LazyLock::new(|| {
+        cgc_platform::registry::manifest::Registry::builtin()
+            .map(|registry| {
+                registry
+                    .agents
+                    .iter()
+                    .map(|entry| (entry.id.clone(), entry.display_name.clone()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    });
+
+pub fn agent_display_name(agent_id: &str) -> String {
+    AGENT_DISPLAY_NAMES
+        .get(agent_id)
+        .cloned()
+        .unwrap_or_else(|| agent_id.to_string())
+}
+
 pub fn acp_thread_id(session_id: &str) -> String {
     format!("{ACP_THREAD_PREFIX}{session_id}")
 }
@@ -1033,6 +1057,12 @@ mod tests {
         mark_history_dirty();
         let after = history_dirty_generation_for_test();
         assert!(after > before, "mark_history_dirty 必须推进世代号");
+    }
+
+    #[test]
+    fn agent_display_name_uses_registry_display_name() {
+        assert_eq!(agent_display_name("deepseek"), "DeepSeek Harness");
+        assert_eq!(agent_display_name("unknown-agent"), "unknown-agent");
     }
 
     #[test]
