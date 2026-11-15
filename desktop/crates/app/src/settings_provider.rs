@@ -1,6 +1,7 @@
 //! Provider 表单的草稿数据与模型行解析（从 settings_window 拆出）。
 
-use cgc_agent_provider::{ProviderProtocol, ThinkingMode};
+use cgc_agent_provider::probe::RemoteModel;
+use cgc_agent_provider::{ProviderError, ProviderProtocol, ThinkingMode};
 use cgc_agent_store::{ModelPrefs, ProviderPrefs};
 use gpui_kit::component::input::{InputState, TextareaState};
 use gpui_kit::*;
@@ -11,6 +12,7 @@ pub(crate) struct ModelFieldInputs {
     pub(crate) name_input: Entity<InputState>,
     pub(crate) context_input: Entity<InputState>,
     pub(crate) output_input: Entity<InputState>,
+    pub(crate) efforts_input: Entity<InputState>,
     pub(crate) enabled: bool,
     pub(crate) thinking: bool,
     pub(crate) supports_tools: bool,
@@ -25,11 +27,15 @@ pub(crate) struct ProviderDraft {
     pub(crate) id: String,
     pub(crate) name: String,
     pub(crate) base_url: String,
+    pub(crate) anthropic_url: String,
+    pub(crate) responses_url: String,
+    pub(crate) models_url: String,
     pub(crate) protocol: ProviderProtocol,
     pub(crate) models: String,
     pub(crate) has_key: bool,
     pub(crate) model_params: Vec<ModelPrefs>,
     pub(crate) builtin: bool,
+    pub(crate) enabled: bool,
     pub(crate) base_url_input: Option<Entity<InputState>>,
     pub(crate) models_input: Option<Entity<TextareaState>>,
     pub(crate) api_key_input: Option<Entity<InputState>>,
@@ -37,11 +43,107 @@ pub(crate) struct ProviderDraft {
     pub(crate) model_fields: Vec<ModelFieldInputs>,
     pub(crate) key_editing: bool,
     pub(crate) confirm_clear: bool,
+    /// 最近一次"获取模型"的结果（含未选）；重开表单时来自 prefs 的目录。
+    pub(crate) remote_models: Vec<RemoteModel>,
+    /// 目录获取时间（unix 秒）。
+    pub(crate) models_fetched_at: u64,
+    /// 「添加模型 ID」输入框。
+    pub(crate) model_id_input: Option<Entity<InputState>>,
+    /// 模型区视图：供应商列表 / 仅所选。
+    pub(crate) catalog_tab: CatalogTab,
+    /// 供应商列表是否展开显示全部（默认只显示前 N 个）。
+    pub(crate) catalog_expanded: bool,
+    /// 参数卡片区是否展开（默认收起，减少表单长度）。
+    pub(crate) models_settings_open: bool,
+    pub(crate) fetching_models: bool,
+    pub(crate) fetch_error: Option<String>,
+    /// 批量编辑：按文本编辑模型行。
+    pub(crate) models_advanced_open: bool,
+    /// 逐个检测模型的进行中状态与结果（model id → 是否可用）。
+    pub(crate) testing_models: bool,
+    pub(crate) model_tests: std::collections::BTreeMap<String, Result<(), ProviderError>>,
+    /// 更多端点：Anthropic / Responses / 模型列表地址的输入框与展开状态。
+    pub(crate) anthropic_url_input: Option<Entity<InputState>>,
+    pub(crate) responses_url_input: Option<Entity<InputState>>,
+    pub(crate) models_url_input: Option<Entity<InputState>>,
+    pub(crate) endpoints_open: bool,
+    /// 协议探测结果与进行中状态。
+    pub(crate) protocol_probes: Vec<(ProviderProtocol, cgc_agent_provider::ProbeState)>,
+    pub(crate) probing_protocols: bool,
+}
+
+/// 模型区顶部的视图切换：供应商列表（含未选）/ 仅所选。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum CatalogTab {
+    #[default]
+    All,
+    Selected,
+}
+
+/// 空串视为未设置，避免把空白地址写进 prefs。
+pub(crate) fn optional(value: &str) -> Option<String> {
+    let value = value.trim();
+    (!value.is_empty()).then(|| value.to_string())
+}
+
+/// 供应商目录状态：`供应商列表 · 12 个 · 3 小时前`。
+pub(crate) fn catalog_status(draft: &ProviderDraft) -> String {
+    if draft.remote_models.is_empty() {
+        return "供应商列表 · 尚未获取".to_string();
+    }
+    let now = crate::provider_fetch::now_unix();
+    let age = now.saturating_sub(draft.models_fetched_at);
+    let when = if draft.models_fetched_at == 0 {
+        "未知时间".to_string()
+    } else if age < 60 {
+        "刚刚".to_string()
+    } else if age < 3_600 {
+        format!("{} 分钟前", age / 60)
+    } else if age < 86_400 {
+        format!("{} 小时前", age / 3_600)
+    } else {
+        format!("{} 天前", age / 86_400)
+    };
+    format!("供应商列表 · {} 个 · {when}", draft.remote_models.len())
 }
 
 pub(crate) use cgc_agent_store::model_lines::{
-    append_reasoning_efforts, format_model_lines, parse_model_lines,
+    append_reasoning_efforts, format_model_lines, normalized_provider_name, parse_model_lines,
 };
+
+/// 从模型行文本里取某个模型的 efforts（卡片没有声明时用它保住用户手写的列）。
+pub(crate) fn efforts_in_text(text: &str, id: &str) -> Vec<String> {
+    parse_model_lines(text)
+        .1
+        .into_iter()
+        .find(|model| model.id == id)
+        .map(|model| model.reasoning_efforts)
+        .unwrap_or_default()
+}
+
+/// 批量编辑后保存：文本与草稿不同就以文本为准，避免卡片同步把用户刚写的内容覆盖。
+pub(crate) fn edited_models(
+    draft_models: &str,
+    textarea: &str,
+) -> Option<(Vec<String>, Vec<ModelPrefs>)> {
+    (draft_models != textarea).then(|| parse_model_lines(textarea))
+}
+
+/// 复制 Provider 时取一个不重名的显示名：`base 2`、`base 3`…（比较时忽略大小写与首尾空白）。
+pub(crate) fn next_provider_name(base: &str, existing: &[String]) -> String {
+    let base = base.trim();
+    let mut serial = 2;
+    loop {
+        let candidate = format!("{base} {serial}");
+        let taken = existing
+            .iter()
+            .any(|name| normalized_provider_name(name) == normalized_provider_name(&candidate));
+        if !taken {
+            return candidate;
+        }
+        serial += 1;
+    }
+}
 
 impl ProviderDraft {
     pub(crate) fn from_prefs(provider: &ProviderPrefs) -> Self {
@@ -49,11 +151,15 @@ impl ProviderDraft {
             id: provider.id.clone(),
             name: provider.name.clone(),
             base_url: provider.base_url.clone(),
+            anthropic_url: provider.anthropic_url.clone().unwrap_or_default(),
+            responses_url: provider.responses_url.clone().unwrap_or_default(),
+            models_url: provider.models_url.clone().unwrap_or_default(),
             protocol: provider.protocol,
             models: format_model_lines(provider),
             has_key: provider.has_key,
             model_params: provider.model_params.clone(),
             builtin: provider.builtin,
+            enabled: provider.enabled,
             base_url_input: None,
             models_input: None,
             api_key_input: None,
@@ -61,6 +167,23 @@ impl ProviderDraft {
             model_fields: Vec::new(),
             key_editing: false,
             confirm_clear: false,
+            remote_models: provider.available_models.clone(),
+            models_fetched_at: provider.models_fetched_at,
+            model_id_input: None,
+            catalog_tab: CatalogTab::All,
+            catalog_expanded: false,
+            models_settings_open: false,
+            fetching_models: false,
+            fetch_error: None,
+            models_advanced_open: false,
+            testing_models: false,
+            model_tests: std::collections::BTreeMap::new(),
+            anthropic_url_input: None,
+            responses_url_input: None,
+            models_url_input: None,
+            endpoints_open: false,
+            protocol_probes: Vec::new(),
+            probing_protocols: false,
         }
     }
 
@@ -71,18 +194,17 @@ impl ProviderDraft {
             .unwrap_or_default();
         Self {
             id: format!("custom-{serial}"),
-            name: protocol.name().to_string(),
-            base_url: protocol.default_url().to_string(),
+            name: String::new(),
+            base_url: String::new(),
+            anthropic_url: String::new(),
+            responses_url: String::new(),
+            models_url: String::new(),
             protocol,
-            models: match protocol {
-                ProviderProtocol::OpenAiCompatible => {
-                    "gpt-4o-mini | 128000 | 16384 | false | true | true".to_string()
-                }
-                ProviderProtocol::AnthropicCompatible => String::new(),
-            },
+            models: String::new(),
             has_key: false,
             model_params: Vec::new(),
             builtin: false,
+            enabled: true,
             base_url_input: None,
             models_input: None,
             api_key_input: None,
@@ -90,6 +212,23 @@ impl ProviderDraft {
             model_fields: Vec::new(),
             key_editing: false,
             confirm_clear: false,
+            remote_models: Vec::new(),
+            models_fetched_at: 0,
+            model_id_input: None,
+            catalog_tab: CatalogTab::All,
+            catalog_expanded: false,
+            models_settings_open: false,
+            fetching_models: false,
+            fetch_error: None,
+            models_advanced_open: false,
+            testing_models: false,
+            model_tests: std::collections::BTreeMap::new(),
+            anthropic_url_input: None,
+            responses_url_input: None,
+            models_url_input: None,
+            endpoints_open: false,
+            protocol_probes: Vec::new(),
+            probing_protocols: false,
         }
     }
 
@@ -101,11 +240,17 @@ impl ProviderDraft {
             id: self.id.clone(),
             name: name.trim().to_string(),
             base_url: base_url.trim().to_string(),
+            anthropic_url: optional(&self.anthropic_url),
+            responses_url: optional(&self.responses_url),
+            models_url: optional(&self.models_url),
             protocol: self.protocol,
             models,
             has_key: self.has_key,
             model_params,
-            builtin: false,
+            builtin: self.builtin,
+            enabled: self.enabled,
+            available_models: self.remote_models.clone(),
+            models_fetched_at: self.models_fetched_at,
         }
     }
 
@@ -196,16 +341,85 @@ impl KeyValidation {
 
 #[cfg(test)]
 mod tests {
-    use super::{KeyValidation, KeyValidationAction, ProviderDraft};
+    use super::{
+        edited_models, efforts_in_text, next_provider_name, KeyValidation, KeyValidationAction,
+        ProviderDraft,
+    };
+
+    #[test]
+    fn copied_provider_gets_a_free_name() {
+        assert_eq!(next_provider_name("DeepSeek", &[]), "DeepSeek 2");
+        assert_eq!(
+            next_provider_name("DeepSeek", &["DeepSeek".to_string()]),
+            "DeepSeek 2"
+        );
+        assert_eq!(
+            next_provider_name(
+                "DeepSeek",
+                &["DeepSeek".to_string(), "deepseek 2".to_string()]
+            ),
+            "DeepSeek 3"
+        );
+    }
+
+    #[test]
+    fn efforts_in_text_reads_the_written_column() {
+        let text = "m | 64000 | 8000 | true | true | true | false | efforts=low,high";
+        assert_eq!(efforts_in_text(text, "m"), vec!["low", "high"]);
+        assert!(efforts_in_text(text, "other").is_empty());
+    }
+
+    #[test]
+    fn edited_models_prefer_the_textarea() {
+        let draft = "m | 64000 | 8000 | true | true | true | false";
+        let edited = "m | 64000 | 8000 | true | true | true | false | efforts=low,high";
+        let (models, params) = edited_models(draft, edited).expect("edited");
+        assert_eq!(models, vec!["m"]);
+        assert_eq!(params[0].reasoning_efforts, vec!["low", "high"]);
+        assert!(edited_models(draft, draft).is_none());
+    }
+
+    #[test]
+    fn blank_endpoints_are_not_saved() {
+        let mut draft =
+            ProviderDraft::new_custom(cgc_agent_provider::ProviderProtocol::OpenAiCompatible);
+        draft.anthropic_url = "   ".into();
+        let prefs = draft.to_prefs_with("https://example.test", "Example");
+        assert_eq!(prefs.anthropic_url, None);
+        draft.anthropic_url = "https://anthropic.example".into();
+        let prefs = draft.to_prefs_with("https://example.test", "Example");
+        assert_eq!(
+            prefs.anthropic_url.as_deref(),
+            Some("https://anthropic.example")
+        );
+    }
+
+    #[test]
+    fn draft_keeps_enabled_flag_through_prefs_roundtrip() {
+        let mut draft =
+            ProviderDraft::new_custom(cgc_agent_provider::ProviderProtocol::OpenAiCompatible);
+        draft.enabled = false;
+        let prefs = draft.to_prefs_with("https://example.test", "Example");
+        assert!(!prefs.enabled);
+    }
 
     #[test]
     fn to_prefs_with_uses_current_form_values() {
         let draft =
             ProviderDraft::new_custom(cgc_agent_provider::ProviderProtocol::OpenAiCompatible);
+        assert!(draft.name.is_empty(), "a new provider starts unnamed");
+        assert!(
+            draft.base_url.is_empty(),
+            "a new provider starts without a URL"
+        );
+        assert!(
+            draft.models.is_empty(),
+            "a new provider starts without models"
+        );
         let prefs = draft.to_prefs_with("https://new.example/v1/", "New Provider");
         assert_eq!(prefs.base_url, "https://new.example/v1/");
         assert_eq!(prefs.name, "New Provider");
-        assert!(!prefs.models.is_empty());
+        assert!(prefs.models.is_empty());
     }
 
     #[test]
