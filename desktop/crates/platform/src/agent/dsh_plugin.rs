@@ -60,16 +60,13 @@ fn is_executable(path: &Path) -> bool {
     let Ok(metadata) = std::fs::metadata(path) else {
         return false;
     };
-    if !metadata.is_file() {
-        return false;
-    }
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        metadata.permissions().mode() & 0o111 != 0
+        metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
     }
     #[cfg(not(unix))]
-    true
+    metadata.is_file()
 }
 
 /// 探测 plugin 形态；三项缺一不可（本地 DSH 目录、dsh CLI、profile 安装）。
@@ -204,10 +201,10 @@ pub fn credential_env(plugin: &DshPlugin) -> std::collections::BTreeMap<String, 
 
 /// 只接受 owner-only 可读的凭据文件（mode 600/400），并只解析 `refs` 段。
 pub fn read_credential_refs(path: &Path) -> Option<std::collections::BTreeMap<String, String>> {
-    let metadata = std::fs::metadata(path).ok()?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
+        let metadata = std::fs::metadata(path).ok()?;
         if metadata.permissions().mode() & 0o077 != 0 {
             return None;
         }

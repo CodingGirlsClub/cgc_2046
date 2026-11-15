@@ -30,6 +30,7 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 - [Desktop] 修复外部 Agent 历史的重命名、归档和切换归属，鉴权重试继续恢复原会话，恢复后保留生成标题并使旧审批失效。
 - [Desktop] 修复 DSH profile 空值配置的标题插件安装和自定义数据目录卸载，忽略不可执行的 dsh 路径及停用的 Provider。
+- [Desktop] 修复 DSH 探测在 Windows 条件编译下的 lint 错误，恢复 Windows 桌面构建。
 
 ## [微信 v0.2.7] - 2026-11-15
 
