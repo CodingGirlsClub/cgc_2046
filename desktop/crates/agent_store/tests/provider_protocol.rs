@@ -56,6 +56,7 @@ fn adaptive_effort_capabilities_survive_model_line_editing() {
         builtin: false,
         enabled: true,
         model_params: vec![model],
+        ..Default::default()
     };
     let (_, edited) = cgc_agent_store::model_lines::parse_model_lines(
         &cgc_agent_store::model_lines::format_model_lines(&prefs),

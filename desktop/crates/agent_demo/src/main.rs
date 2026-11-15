@@ -19,7 +19,8 @@ use cgc_agent_provider::TokenUsage;
 use cgc_agent_provider::{
     AnthropicCompatibleConfig, AnthropicCompatibleProvider, CompletionEvent, FakeProvider, Model,
     ModelId, ModelLimits, OpenAiCompatibleConfig, OpenAiCompatibleProvider, Provider, ProviderId,
-    ProviderProtocol, StopReason, ThinkingMode, ToolUse,
+    ProviderProtocol, ResponsesCompatibleConfig, ResponsesCompatibleProvider, StopReason,
+    ThinkingMode, ToolUse,
 };
 use cgc_agent_tools::{
     ActionSink, AgentState, AppAction, SandboxPolicy, SharedAgentState, SubagentEvent,
@@ -250,6 +251,9 @@ fn run_repl(options: Options) -> std::process::ExitCode {
                 AnthropicCompatibleConfig::new(base_url, api_key, vec![model.clone()]),
             ))
         }
+        ProviderProtocol::OpenAiResponses => std::sync::Arc::new(ResponsesCompatibleProvider::new(
+            ResponsesCompatibleConfig::new(base_url, api_key, vec![model.clone()]),
+        )),
     };
     let thread = Thread::new(
         "demo",

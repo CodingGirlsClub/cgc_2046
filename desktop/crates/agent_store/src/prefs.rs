@@ -475,6 +475,7 @@ mod tests {
             enabled: true,
             builtin: false,
             protocol: ProviderProtocol::OpenAiCompatible,
+            ..Default::default()
         }
     }
 
@@ -566,6 +567,7 @@ mod tests {
                 enabled: true,
                 builtin: true,
                 protocol: ProviderProtocol::OpenAiCompatible,
+                ..Default::default()
             }],
         };
         store.save(&prefs).expect("save");
@@ -635,6 +637,7 @@ mod model_param_tests {
             builtin: false,
             enabled: true,
             protocol: ProviderProtocol::OpenAiCompatible,
+            ..Default::default()
         }
     }
 
