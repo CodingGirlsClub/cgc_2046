@@ -31,6 +31,9 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 - [Desktop] 修复外部 Agent 历史的重命名、归档和切换归属，鉴权重试继续恢复原会话，恢复后保留生成标题并使旧审批失效。
 - [Desktop] 修复 DSH profile 空值配置的标题插件安装和自定义数据目录卸载，忽略不可执行的 dsh 路径及停用的 Provider。
 - [Desktop] 修复 DSH 探测在 Windows 条件编译下的 lint 错误，恢复 Windows 桌面构建。
+- [Desktop] 显式新建会话时清除待恢复目标，避免鉴权或恢复期间的新消息误用旧会话上下文。
+- [Desktop] DeepSeek 已就绪时提供重新安装入口，旧版 profile adapter 标记为待升级；本地 DSH 尚未安装 adapter 时也能初始化 profile 与自动标题配置，安装和卸载互斥。
+- [Desktop] DSH 会话恢复测试失败时不再在诊断日志打印会话标识符。
 
 ## [微信 v0.2.7] - 2026-11-15
 

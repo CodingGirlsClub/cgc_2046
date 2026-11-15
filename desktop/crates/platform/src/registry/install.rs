@@ -1,6 +1,6 @@
 //! 固定版本 agent 安装到应用持久目录；运行时直接使用已验证的包入口。
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
@@ -278,7 +278,8 @@ pub fn uninstall_entry(
 /// 仅修改 ACP profile 的依赖与标题插件 patch，保留会话、凭据与用户设置。
 pub fn install_plugin_entry(
     entry: &AgentEntry,
-    plugin: &crate::agent::dsh_plugin::DshPlugin,
+    dsh: &Path,
+    home: &Path,
 ) -> Result<InstallResult, InstallError> {
     let Distribution::Npx {
         package, version, ..
@@ -289,21 +290,18 @@ pub fn install_plugin_entry(
             "plugin install only supports npx entries",
         ));
     };
-    if !plugin.dsh.is_file() {
+    if !dsh.is_file() {
         return Err(failed(
             "dsh plugin",
-            format!("dsh CLI not found at {}", plugin.dsh.display()),
+            format!("dsh CLI not found at {}", dsh.display()),
         ));
     }
-    let profile = crate::agent::dsh_plugin::profile_dir(&plugin.home);
+    let profile = crate::agent::dsh_plugin::profile_dir(home);
     std::fs::create_dir_all(&profile).map_err(|error| failed("dsh plugin", error))?;
     let mut env = crate::agent::launch::inherited_environment(|key| std::env::var(key).ok());
-    env.insert(
-        "DSH_HOME".to_string(),
-        plugin.home.to_string_lossy().into_owned(),
-    );
+    env.insert("DSH_HOME".to_string(), home.to_string_lossy().into_owned());
     let plan = LaunchPlan {
-        program: plugin.dsh.clone(),
+        program: dsh.to_path_buf(),
         args: vec![
             "plugin".to_string(),
             "--profile".to_string(),
@@ -315,7 +313,7 @@ pub fn install_plugin_entry(
         cwd: profile,
     };
     run_output(&plan, INSTALL_TIMEOUT).map_err(|error| failed("dsh plugin", error))?;
-    let installed = crate::agent::dsh_plugin::read_profile_version(&plugin.home, package);
+    let installed = crate::agent::dsh_plugin::read_profile_version(home, package);
     if installed.as_deref() != Some(version.as_str()) {
         return Err(failed(
             "dsh plugin",
@@ -323,7 +321,7 @@ pub fn install_plugin_entry(
         ));
     }
     // ACP bundle 默认禁用 LLM 标题；安装/升级时补一条启用 override。
-    let title_enabled = crate::agent::dsh_plugin::ensure_title_plugin_enabled(plugin)
+    let title_enabled = crate::agent::dsh_plugin::ensure_title_plugin_enabled(home)
         .map_err(|error| failed("dsh plugin", error))?;
     Ok(InstallResult {
         id: entry.id.clone(),

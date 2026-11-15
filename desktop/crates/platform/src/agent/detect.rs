@@ -109,13 +109,19 @@ pub fn detect_all_with(
         .agents
         .iter()
         .map(|entry| {
-            // ADR-0031 D1 修订：plugin 形态优先；profile 已装 adapter 即 Ready，
-            // 不走 npm 包探测（plugin 用的是用户 DSH 的 runtime）。
+            // plugin 使用用户 DSH 的 runtime，按注册表最低版本判断是否需要升级。
             if let Some(plugin) = plugin.filter(|_| entry.uses_dsh_runtime()) {
                 return DetectedAgent {
                     entry: entry.clone(),
-                    status: AgentStatus::Ready {
-                        version: plugin.version.clone(),
+                    status: if version_at_least(&plugin.version, &entry.minimum_version) {
+                        AgentStatus::Ready {
+                            version: plugin.version.clone(),
+                        }
+                    } else {
+                        AgentStatus::Outdated {
+                            found: plugin.version.clone(),
+                            required: entry.minimum_version.clone(),
+                        }
                     },
                     runtime: RuntimeProbe::plugin(plugin.version.clone(), plugin.dsh.clone()),
                 };
@@ -218,6 +224,25 @@ mod tests {
             .find(|row| row.entry.id == "codex")
             .expect("codex");
         assert!(matches!(codex.status, AgentStatus::NodeUnavailable { .. }));
+    }
+
+    #[test]
+    fn outdated_plugin_requires_registry_upgrade() {
+        let mut registry = Registry::builtin().expect("registry");
+        registry.agents.retain(|entry| entry.id == "deepseek");
+        let plugin = crate::agent::dsh_plugin::DshPlugin {
+            dsh: "/tmp/dsh".into(),
+            home: "/tmp/dsh-home".into(),
+            version: "0.4.40".into(),
+        };
+        let rows = detect_all_with(&registry, None, Some(&plugin));
+        assert_eq!(
+            rows[0].status,
+            AgentStatus::Outdated {
+                found: "0.4.40".into(),
+                required: "0.4.41".into(),
+            }
+        );
     }
 
     #[test]

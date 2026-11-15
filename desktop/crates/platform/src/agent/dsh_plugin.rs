@@ -69,10 +69,19 @@ fn is_executable(path: &Path) -> bool {
     metadata.is_file()
 }
 
+/// 本地安装目标 `(dsh CLI, DSH_HOME)`，不要求 profile 已声明 adapter。
+pub fn install_target_with(env: impl Fn(&str) -> Option<PathBuf>) -> Option<(PathBuf, PathBuf)> {
+    let home = local_dsh_home(&env)?;
+    Some((find_dsh(&env)?, home))
+}
+
+pub fn install_target() -> Option<(PathBuf, PathBuf)> {
+    install_target_with(|key| std::env::var_os(key).map(PathBuf::from))
+}
+
 /// 探测 plugin 形态；三项缺一不可（本地 DSH 目录、dsh CLI、profile 安装）。
 pub fn probe_with(env: impl Fn(&str) -> Option<PathBuf>) -> Option<DshPlugin> {
-    let home = local_dsh_home(&env)?;
-    let dsh = find_dsh(&env)?;
+    let (dsh, home) = install_target_with(env)?;
     let version = read_profile_version(&home, DSH_PLUGIN_PACKAGE)?;
     Some(DshPlugin { dsh, home, version })
 }
@@ -83,11 +92,11 @@ pub fn probe() -> Option<DshPlugin> {
 
 /// ACP bundle 默认禁用 LLM 标题；安装后追加启用 patch。
 /// 已有显式条目时原样保留；解析错误不能含源文片段（profile 可能含凭据）。
-pub fn ensure_title_plugin_enabled(plugin: &DshPlugin) -> Result<bool, String> {
+pub fn ensure_title_plugin_enabled(home: &Path) -> Result<bool, String> {
     use serde_saphyr::granit_parser::{Event, Parser, StructureStyle};
     use std::io::Write;
 
-    let path = profile_dir(&plugin.home).join("cordis.patch.yml");
+    let path = profile_dir(home).join("cordis.patch.yml");
     let mut existing = match std::fs::read_to_string(&path) {
         Ok(existing) => existing,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
@@ -154,7 +163,7 @@ pub fn ensure_title_plugin_enabled(plugin: &DshPlugin) -> Result<bool, String> {
     };
     existing.replace_range(offset..end, &patch);
     let _: Vec<Value> = serde_saphyr::from_str(&existing).map_err(|_| invalid())?;
-    let mut file = tempfile::NamedTempFile::new_in(profile_dir(&plugin.home))
+    let mut file = tempfile::NamedTempFile::new_in(profile_dir(home))
         .map_err(|error| format!("cannot stage {}: {error}", path.display()))?;
     if let Ok(metadata) = std::fs::metadata(&path) {
         file.as_file()

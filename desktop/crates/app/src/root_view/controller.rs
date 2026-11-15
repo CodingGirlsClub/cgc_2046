@@ -2476,6 +2476,7 @@ impl RootView {
         self.chat.sessions.clear();
         self.chat.opened_from_history = false;
         self.chat.session.session_id = None;
+        self.chat.restore_id = None;
         self.chat.configs_applied = false;
         self.chat.history_open = false;
         self.chat.guidance = None;
@@ -3426,7 +3427,9 @@ impl RootView {
     }
 
     pub(in crate::root_view) fn install_agent(&mut self, id: &str, cx: &mut Context<Self>) {
-        if self.agent_installing.as_deref() == Some(id) {
+        if self.agent_installing.as_deref() == Some(id)
+            || self.agent_uninstalling.as_deref() == Some(id)
+        {
             return;
         }
         let Some(entry) = self
@@ -3453,8 +3456,8 @@ impl RootView {
         let task = cx.background_executor().spawn(async move {
             // ADR-0031 D1 修订：DSH 条目优先写进用户 `profiles/acp`。
             if entry.uses_dsh_runtime() {
-                if let Some(plugin) = crate::dsh_agent::dsh_plugin() {
-                    return install_plugin_entry(&entry, &plugin)
+                if let Some((dsh, home)) = cgc_platform::agent::dsh_plugin::install_target() {
+                    return install_plugin_entry(&entry, &dsh, &home)
                         .map_err(|error| error.to_string());
                 }
             }

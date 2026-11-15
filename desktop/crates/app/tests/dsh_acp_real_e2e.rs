@@ -633,7 +633,7 @@ fn real_openma_session_list_and_resume() {
         sessions
             .iter()
             .any(|session| session.session_id == session_id),
-        "session/list did not return {session_id}: {sessions:?}"
+        "session/list omitted the requested session"
     );
     host.shutdown();
 
@@ -643,7 +643,10 @@ fn real_openma_session_list_and_resume() {
             .with_resume_session(session_id.clone()),
     )
     .expect("start dsh adapter for resume");
-    assert_eq!(wait_ready(&resumed, Duration::from_secs(240)), session_id);
+    assert!(
+        wait_ready(&resumed, Duration::from_secs(240)) == session_id,
+        "session/resume did not restore the requested session"
+    );
     assert!(resumed.prompt("第二轮"));
     wait_turn_end(&resumed, Duration::from_secs(240));
     resumed.shutdown();

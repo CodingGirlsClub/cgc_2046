@@ -120,9 +120,10 @@ fn ready_with_dsh_desktop_shows_versions_without_changing_install_state(cx: &mut
                 .is_some(),
             "Ready + 检测到 Desktop 时必须同时展示 Desktop 版本与内置运行时版本"
         );
-        assert!(
-            window.try_find("agent-install-deepseek").is_none(),
-            "已安装的 Ready 行保持不显示安装按钮（安装状态不变）"
+        assert_ne!(
+            window.find("agent-install-deepseek").disabled(),
+            Some(true),
+            "已就绪的 DSH 仍须提供可用的重新安装入口"
         );
     })
     .unwrap();
@@ -144,9 +145,10 @@ fn ready_without_dsh_desktop_keeps_the_download_optional(cx: &mut TestAppContext
             window.try_find_by_label("下载 DSH Desktop").is_some(),
             "未检测到 Desktop 时保留可选下载入口"
         );
-        assert!(
-            window.try_find("agent-install-deepseek").is_none(),
-            "已安装的 Ready 行保持不显示安装按钮（安装状态不变）"
+        assert_ne!(
+            window.find("agent-install-deepseek").disabled(),
+            Some(true),
+            "standalone 已就绪时也须允许重新安装或迁移到本地 profile"
         );
     })
     .unwrap();
@@ -299,6 +301,90 @@ fn auth_retry_preserves_history_target_until_ready(cx: &mut TestAppContext) {
                 assert_eq!(root.chat.session.phase, ConnectionPhase::Starting);
                 assert_eq!(root.chat.restore_id.as_deref(), Some("history-session"));
             }
+        });
+    });
+}
+
+#[gpui_kit::test]
+fn new_chat_discards_pending_history_restore(cx: &mut TestAppContext) {
+    use crate::conversation_session::ConnectionPhase;
+
+    cx.update(|cx| {
+        let root = cx.new(|_| {
+            RootView::with_session_from(
+                crate::registration::build_registry().unwrap(),
+                Language::Zh,
+                ThemePreference::Light,
+                SessionService::new(
+                    Box::new(FakeAuthApi::demo()),
+                    Box::new(MemoryStore::default()),
+                ),
+                "/agents",
+            )
+        });
+        root.update(cx, |root, cx| {
+            root.chat.selected_agent = Some("unregistered-test-agent".into());
+            for phase in [
+                ConnectionPhase::Starting,
+                ConnectionPhase::AuthRequired {
+                    message: "credential required".into(),
+                    auth_methods: Vec::new(),
+                },
+            ] {
+                root.chat.session.phase = phase;
+                root.chat.restore_id = Some("pending-history-session".into());
+                root.chat.restore_via_resume = true;
+                root.chat.session.thread.title = Some("old history".into());
+
+                root.new_chat(cx);
+
+                assert!(
+                    root.chat.restore_id.is_none(),
+                    "new chat must discard the history target"
+                );
+                assert!(!root.chat.restore_via_resume);
+                assert!(root.chat.session.thread.title.is_none());
+            }
+        });
+    });
+}
+
+#[gpui_kit::test]
+fn install_waits_for_the_same_agent_uninstall(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        let root = cx.new(|_| {
+            RootView::with_session_from(
+                crate::registration::build_registry().unwrap(),
+                Language::Zh,
+                ThemePreference::Light,
+                SessionService::new(
+                    Box::new(FakeAuthApi::demo()),
+                    Box::new(MemoryStore::default()),
+                ),
+                "/agents",
+            )
+        });
+        root.update(cx, |root, cx| {
+            let mut rows = rows_with_runtime([(
+                "deepseek",
+                AgentStatus::Ready {
+                    version: "0.4.41".into(),
+                },
+                RuntimeProbe::missing(),
+            )]);
+            rows[0].entry.id = "concurrent-install-test".into();
+            rows[0].entry.distribution = cgc_platform::registry::manifest::Distribution::Native {
+                command: "/cgc-nonexistent-test-agent".into(),
+            };
+            root.agent_registry_rows = rows;
+            root.agent_uninstalling = Some("concurrent-install-test".into());
+
+            root.install_agent("concurrent-install-test", cx);
+
+            assert!(
+                root.agent_installing.is_none(),
+                "install must wait for uninstall"
+            );
         });
     });
 }

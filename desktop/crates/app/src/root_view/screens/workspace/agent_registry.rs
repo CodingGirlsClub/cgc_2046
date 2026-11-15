@@ -113,8 +113,8 @@ pub(in crate::root_view) fn render_agent_registry(
                 entry.distribution,
                 cgc_platform::registry::manifest::Distribution::Npx { .. }
             );
-            // DSH Desktop 仅做检测与信息提示：缺失时仍用内置运行时，不阻断安装。
-            let can_install = !matches!(row.status, AgentStatus::Ready { .. }) && is_npx;
+            let is_ready = matches!(row.status, AgentStatus::Ready { .. });
+            let can_install = is_npx && (!is_ready || entry.uses_dsh_runtime());
             let status_tag = match &row.status {
                 AgentStatus::Ready { .. } => Tag::success(),
                 AgentStatus::Missing => Tag::secondary(),
@@ -127,12 +127,13 @@ pub(in crate::root_view) fn render_agent_registry(
             let is_uninstalling = uninstalling.as_deref() == Some(entry.id.as_str());
             let install_label = if is_installing {
                 "安装中…"
+            } else if is_ready {
+                translate(language, Key::AgentRegistryReinstall)
             } else {
                 translate(language, Key::AgentRegistryInstall)
             };
             let id = entry.id.clone();
             let uninstall_id = entry.id.clone();
-            let is_ready = matches!(row.status, AgentStatus::Ready { .. });
             let dsh_share_local = ctx.dsh_share_local_home;
             let dsh_version_mismatch = row.runtime.version != row.runtime.bundled_version;
             let dsh_desktop_version = row.runtime.version.clone().unwrap_or_default();
@@ -175,6 +176,7 @@ pub(in crate::root_view) fn render_agent_registry(
                                 .label(install_label)
                                 .primary()
                                 .with_size(gpui_kit::component::Size::Small)
+                                .disabled(is_installing || is_uninstalling)
                                 .on_click(move |_, _, cx| {
                                     let _ = root.update(cx, |this, cx| {
                                         this.install_agent(&id, cx);

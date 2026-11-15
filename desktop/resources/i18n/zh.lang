@@ -410,6 +410,7 @@ agent.registry.title = Agent Registry
 agent.registry.subtitle = 安装并管理本机学习 agent
 agent.registry.installed = 已就绪
 agent.registry.install = 安装
+agent.registry.reinstall = 重新安装
 agent.registry.loading = 检测本机 agent…
 agent.registry.error = 检测失败
 agent.registry.retry = 重试

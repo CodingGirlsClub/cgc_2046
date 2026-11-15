@@ -74,17 +74,21 @@ fn plugin_install_writes_profile_without_touching_home_data() {
     let home = root.join("dsh-home");
     std::fs::create_dir_all(crate::agent::dsh_plugin::profile_dir(&home)).unwrap();
     std::fs::write(home.join("settings.yaml"), b"keep").unwrap();
-    let plugin = crate::agent::dsh_plugin::DshPlugin {
-        dsh,
-        home: home.clone(),
-        version: "0.4.41".to_string(),
-    };
     let mut dsh_entry = entry("dsh-test", "@openma/deepseek-harness-acp", true);
     if let Distribution::Npx { version, .. } = &mut dsh_entry.distribution {
         *version = "0.4.41".to_string();
     }
+    let env = |key: &str| match key {
+        "DSH_CLI" => Some(dsh.clone()),
+        "DSH_HOME" => Some(home.clone()),
+        _ => None,
+    };
+    let (target_dsh, target_home) = crate::agent::dsh_plugin::install_target_with(env)
+        .expect("local CLI must be installable before the adapter is declared");
+    assert!(crate::agent::dsh_plugin::probe_with(env).is_none());
 
-    let result = install_plugin_entry(&dsh_entry, &plugin).expect("plugin install");
+    let result =
+        install_plugin_entry(&dsh_entry, &target_dsh, &target_home).expect("plugin install");
     assert_eq!(result.version.as_deref(), Some("0.4.41"));
     assert_eq!(
         crate::agent::dsh_plugin::read_profile_version(&home, "@openma/deepseek-harness-acp")
@@ -98,7 +102,7 @@ fn plugin_install_writes_profile_without_touching_home_data() {
         patches,
         vec![serde_json::json!({"id": "session-title-llm", "disabled": false})]
     );
-    install_plugin_entry(&dsh_entry, &plugin).expect("plugin upgrade");
+    install_plugin_entry(&dsh_entry, &target_dsh, &target_home).expect("plugin upgrade");
     assert_eq!(std::fs::read_to_string(&title_patch).unwrap(), enabled);
     assert_eq!(
         std::fs::read(home.join("settings.yaml")).unwrap(),
@@ -106,6 +110,7 @@ fn plugin_install_writes_profile_without_touching_home_data() {
         "plugin install must not touch user DSH data"
     );
 
+    let plugin = crate::agent::dsh_plugin::probe_with(env).expect("installed profile");
     let removed = uninstall_plugin_entry(&dsh_entry, &plugin).expect("plugin uninstall");
     assert!(removed.removed_package);
     assert!(!removed.removed_dsh_home);
@@ -147,16 +152,11 @@ fn plugin_install_rejects_version_mismatch() {
     perms.set_mode(0o755);
     std::fs::set_permissions(&dsh, perms).unwrap();
     let home = root.join("dsh-home");
-    let plugin = crate::agent::dsh_plugin::DshPlugin {
-        dsh,
-        home,
-        version: "0.4.41".to_string(),
-    };
     let mut dsh_entry = entry("dsh-test", "@openma/deepseek-harness-acp", true);
     if let Distribution::Npx { version, .. } = &mut dsh_entry.distribution {
         *version = "0.4.41".to_string();
     }
-    let error = install_plugin_entry(&dsh_entry, &plugin).expect_err("mismatch must fail");
+    let error = install_plugin_entry(&dsh_entry, &dsh, &home).expect_err("mismatch must fail");
     assert!(error.to_string().contains("expected"), "got {error}");
     let _ = std::fs::remove_dir_all(&root);
 }

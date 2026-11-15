@@ -410,6 +410,7 @@ agent.registry.title = Agent Registry
 agent.registry.subtitle = Install and manage local learning agents
 agent.registry.installed = Ready
 agent.registry.install = Install
+agent.registry.reinstall = Reinstall
 agent.registry.loading = Detecting local agents…
 agent.registry.error = Detection failed
 agent.registry.retry = Retry

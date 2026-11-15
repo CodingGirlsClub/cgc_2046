@@ -30,6 +30,8 @@ date: 2026-11-12
 
 `RuntimeProbe.source` 取值 `explicit | dsh-desktop | path | bundled | plugin | missing`。plugin 形态下 UI 显示「使用本地 DSH profile acp（adapter {version}）」，并隐藏 standalone 的共享开关（profile 本身位于 `$DSH_HOME`）。
 
+注册表安装动作单独按本地 `dsh` CLI 与数据根识别可安装目标，不要求 profile 预先声明 adapter。用户显式点击安装或重新安装时优先初始化或更新本地 `acp` profile；已就绪的 DeepSeek 条目保留重新安装入口，低于注册表最低版本的 profile adapter 标记为待升级。安装与卸载互斥，避免并发修改同一 profile。启动探测仍要求 adapter 已声明，否则使用 standalone 回退。
+
 ### D2 凭据 env-only：keychain 只注入子进程环境，不落明文
 
 CGC 托管的 DeepSeek Key 以本机 keychain 为唯一真源。客户端只选择已启用、采用 OpenAI-compatible 协议的 Provider，将 Key 和端点映射为 ACP 子进程的 `DEEPSEEK_API_KEY` 与 `DEEPSEEK_BASE_URL`，不写入 DSH 配置。

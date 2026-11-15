@@ -121,13 +121,8 @@ fn title_generation_preserves_profile_and_is_idempotent() {
         if let Some(text) = existing {
             std::fs::write(&path, text).unwrap();
         }
-        let plugin = DshPlugin {
-            dsh: home.join("dsh"),
-            home: home.clone(),
-            version: "0.4.41".to_string(),
-        };
 
-        assert!(ensure_title_plugin_enabled(&plugin).unwrap());
+        assert!(ensure_title_plugin_enabled(&home).unwrap());
         let enabled = std::fs::read_to_string(&path).unwrap();
         assert!(enabled.starts_with(existing.unwrap_or_default()));
         let entries: Vec<Value> = serde_saphyr::from_str(&enabled).unwrap();
@@ -135,7 +130,7 @@ fn title_generation_preserves_profile_and_is_idempotent() {
             entries.last().unwrap(),
             &serde_json::json!({"id": "session-title-llm", "disabled": false})
         );
-        assert!(!ensure_title_plugin_enabled(&plugin).unwrap());
+        assert!(!ensure_title_plugin_enabled(&home).unwrap());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), enabled);
         std::fs::remove_dir_all(home).unwrap();
     }
@@ -151,13 +146,8 @@ fn title_generation_supports_flow_sequence_profiles() {
         write_profile(&home, "0.4.41");
         let path = profile_dir(&home).join("cordis.patch.yml");
         std::fs::write(&path, existing).unwrap();
-        let plugin = DshPlugin {
-            dsh: home.join("dsh"),
-            home: home.clone(),
-            version: "0.4.41".to_string(),
-        };
 
-        assert!(ensure_title_plugin_enabled(&plugin).unwrap());
+        assert!(ensure_title_plugin_enabled(&home).unwrap());
         let enabled = std::fs::read_to_string(&path).unwrap();
         let entries: Vec<Value> = serde_saphyr::from_str(&enabled).unwrap();
         assert_eq!(
@@ -172,7 +162,7 @@ fn title_generation_supports_flow_sequence_profiles() {
                 serde_json::json!({"id": "other-plugin", "disabled": true})
             );
         }
-        assert!(!ensure_title_plugin_enabled(&plugin).unwrap());
+        assert!(!ensure_title_plugin_enabled(&home).unwrap());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), enabled);
         std::fs::remove_dir_all(home).unwrap();
     }
@@ -192,13 +182,8 @@ fn title_generation_respects_explicit_yaml_configuration() {
         write_profile(&home, "0.4.41");
         let path = profile_dir(&home).join("cordis.patch.yml");
         std::fs::write(&path, existing).unwrap();
-        let plugin = DshPlugin {
-            dsh: home.join("dsh"),
-            home: home.clone(),
-            version: "0.4.41".to_string(),
-        };
 
-        assert!(!ensure_title_plugin_enabled(&plugin).unwrap());
+        assert!(!ensure_title_plugin_enabled(&home).unwrap());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), existing);
         std::fs::remove_dir_all(home).unwrap();
     }
@@ -211,13 +196,8 @@ fn title_generation_rejects_unreadable_or_malformed_patch() {
         write_profile(&home, "0.4.41");
         let path = profile_dir(&home).join("cordis.patch.yml");
         std::fs::write(&path, existing).unwrap();
-        let plugin = DshPlugin {
-            dsh: home.join("dsh"),
-            home: home.clone(),
-            version: "0.4.41".to_string(),
-        };
 
-        assert!(ensure_title_plugin_enabled(&plugin).is_err());
+        assert!(ensure_title_plugin_enabled(&home).is_err());
         assert_eq!(std::fs::read(&path).unwrap(), existing);
         std::fs::remove_dir_all(home).unwrap();
     }
@@ -234,20 +214,15 @@ fn title_generation_replaces_tagged_null_profiles() {
         write_profile(&home, "0.4.41");
         let path = profile_dir(&home).join("cordis.patch.yml");
         std::fs::write(&path, existing).unwrap();
-        let plugin = DshPlugin {
-            dsh: home.join("dsh"),
-            home: home.clone(),
-            version: "0.4.41".to_string(),
-        };
 
-        assert!(ensure_title_plugin_enabled(&plugin).unwrap());
+        assert!(ensure_title_plugin_enabled(&home).unwrap());
         let enabled = std::fs::read_to_string(&path).unwrap();
         let entries: Vec<Value> = serde_saphyr::from_str(&enabled).unwrap();
         assert_eq!(
             entries,
             vec![serde_json::json!({"id": "session-title-llm", "disabled": false})]
         );
-        assert!(!ensure_title_plugin_enabled(&plugin).unwrap());
+        assert!(!ensure_title_plugin_enabled(&home).unwrap());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), enabled);
         std::fs::remove_dir_all(home).unwrap();
     }
