@@ -6180,6 +6180,8 @@ export type RootQueryType = {
   offeringReadiness?: Maybe<OfferingReadinessPayload>;
   /** 订单状态轮询（2s×30s 轻量面，R14） */
   orderStatus?: Maybe<Order>;
+  /** 忘记密码页的固定小程序码（scene=pw，直达小程序密码页；匿名可读，生成失败返回 null） */
+  passwordCenterQr?: Maybe<Scalars['String']['output']>;
   /** 当前用户作为 Owner/Admin 的跨工作台可操作待办总数（Enrollment + JoinRequest + Sponsorship 的 pending 且未过审批截止）；已过期不计（KTD8 口径，与 /approvals 展示含过期行存在有意差异） */
   pendingApprovalsCount: Scalars['Int']['output'];
   /** 角色权限矩阵（#66 Rbac）：五角色 × 八能力，对齐前端权限表（需登录；#1 能力接口：abilities 为通用列表） */

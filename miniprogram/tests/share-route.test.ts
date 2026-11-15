@@ -463,3 +463,14 @@ test('P0-4/P1 resolveEntry 热启动 link 目标现在已注册（tt）→ 直�
   assert.equal(decision.url, '/pages/flashback-wishes/index?wishId=w-9')
   assert.equal(decision.navigate, true)
 })
+
+test('密码页固定码 scene=pw 不当作邀请：冷/热启动都不跳 join、不落 pendingScene', () => {
+  const path = 'pages/account-password/index'
+  const cold = resolveEntry({ path, query: { scene: 'pw' } })
+  assert.deepEqual(sceneAndUrl(cold), { scene: null, url: null })
+  assert.equal(cold.navigate, false)
+
+  const warm = resolveEntry({ path, query: { scene: 'pw' } }, [{ route: path, options: { scene: 'pw' } }])
+  assert.deepEqual(sceneAndUrl(warm), { scene: null, url: null })
+  assert.equal(warm.navigate, false)
+})

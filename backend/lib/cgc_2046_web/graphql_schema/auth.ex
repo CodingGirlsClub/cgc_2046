@@ -446,8 +446,12 @@ defmodule Cgc2046Web.GraphqlSchema.Auth do
                ) do
             {:ok, user} ->
               # 动作内已吊销该用户全部已存 token（含本次请求的旧 token）；
-              # 这里补发当前会话，用户无感，其他端下次请求即失效。
-              case Cgc2046.Accounts.SignInFlow.generate_token(user, nil, context) do
+              # 这里按当前会话的 platform claim 补发，用户无感，其他端下次请求即失效。
+              case Cgc2046.Accounts.SignInFlow.generate_token(
+                     user,
+                     session_platform(context),
+                     context
+                   ) do
                 {:ok, signed} ->
                   {:ok, %{ok: true, __token__: signed.__metadata__[:token]}}
 

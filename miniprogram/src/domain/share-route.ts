@@ -43,6 +43,15 @@ export interface AppShowQuery {
 /** 公开金句墙：可选 quoteId 定位到单句。 */
 export const FLASHBACK_VOICES_ROUTE = 'pages/flashback-voices/index'
 
+/**
+ * 忘记密码页的小程序码 scene（固定值，与后端 `Wechat.WebLoginLaunch` 一致）。
+ * 该 scene 只表示「直达密码页」，不是邀请凭据：不得进入 join 路由或 pendingScene。
+ */
+export const PASSWORD_CENTER_SCENE = 'pw'
+
+/** 小程序密码中心页（忘记密码码的落地面）。 */
+export const PASSWORD_CENTER_ROUTE = 'pages/account-password/index'
+
 /** 公开卡页 path（分享卡片 path 单源；#771）——无前导斜杠形态供路由比较 */
 export const FLASHBACK_SHARED_CARD_ROUTE = 'pages/flashback-shared-card/index'
 
@@ -144,6 +153,9 @@ function innerAppShowRoute(query: AppShowQuery, currentRoute: string, currentQue
   }
 
   const scene = query.scene?.trim()
+  // 忘记密码页的固定小程序码（scene="pw"）：页面本身就是目标，不能按邀请处理——
+  // 否则会被改写到 join 页并把 "pw" 存成一次性邀请凭据。
+  if (scene === PASSWORD_CENTER_SCENE || normalizePath(currentRoute) === PASSWORD_CENTER_ROUTE) return null
   if (scene) return buildJoinSharePath(scene)
 
   const id = query.id?.trim()
@@ -279,7 +291,7 @@ export function resolveEntry(
     flashbackEntryUrl(options, top?.route ?? '')
   const url = platformFallbackRoute(rawUrl, platform, top?.route ?? '')
   return {
-    scene: query.scene?.trim() || null,
+    scene: query.scene?.trim() === PASSWORD_CENTER_SCENE ? null : query.scene?.trim() || null,
     url,
     // Only an empty stack uses the launch path as evidence of the current page.
     // Warm entries carry path too; the actual stack above decides whether to open.

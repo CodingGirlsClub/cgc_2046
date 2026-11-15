@@ -101,5 +101,23 @@ defmodule Cgc2046Web.GraphqlSetPasswordTest do
       assert %{"errors" => errors} = res
       assert Enum.any?(errors, &(&1["code"] == "unauthorized"))
     end
+
+    test "preserves the caller's platform claim when refreshing the session" do
+      user = create_phone_user()
+      {:ok, signed} = SignInFlow.generate_token(user, :wechat, %{})
+      token = signed.__metadata__[:token]
+
+      conn =
+        build_conn()
+        |> put_req_header("authorization", "Bearer #{token}")
+        |> graphql_post(~s'mutation { setPassword(password: "#{@password}") { ok } }')
+
+      assert %{"data" => %{"setPassword" => %{"ok" => true}}} = graphql_response(conn)
+
+      # 小程序会话换发后仍必须是 wechat claim：否则不能再批准扫码登录，
+      # 且会落进 web 吊销桶被后续 web 登录误杀。
+      new_token = conn.resp_cookies["cgc_token"].value
+      assert {:ok, %{"platform" => "wechat"}, _} = AshAuthentication.Jwt.verify(new_token, User)
+    end
   end
 end
