@@ -449,6 +449,38 @@ impl SettingsWindowView {
         cx.notify();
     }
 
+    /// 离开编辑页：丢弃未保存的草稿，回到已保存（或内置默认）的状态。
+    fn leave_provider_form(&mut self, cx: &mut Context<Self>) {
+        let target = match &self.ai_view {
+            AiRoute::EditProvider(id) | AiRoute::NewProvider(id) => Some(id.clone()),
+            _ => None,
+        };
+        if let Some(id) = target {
+            self.cancel_validation_for(&id);
+            let prefs = self.provider_settings.load();
+            let restored = prefs.provider(&id).cloned().or_else(|| {
+                builtin_providers()
+                    .into_iter()
+                    .find(|provider| provider.id == id)
+            });
+            match restored {
+                Some(provider) => {
+                    if let Some(slot) = self
+                        .provider_drafts
+                        .iter_mut()
+                        .find(|draft| draft.id == id)
+                    {
+                        *slot = ProviderDraft::from_prefs(&provider);
+                    }
+                }
+                None => self.provider_drafts.retain(|draft| draft.id != id),
+            }
+        }
+        self.ai_view = AiRoute::Providers;
+        self.error = None;
+        cx.notify();
+    }
+
     fn provider_from_draft_inputs(&self, draft: &ProviderDraft, cx: &App) -> ProviderPrefs {
         let base_url = draft
             .base_url_input
@@ -596,6 +628,20 @@ impl SettingsWindowView {
         } else {
             format!("{} API Key 已验证并保存", provider.name)
         };
+        let needs_models = self
+            .provider_drafts
+            .iter()
+            .find(|draft| draft.id == provider.id)
+            .is_some_and(|draft| draft.models.trim().is_empty());
+        if needs_models {
+            if let Some(index) = self
+                .provider_drafts
+                .iter()
+                .position(|draft| draft.id == provider.id)
+            {
+                self.fetch_models(index, cx);
+            }
+        }
         self.refresh_provider_runtime(saved, cx);
     }
 
@@ -1583,8 +1629,7 @@ impl SettingsWindowView {
                                     ))
                                     .on_click(move |_, _, cx| {
                                         let _ = weak.update(cx, |this, cx| {
-                                            this.ai_view = AiRoute::Providers;
-                                            cx.notify();
+                                            this.leave_provider_form(cx);
                                         });
                                     }),
                             )
