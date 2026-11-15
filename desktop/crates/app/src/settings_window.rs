@@ -1784,33 +1784,22 @@ impl SettingsWindowView {
                             }),
                     )
                     .child(
-                        div().flex().gap(space(1)).children(
-                            [
-                                ProviderProtocol::OpenAiCompatible,
-                                ProviderProtocol::AnthropicCompatible,
-                            ]
-                            .into_iter()
-                            .map(|protocol| {
-                                let add_weak = add_weak.clone();
-                                div()
-                                    .id(SharedString::from(format!(
-                                        "settings-providers-add-{protocol:?}"
-                                    )))
-                                    .role(Role::Button)
-                                    .aria_label(format!("添加 {} Provider", protocol.name()))
-                                    .px(space(2))
-                                    .py(px(4.0))
-                                    .rounded(px(RADIUS_MEDIUM))
-                                    .bg(palette.accent)
-                                    .text_color(palette.canvas)
-                                    .text_size(px(11.0))
-                                    .child(format!("＋ {}", protocol.name()))
-                                    .on_click(move |_, _, cx| {
-                                        let _ = add_weak
-                                            .update(cx, |this, cx| this.add_provider(protocol, cx));
-                                    })
+                        div()
+                            .id("settings-providers-add")
+                            .role(Role::Button)
+                            .aria_label("添加 Provider")
+                            .px(space(2))
+                            .py(px(4.0))
+                            .rounded(px(RADIUS_MEDIUM))
+                            .bg(palette.accent)
+                            .text_color(palette.canvas)
+                            .text_size(px(11.0))
+                            .child("＋ 添加 Provider")
+                            .on_click(move |_, _, cx| {
+                                let _ = add_weak.update(cx, |this, cx| {
+                                    this.add_provider(ProviderProtocol::OpenAiCompatible, cx);
+                                });
                             }),
-                        ),
                     )
                     .into_any_element()
             })
