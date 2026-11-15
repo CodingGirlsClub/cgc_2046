@@ -6,14 +6,14 @@
 #
 # 三平台 CI matrix（待 .github 人工合并后接入）：
 #   macOS (macos-14, aarch64) / Windows (windows-2022, x64) / Linux (ubuntu-24.04, x64)
-#   每平台：rustup 1.98.1 → bash scripts/smoke.sh（Windows 用 Git Bash 或 PowerShell 等价步骤）
+#   每平台：rustup 1.100.0 → bash scripts/smoke.sh（Windows 用 Git Bash 或 PowerShell 等价步骤）
 # 真机 GUI 项（启动、滚动、对话）不在本脚本内，见 epic-7 验收清单。
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 echo "== platform: $(uname -s) $(uname -m) =="
 echo "== rust: $(rustc --version) =="
-export RUSTUP_TOOLCHAIN="${RUSTUP_TOOLCHAIN:-1.98.1}"
+export RUSTUP_TOOLCHAIN="${RUSTUP_TOOLCHAIN:-1.100.0}"
 
 echo "== fmt =="
 cargo fmt --all -- --check
