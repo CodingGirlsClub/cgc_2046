@@ -844,8 +844,20 @@ pub(in crate::root_view) fn render_chat_panel(
                         .enumerate()
                         .map(|(index, config)| {
                             let root = cx.entity().downgrade();
-                            let name = config.name.clone();
+                            // DSH 的 plan 是独立于权限档的协作状态；用「Plan 模式」
+                            // 而不是 adapter 原文 "Collaboration mode"，避免与 Permissions 混淆。
+                            let is_collaboration = config.id == "collaboration_mode";
+                            let name = if is_collaboration {
+                                translate(language, Key::ChatCollaborationMode).to_string()
+                            } else {
+                                config.name.clone()
+                            };
                             let current = config.current.clone();
+                            let current_label = if is_collaboration {
+                                collaboration_mode_label(language, &current)
+                            } else {
+                                current.clone()
+                            };
                             let searchable = config.category == ConfigOptionCategory::Model;
                             let query = if searchable {
                                 config_query.as_str()
@@ -858,7 +870,14 @@ pub(in crate::root_view) fn render_chat_panel(
                                 .filter(|(_, label)| {
                                     query.is_empty() || label.to_lowercase().contains(query)
                                 })
-                                .cloned()
+                                .map(|(value, label)| {
+                                    let label = if is_collaboration {
+                                        collaboration_mode_label(language, value)
+                                    } else {
+                                        label.clone()
+                                    };
+                                    (value.clone(), label)
+                                })
                                 .collect();
                             let items: Vec<PickerItem> = options
                                 .iter()
@@ -892,7 +911,7 @@ pub(in crate::root_view) fn render_chat_panel(
                                 trigger_id: SharedString::from(format!(
                                     "chat-config-trigger-{index}"
                                 )),
-                                trigger_label: current.clone(),
+                                trigger_label: current_label,
                                 trigger_tooltip: name,
                                 trigger_max_width: Some(180.0),
                                 anchor: None,
@@ -1564,6 +1583,14 @@ fn chat_command_menu_style(palette: &theme::Palette) -> CommandMenuStyle {
         selected_text: palette.canvas,
         radius: RADIUS_MEDIUM,
         padding: 4.0,
+    }
+}
+
+fn collaboration_mode_label(language: Language, value: &str) -> String {
+    match value {
+        "default" => translate(language, Key::ChatCollaborationModeDefault).to_string(),
+        "plan" => translate(language, Key::ChatCollaborationModePlan).to_string(),
+        other => other.to_string(),
     }
 }
 

@@ -386,6 +386,9 @@ agent.registry.dsh_share_local_hint
 agent.registry.dsh_share_local_on
 agent.registry.dsh_share_version_warn
 agent.registry.dsh_plugin_detected
+chat.collaboration_mode
+chat.collaboration_mode_default
+chat.collaboration_mode_plan
 app.settings.cursor_blink
 app.settings.cursor_blink_hint
 app.settings.cursor_blink_blinking
