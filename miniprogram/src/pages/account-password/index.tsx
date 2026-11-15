@@ -1,11 +1,13 @@
-import { useState } from 'react'
+import { useReducer, useState } from 'react'
 import { Button, Input, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { api } from '@/api'
 import {
   accountIdentifier,
+  initialPasswordCenterState,
   passwordFormErrorCopy,
   passwordSubmitErrorCopy,
+  reducePasswordCenter,
   validateNewPassword
 } from '@/domain/password-center'
 import styles from './index.module.css'
@@ -13,19 +15,14 @@ import styles from './index.module.css'
 /**
  * 小程序密码中心（R1–R6）。
  *
- * 页面只负责渲染与调起；预检与文案在 `domain/password-center.ts`。
+ * 页面只做两件事：调起 API 与 dispatch；所有状态转移在
+ * `domain/password-center.ts` 的 `reducePasswordCenter` 里，由
+ * node --test 覆盖（本项目没有页面渲染测试）。
  * 免旧密码：能完成小程序微信登录本身就是身份凭证（范围已裁决）。
  */
 export default function AccountPasswordPage() {
   const [phone, setPhone] = useState<string | null>(null)
-  const [password, setPassword] = useState('')
-  const [confirmation, setConfirmation] = useState('')
-  const [error, setError] = useState('')
-  const [done, setDone] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [mode, setMode] = useState<'set' | 'reset'>('set')
-  // Taro Input 非受控：靠 key 重建来清空成功后的旧值
-  const [formKey, setFormKey] = useState(0)
+  const [state, dispatch] = useReducer(reducePasswordCenter, initialPasswordCenterState)
 
   const load = async () => {
     try {
@@ -39,7 +36,7 @@ export default function AccountPasswordPage() {
       }
       setPhone(await api.getMyPhone())
     } catch {
-      setError('暂时无法加载账号信息，请重试。')
+      dispatch({ type: 'load_failed', message: '暂时无法加载账号信息，请重试。' })
     }
   }
 
@@ -48,26 +45,27 @@ export default function AccountPasswordPage() {
   })
 
   const submit = async () => {
-    const invalid = validateNewPassword(password, confirmation)
+    const invalid = validateNewPassword(state.password, state.confirmation)
     if (invalid) {
-      setError(passwordFormErrorCopy(invalid))
+      dispatch({ type: 'submit_failed', message: passwordFormErrorCopy(invalid) })
       return
     }
-    setBusy(true)
-    setError('')
-    setDone(false)
+    dispatch({ type: 'submit_started' })
     try {
-      await api.setPassword(password)
-      setPassword('')
-      setConfirmation('')
-      setFormKey((key) => key + 1)
-      setDone(true)
+      await api.setPassword(state.password)
+      dispatch({ type: 'submit_succeeded' })
       await Taro.showToast({ title: '密码已更新', icon: 'success' })
     } catch (reason) {
-      setError(passwordSubmitErrorCopy(reason instanceof Error ? reason.message : null))
-    } finally {
-      setBusy(false)
+      dispatch({
+        type: 'submit_failed',
+        message: passwordSubmitErrorCopy(reason instanceof Error ? reason.message : null)
+      })
     }
+  }
+
+  const requestReset = () => {
+    dispatch({ type: 'reset_requested' })
+    void Taro.showToast({ title: '直接输入新密码即可', icon: 'none' })
   }
 
   return (
@@ -82,46 +80,37 @@ export default function AccountPasswordPage() {
         <View className={styles.field}>
           <Text className={styles.label}>新密码（至少 8 位）</Text>
           <Input
-            key={`password-${formKey}`}
+            key={`password-${state.formKey}`}
             className={styles.input}
             password
             placeholder='输入新密码'
-            onInput={(event) => setPassword(event.detail.value)}
+            onInput={(event) => dispatch({ type: 'password_changed', value: event.detail.value })}
           />
         </View>
 
         <View className={styles.field}>
           <Text className={styles.label}>再次输入</Text>
           <Input
-            key={`confirm-${formKey}`}
+            key={`confirm-${state.formKey}`}
             className={styles.input}
             password
             placeholder='再输一次'
-            onInput={(event) => setConfirmation(event.detail.value)}
+            onInput={(event) => dispatch({ type: 'confirmation_changed', value: event.detail.value })}
           />
         </View>
 
-        {error && <Text className={styles.error}>{error}</Text>}
-        {done && <Text className={styles.success}>密码已更新；其他设备需要重新登录。</Text>}
+        {state.error && <Text className={styles.error}>{state.error}</Text>}
+        {state.done && <Text className={styles.success}>密码已更新；其他设备需要重新登录。</Text>}
 
         <Button
           className={styles.primary}
-          loading={busy}
-          disabled={busy}
+          loading={state.busy}
+          disabled={state.busy}
           onClick={() => void submit()}
         >
-          {mode === 'reset' ? '重设密码' : '设置 / 修改密码'}
+          {state.mode === 'reset' ? '重设密码' : '设置 / 修改密码'}
         </Button>
-        <Button
-          className={styles.secondary}
-          disabled={busy}
-          onClick={() => {
-            setMode('reset')
-            setError('')
-            setDone(false)
-            void Taro.showToast({ title: '直接输入新密码即可', icon: 'none' })
-          }}
-        >
+        <Button className={styles.secondary} disabled={state.busy} onClick={requestReset}>
           忘记原密码，直接重设
         </Button>
 

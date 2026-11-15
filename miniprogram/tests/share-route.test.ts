@@ -474,3 +474,12 @@ test('密码页固定码 scene=pw 不当作邀请：冷/热启动都不跳 join�
   assert.deepEqual(sceneAndUrl(warm), { scene: null, url: null })
   assert.equal(warm.navigate, false)
 })
+
+test('当前停在密码页时，其它入站深链仍然生效（短路只认入站 scene）', () => {
+  const decision = resolveEntry(
+    { path: 'pages/event-detail/index', query: { id: 'event-2' } },
+    [{ route: 'pages/account-password/index' }]
+  )
+  assert.equal(decision.url, '/pages/event-detail/index?id=event-2&kind=event')
+  assert.equal(decision.navigate, true)
+})

@@ -50,3 +50,70 @@ export function accountIdentifier(phone: string | null): string {
 export function shouldPromptPasswordSetup(session: { hasPassword?: boolean }): boolean {
   return session.hasPassword === false
 }
+
+export type PasswordCenterMode = 'set' | 'reset'
+
+/** 密码页全部可视状态；页面只做 dispatch，不进任何渲染测试。 */
+export interface PasswordCenterState {
+  password: string
+  confirmation: string
+  error: string
+  done: boolean
+  busy: boolean
+  mode: PasswordCenterMode
+  /** 成功后 +1：Taro Input 非受控，靠 key 重建清空旧值。 */
+  formKey: number
+}
+
+export const initialPasswordCenterState: PasswordCenterState = {
+  password: '',
+  confirmation: '',
+  error: '',
+  done: false,
+  busy: false,
+  mode: 'set',
+  formKey: 0
+}
+
+export type PasswordCenterAction =
+  | { type: 'password_changed'; value: string }
+  | { type: 'confirmation_changed'; value: string }
+  | { type: 'reset_requested' }
+  | { type: 'submit_started' }
+  | { type: 'submit_failed'; message: string }
+  | { type: 'submit_succeeded' }
+  | { type: 'load_failed'; message: string }
+
+/**
+ * 密码页状态转移（miniprogram/AGENTS.md：页面状态机必须是纯函数并有
+ * node --test 覆盖，因为小程序没有页面渲染测试）。
+ */
+export function reducePasswordCenter(
+  state: PasswordCenterState,
+  action: PasswordCenterAction
+): PasswordCenterState {
+  switch (action.type) {
+    case 'password_changed':
+      return { ...state, password: action.value }
+    case 'confirmation_changed':
+      return { ...state, confirmation: action.value }
+    case 'reset_requested':
+      return { ...state, mode: 'reset', error: '', done: false }
+    case 'submit_started':
+      return { ...state, busy: true, error: '', done: false }
+    case 'submit_failed':
+      return { ...state, busy: false, error: action.message, done: false }
+    case 'submit_succeeded':
+      return {
+        ...state,
+        busy: false,
+        error: '',
+        done: true,
+        password: '',
+        confirmation: '',
+        formKey: state.formKey + 1
+      }
+    case 'load_failed':
+      return { ...state, error: action.message }
+  }
+}
