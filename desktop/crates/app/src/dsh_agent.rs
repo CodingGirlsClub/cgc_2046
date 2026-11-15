@@ -1,7 +1,7 @@
-//! DSH external ACP agent 的启动装配（ADR-0030 D2）：从本机 keychain 读取 Key，
+//! DSH external ACP agent 的启动装配（ADR-0031 D2）：从本机 keychain 读取 Key，
 //! 只放进子进程环境（`DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL`），不写 settings/日志/文件。
 //!
-//! 选择规则：优先使用内置 `deepseek`（DeepSeek）provider 已保存的 key；否则回退到
+//! 选择规则：优先使用已启用、采用 OpenAI-compatible 协议的内置 `deepseek` provider 的 key；否则回退到
 //! 当前选中的、已配置 base URL 的 OpenAI-compatible provider（空 base URL 不注入，
 //! 否则 key 会被发到 adapter 默认的 DeepSeek 端点）。都没有可用 key 时返回空环境，
 //! 由适配器走 `auth_required` 登录路径（P3）。
@@ -30,7 +30,7 @@ pub(crate) fn dsh_launch_options(
     }
 }
 
-/// DSH plugin 形态（ADR-0030 D1 修订）：有 DSH Desktop 时优先走这个入口。
+/// DSH plugin 形态（ADR-0031 D1 修订）：有 DSH Desktop 时优先走这个入口。
 pub(crate) fn dsh_plugin() -> Option<cgc_platform::agent::dsh_plugin::DshPlugin> {
     cgc_platform::agent::dsh_plugin::probe()
 }
@@ -63,7 +63,7 @@ fn prefs_store() -> PrefsStore {
     PrefsStore::new(AppPaths::from_env().agent_prefs_file())
 }
 
-/// ADR-0030 D3 opt-in：是否与本地 DSH 共享会话数据。
+/// ADR-0031 D3 opt-in：是否与本地 DSH 共享会话数据。
 pub(crate) fn dsh_share_local_home() -> bool {
     prefs_store().load().dsh_share_local_home
 }
@@ -105,7 +105,11 @@ pub(crate) fn dsh_launch_env_from(
 ) -> BTreeMap<String, String> {
     let provider = prefs
         .provider(DEEPSEEK_PROVIDER_ID)
-        .filter(|provider| provider.has_key)
+        .filter(|provider| {
+            provider.enabled
+                && provider.has_key
+                && provider.protocol == ProviderProtocol::OpenAiCompatible
+        })
         .or_else(|| {
             // 非 DeepSeek provider 的 key 只能用在该 provider 自己的端点上：base_url 为空时
             // adapter 会回落到 DeepSeek 官方端点，等于把别人的 key 发给 DeepSeek。
@@ -183,6 +187,8 @@ mod tests {
             model_params: Vec::new(),
             builtin: true,
             protocol: ProviderProtocol::OpenAiCompatible,
+            enabled: true,
+            ..ProviderPrefs::default()
         }
     }
 
@@ -283,6 +289,37 @@ mod tests {
             env.get("DEEPSEEK_BASE_URL").map(String::as_str),
             Some("https://api.example.test")
         );
+    }
+
+    #[test]
+    fn ineligible_deepseek_uses_the_active_compatible_provider() {
+        let keychain = KeychainStore::new(Arc::new(MemoryBackend::default()));
+        keychain
+            .save_secret(&provider_key_account("custom"), "sk-custom")
+            .unwrap();
+        for (enabled, protocol) in [
+            (false, ProviderProtocol::OpenAiCompatible),
+            (true, ProviderProtocol::AnthropicCompatible),
+            (true, ProviderProtocol::OpenAiResponses),
+        ] {
+            let mut deepseek = provider(DEEPSEEK_PROVIDER_ID, true, "https://api.deepseek.com");
+            deepseek.enabled = enabled;
+            deepseek.protocol = protocol;
+            let mut prefs = AgentPrefs::default();
+            prefs.upsert_provider(deepseek);
+            prefs.upsert_provider(provider("custom", true, "https://custom.example.test/v1"));
+            prefs.selected_provider = Some("custom".into());
+
+            let env = dsh_launch_env_from(&prefs, &keychain);
+            assert_eq!(
+                env.get("DEEPSEEK_API_KEY").map(String::as_str),
+                Some("sk-custom")
+            );
+            assert_eq!(
+                env.get("DEEPSEEK_BASE_URL").map(String::as_str),
+                Some("https://custom.example.test/v1")
+            );
+        }
     }
 
     #[test]

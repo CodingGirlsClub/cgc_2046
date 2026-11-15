@@ -65,7 +65,7 @@ fn plugin_install_writes_profile_without_touching_home_data() {
     std::fs::create_dir_all(&root).expect("root");
     std::fs::write(
             &dsh,
-            b"#!/bin/sh\nif [ \"$4\" = add ]; then cd \"${DSH_HOME:?}/profiles/acp\" || exit 41; fi\nprintf '{\"dependencies\":{\"@openma/deepseek-harness-acp\":\"%s\"}}' \"${5##*@}\" > package.json\n",
+            b"#!/bin/sh\ncd \"${DSH_HOME:?}/profiles/acp\" || exit 41\nif [ \"$4\" = add ]; then printf '{\"dependencies\":{\"@openma/deepseek-harness-acp\":\"%s\"}}' \"${5##*@}\" > package.json; else printf '{\"dependencies\":{}}' > package.json; fi\n",
         )
         .unwrap();
     let mut perms = std::fs::metadata(&dsh).unwrap().permissions();
@@ -110,6 +110,20 @@ fn plugin_install_writes_profile_without_touching_home_data() {
     assert!(removed.removed_package);
     assert!(!removed.removed_dsh_home);
     assert!(home.exists(), "plugin uninstall must keep DSH_HOME");
+    assert_eq!(
+        crate::agent::dsh_plugin::read_profile_version(&home, "@openma/deepseek-harness-acp"),
+        None,
+        "uninstall must remove the adapter from the same custom DSH_HOME"
+    );
+    let manifest = crate::agent::dsh_plugin::profile_dir(&home).join("package.json");
+    std::fs::write(
+        manifest,
+        r#"{"dependencies":{"@openma/deepseek-harness-acp":"0.4.41"}}"#,
+    )
+    .unwrap();
+    std::fs::write(&plugin.dsh, b"#!/bin/sh\nexit 0\n").unwrap();
+    let error = uninstall_plugin_entry(&dsh_entry, &plugin).expect_err("unchanged profile");
+    assert!(error.to_string().contains("still declared"));
     let _ = std::fs::remove_dir_all(&root);
 }
 

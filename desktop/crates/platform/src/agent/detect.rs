@@ -109,7 +109,7 @@ pub fn detect_all_with(
         .agents
         .iter()
         .map(|entry| {
-            // ADR-0030 D1 修订：plugin 形态优先；profile 已装 adapter 即 Ready，
+            // ADR-0031 D1 修订：plugin 形态优先；profile 已装 adapter 即 Ready，
             // 不走 npm 包探测（plugin 用的是用户 DSH 的 runtime）。
             if let Some(plugin) = plugin.filter(|_| entry.uses_dsh_runtime()) {
                 return DetectedAgent {

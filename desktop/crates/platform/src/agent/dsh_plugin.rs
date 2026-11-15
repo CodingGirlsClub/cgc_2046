@@ -1,4 +1,4 @@
-//! DSH plugin 形态探测（ADR-0030 D1 修订）：有 DSH Desktop 时优先
+//! DSH plugin 形态探测（ADR-0031 D1 修订）：有 DSH Desktop 时优先
 //! `dsh --profile acp`，adapter 作为 profile 插件运行，从而复用用户
 //! `~/.dsh/profiles/acp` 的 providers（magpie/GLM/Kimi…）与会话/凭据。
 //!
@@ -41,19 +41,35 @@ pub fn read_profile_version(home: &Path, package: &str) -> Option<String> {
 
 /// `dsh` CLI：`DSH_CLI` > PATH 上的 dsh > `~/.local/bin/dsh`。
 pub fn find_dsh(env: impl Fn(&str) -> Option<PathBuf>) -> Option<PathBuf> {
-    if let Some(path) = env("DSH_CLI").filter(|path| path.is_file()) {
+    if let Some(path) = env("DSH_CLI").filter(|path| is_executable(path)) {
         return Some(path);
     }
     if let Some(path) = env("PATH").and_then(|path| {
         std::env::split_paths(&path)
             .map(|dir| dir.join("dsh"))
-            .find(|candidate| candidate.is_file())
+            .find(|candidate| is_executable(candidate))
     }) {
         return Some(path);
     }
     env("HOME")
         .map(|home| home.join(".local/bin/dsh"))
-        .filter(|path| path.is_file())
+        .filter(|path| is_executable(path))
+}
+
+fn is_executable(path: &Path) -> bool {
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return false;
+    };
+    if !metadata.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        metadata.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    true
 }
 
 /// 探测 plugin 形态；三项缺一不可（本地 DSH 目录、dsh CLI、profile 安装）。
@@ -112,7 +128,11 @@ pub fn ensure_title_plugin_enabled(plugin: &DshPlugin) -> Result<bool, String> {
                 }
             }
             Event::Scalar(..) if depth == 0 => {
-                offset = span.start.byte_offset().ok_or_else(invalid)?;
+                offset = span
+                    .tag_start()
+                    .unwrap_or(span.start)
+                    .byte_offset()
+                    .ok_or_else(invalid)?;
                 end = span.end.byte_offset().ok_or_else(invalid)?;
                 break;
             }
@@ -136,6 +156,7 @@ pub fn ensure_title_plugin_enabled(plugin: &DshPlugin) -> Result<bool, String> {
         )
     };
     existing.replace_range(offset..end, &patch);
+    let _: Vec<Value> = serde_saphyr::from_str(&existing).map_err(|_| invalid())?;
     let mut file = tempfile::NamedTempFile::new_in(profile_dir(&plugin.home))
         .map_err(|error| format!("cannot stage {}: {error}", path.display()))?;
     if let Ok(metadata) = std::fs::metadata(&path) {

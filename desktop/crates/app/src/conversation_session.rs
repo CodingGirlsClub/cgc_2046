@@ -309,8 +309,24 @@ impl ConversationSession {
         true
     }
     pub(crate) fn restore_thread(&mut self, mut thread: ConversationThread) {
+        use cgc_agent_ui::conversation::{Entry, NoticeLevel};
+
         thread.status = ThreadStatus::Idle;
         thread.pending_permission = None;
+        // 旧正文没有 snapshot 的净化；恢复后与 snapshot 一样只展示失效审批。
+        for entry in &mut thread.entries {
+            if let Entry::Permission {
+                title,
+                resolved: None,
+                ..
+            } = entry
+            {
+                *entry = Entry::Notice {
+                    level: NoticeLevel::Warning,
+                    text: format!("审批已失效（会话中断）：{title}"),
+                };
+            }
+        }
         self.thread = thread;
         self.in_flight = None;
         self.last_error = None;

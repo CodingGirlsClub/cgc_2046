@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""依赖许可门禁与 SBOM（story 1.6 / ADR-0030）。
+"""依赖许可门禁与 SBOM（story 1.6 / ADR-0031）。
 
 规则来源 docs/开源合规/依赖引入规则.md：白名单（宽松 + 弱 copyleft）与黑名单兜底；
 SPDX OR/AND 语义：OR 任一允许分支即放行，AND 需全部允许。缺失 license 字段 fail-closed。
@@ -7,7 +7,7 @@ SPDX OR/AND 语义：OR 任一允许分支即放行，AND 需全部允许。缺�
 两段扫描：
   1. Cargo 依赖图（cargo metadata，含 test-support 特性）；
   2. 运行时 npm 包清单 `scripts/npm_licenses.json`——客户端通过 npm 安装的外部 ACP agent
-     及其传递依赖不进入 Cargo 依赖图，必须单独登记（ADR-0030：openma DeepSeek Harness ACP）。
+     及其传递依赖不进入 Cargo 依赖图，必须单独登记（ADR-0031：openma DeepSeek Harness ACP）。
 
 用法：
   python3 scripts/check_licenses.py              # 扫描 + 写 target/sbom.cdx.json

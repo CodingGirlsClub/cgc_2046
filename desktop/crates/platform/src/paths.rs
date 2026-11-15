@@ -195,13 +195,13 @@ impl AppPaths {
         self.data_root.join("node24")
     }
 
-    /// DSH ACP 外部 agent 的隔离会话根（ADR-0030 D3）：不复用用户自己的 `~/.dsh`。
+    /// DSH ACP 外部 agent 的隔离会话根（ADR-0031 D3）：不复用用户自己的 `~/.dsh`。
     pub fn dsh_home_root(&self) -> PathBuf {
         self.data_root.join("dsh-home")
     }
 }
 
-/// 本地 DSH 数据目录（ADR-0030 D3 opt-in 共享）：`DSH_HOME` > `~/.dsh`。
+/// 本地 DSH 数据目录（ADR-0031 D3 opt-in 共享）：`DSH_HOME` > `~/.dsh`。
 ///
 /// 返回 `None` 表示无法确定（没有 HOME），调用方必须回退到隔离目录，
 /// 绝不能把空路径当作共享目录传给子进程。

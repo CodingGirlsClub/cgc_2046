@@ -18,9 +18,18 @@ develop→main 发布时把该段改名为 `## [发布日期]` 并重新立一�
 commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `miniprogram`）。
 ## [Unreleased]
 
+### Added
+
+- [Desktop] 新增 DeepSeek Harness 外部 Agent，支持复用本地 DSH 模型与会话，未安装 DSH 时使用内置运行时。
+
 ### Changed
 
 - [Desktop] DeepSeek Harness 以 plugin 形态安装或升级时默认启用自动对话标题，保留用户显式关闭的设置。
+
+### Fixed
+
+- [Desktop] 修复外部 Agent 历史的重命名、归档和切换归属，鉴权重试继续恢复原会话，恢复后保留生成标题并使旧审批失效。
+- [Desktop] 修复 DSH profile 空值配置的标题插件安装和自定义数据目录卸载，忽略不可执行的 dsh 路径及停用的 Provider。
 
 ## [微信 v0.2.7] - 2026-11-15
 

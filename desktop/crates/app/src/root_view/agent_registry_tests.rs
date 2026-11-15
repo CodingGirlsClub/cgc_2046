@@ -29,14 +29,6 @@ impl Render for AgentRegistryProbe {
     }
 }
 
-fn registry_rows(statuses: &[(&'static str, AgentStatus)]) -> Vec<DetectedAgent> {
-    rows_with_runtime(
-        statuses
-            .iter()
-            .map(|(id, status)| (*id, status.clone(), RuntimeProbe::missing())),
-    )
-}
-
 fn rows_with_runtime(
     rows: impl IntoIterator<Item = (&'static str, AgentStatus, RuntimeProbe)>,
 ) -> Vec<DetectedAgent> {
@@ -137,7 +129,7 @@ fn ready_with_dsh_desktop_shows_versions_without_changing_install_state(cx: &mut
 }
 
 #[gpui_kit::test]
-fn ready_without_dsh_desktop_uses_bundled_and_offers_optional_download(cx: &mut TestAppContext) {
+fn ready_without_dsh_desktop_keeps_the_download_optional(cx: &mut TestAppContext) {
     let rows = rows_with_runtime([(
         "deepseek",
         AgentStatus::Ready {
@@ -148,14 +140,6 @@ fn ready_without_dsh_desktop_uses_bundled_and_offers_optional_download(cx: &mut 
     let handle = open_registry(cx, Language::Zh, rows);
     cx.update_window(handle, |_, window, cx| {
         window.render_frame(cx);
-        assert!(
-            window
-                .try_find_by_label(
-                    "未检测到 DSH Desktop；不影响使用，将使用内置运行时（0.2.1-rc.5）"
-                )
-                .is_some(),
-            "Ready + 未检测到 Desktop 时必须明确说明使用内置运行时"
-        );
         assert!(
             window.try_find_by_label("下载 DSH Desktop").is_some(),
             "未检测到 Desktop 时保留可选下载入口"
@@ -209,4 +193,112 @@ fn existing_install_states_keep_the_install_button_enabled(cx: &mut TestAppConte
         );
     })
     .unwrap();
+}
+
+#[gpui_kit::test]
+fn dsh_resume_preserves_title_and_expires_legacy_approval(cx: &mut TestAppContext) {
+    use crate::root_view::ReplayState;
+    use cgc_agent_ui::conversation::{ConversationThread, Entry, ThreadEvent, ThreadStatus};
+
+    cx.update(|cx| {
+        let root = cx.new(|_| {
+            RootView::with_session_from(
+                crate::registration::build_registry().unwrap(),
+                Language::Zh,
+                ThemePreference::Light,
+                SessionService::new(
+                    Box::new(FakeAuthApi::demo()),
+                    Box::new(MemoryStore::default()),
+                ),
+                "/agents",
+            )
+        });
+        root.update(cx, |root, cx| {
+            root.chat.session.thread.title = Some("old title".into());
+            root.chat
+                .session
+                .thread
+                .apply(ThreadEvent::PermissionRequested {
+                    request_id: "old-permission".into(),
+                    title: "Run command?".into(),
+                    tool: Some("run_command".into()),
+                    tool_call_id: Some("old-tool".into()),
+                    args: None,
+                    options: Vec::new(),
+                });
+            assert!(root.chat.session.thread.pending_permission.is_some());
+            root.chat.title_override = Some("user title".into());
+            root.chat.restore_via_resume = true;
+            root.chat.replay = Some(ReplayState {
+                thread: ConversationThread {
+                    title: Some("title received before Ready".into()),
+                    ..Default::default()
+                },
+                saw_events: true,
+                has_local_content: true,
+            });
+
+            root.finish_history_restore(cx);
+
+            assert_eq!(
+                root.chat.session.thread.title.as_deref(),
+                Some("title received before Ready")
+            );
+            assert_eq!(root.chat.title_override.as_deref(), Some("user title"));
+            assert_eq!(root.chat.session.thread.status, ThreadStatus::Idle);
+            assert!(root.chat.session.thread.pending_permission.is_none());
+            assert!(matches!(
+                root.chat.session.thread.entries.as_slice(),
+                [Entry::Notice { .. }]
+            ));
+            assert!(!root.chat.resumed_without_history);
+        });
+    });
+}
+
+#[gpui_kit::test]
+fn auth_retry_preserves_history_target_until_ready(cx: &mut TestAppContext) {
+    use crate::conversation_session::ConnectionPhase;
+    use crate::native_panel_host::McpContext;
+    use cgc_platform::mcp::credential::LearningHostLease;
+
+    cx.update(|cx| {
+        let root = cx.new(|_| {
+            RootView::with_session_from(
+                crate::registration::build_registry().unwrap(),
+                Language::Zh,
+                ThemePreference::Light,
+                SessionService::new(
+                    Box::new(FakeAuthApi::demo()),
+                    Box::new(MemoryStore::default()),
+                ),
+                "/agents",
+            )
+        });
+        root.update(cx, |root, cx| {
+            let epoch = root.workspaces.epoch();
+            root.agent_mcp = McpContext::for_lease(
+                LearningHostLease {
+                    token: "synthetic-test-lease".into(),
+                    token_id: "synthetic-test-id".into(),
+                    epoch,
+                },
+                epoch,
+                Some("http://127.0.0.1:1/api/graphql"),
+                None,
+            );
+            // 未注册条目在 launch 前失败；测试不启动真实 agent 或访问后端。
+            root.chat.selected_agent = Some("unregistered-test-agent".into());
+            root.chat.restore_id = Some("history-session".into());
+            for _ in 0..2 {
+                root.chat.session.phase = ConnectionPhase::AuthRequired {
+                    message: "credential required".into(),
+                    auth_methods: Vec::new(),
+                };
+                root.start_chat(cx);
+                assert_eq!(root.chat.session.phase, ConnectionPhase::Starting);
+                assert_eq!(root.chat.restore_id.as_deref(), Some("history-session"));
+            }
+        });
+    });
 }

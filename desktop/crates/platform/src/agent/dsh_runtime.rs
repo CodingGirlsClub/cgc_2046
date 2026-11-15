@@ -1,4 +1,4 @@
-//! DSH（DeepSeek Harness）运行时探测（ADR-0030 D1/D4）。
+//! DSH（DeepSeek Harness）运行时探测（ADR-0031 D1/D4）。
 //!
 //! 探测顺序固定为：显式配置 → DSH Desktop 安装路径 → PATH 上的独立 `dsh`。
 //! 探测结果只用于 UI 展示；openma standalone 始终以适配器内置 `bundled` 运行时启动，
@@ -27,7 +27,7 @@ pub enum RuntimeSource {
     DshDesktop,
     Path,
     Bundled,
-    /// DSH Desktop 的 `dsh --profile acp` 插件形态（ADR-0030 D1 修订）。
+    /// DSH Desktop 的 `dsh --profile acp` 插件形态（ADR-0031 D1 修订）。
     Plugin,
     Missing,
 }
@@ -136,7 +136,7 @@ fn version_greater(found: &str, reference: &str) -> bool {
     super::detect::version_at_least(found, reference) && found != reference
 }
 
-/// 创建隔离的 `DSH_HOME`（ADR-0030 D3）：目录存在即复用；Unix 权限收紧到 0700。
+/// 创建隔离的 `DSH_HOME`（ADR-0031 D3）：目录存在即复用；Unix 权限收紧到 0700。
 pub fn ensure_dsh_home(path: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(path)?;
     #[cfg(unix)]

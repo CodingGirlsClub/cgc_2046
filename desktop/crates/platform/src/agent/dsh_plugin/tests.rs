@@ -14,6 +14,15 @@ fn temp_dir(tag: &str) -> PathBuf {
     dir
 }
 
+fn write_dsh_cli(path: &Path) {
+    std::fs::write(path, b"#!/bin/sh\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+}
+
 fn write_profile(home: &Path, version: &str) {
     let profile = profile_dir(home);
     std::fs::create_dir_all(&profile).expect("profile dir");
@@ -39,7 +48,7 @@ fn probe_requires_dsh_cli_and_installed_profile() {
     let home = root.join("dsh-home");
     let dsh = root.join("bin").join("dsh");
     std::fs::create_dir_all(dsh.parent().unwrap()).unwrap();
-    std::fs::write(&dsh, b"#!/bin/sh\n").unwrap();
+    write_dsh_cli(&dsh);
     let env = env_with(&[("DSH_HOME", home.clone()), ("DSH_CLI", dsh.clone())]);
 
     let read = |key: &str| env.get(key).cloned();
@@ -63,7 +72,7 @@ fn probe_falls_back_to_local_bin_and_home_dot_dsh() {
     let home = root.join("user");
     let dsh = home.join(".local").join("bin").join("dsh");
     std::fs::create_dir_all(dsh.parent().unwrap()).unwrap();
-    std::fs::write(&dsh, b"#!/bin/sh\n").unwrap();
+    write_dsh_cli(&dsh);
     write_profile(&home.join(".dsh"), "0.4.41");
     let env = env_with(&[("HOME", home.clone())]);
     let read = |key: &str| env.get(key).cloned();
@@ -72,6 +81,35 @@ fn probe_falls_back_to_local_bin_and_home_dot_dsh() {
     assert_eq!(plugin.dsh, dsh);
     assert_eq!(plugin.home, home.join(".dsh"));
     let _ = std::fs::remove_dir_all(&root);
+}
+
+#[cfg(unix)]
+#[test]
+fn probe_skips_non_executable_dsh_candidates() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = temp_dir("non-executable");
+    let home = root.join("home");
+    write_profile(&home, "0.4.41");
+    let blocked = root.join("blocked/dsh");
+    let usable = root.join("usable/dsh");
+    for (path, mode) in [(&blocked, 0o600), (&usable, 0o700)] {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, b"#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+    }
+    let search =
+        std::env::join_paths([blocked.parent().unwrap(), usable.parent().unwrap()]).unwrap();
+    for explicit in [None, Some(blocked.clone())] {
+        let mut env = env_with(&[("DSH_HOME", home.clone()), ("PATH", search.clone().into())]);
+        if let Some(explicit) = explicit {
+            env.insert("DSH_CLI".into(), explicit);
+        }
+        assert_eq!(probe_with(|key| env.get(key).cloned()).unwrap().dsh, usable);
+    }
+    let env = env_with(&[("DSH_HOME", home), ("DSH_CLI", blocked)]);
+    assert_eq!(probe_with(|key| env.get(key).cloned()), None);
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -185,6 +223,36 @@ fn title_generation_rejects_unreadable_or_malformed_patch() {
     }
 }
 
+#[test]
+fn title_generation_replaces_tagged_null_profiles() {
+    for existing in [
+        "!!null null\n",
+        "!!null ~ # keep trailing comment\n",
+        "---\n!!null null\n...\n",
+    ] {
+        let home = temp_dir("title-null");
+        write_profile(&home, "0.4.41");
+        let path = profile_dir(&home).join("cordis.patch.yml");
+        std::fs::write(&path, existing).unwrap();
+        let plugin = DshPlugin {
+            dsh: home.join("dsh"),
+            home: home.clone(),
+            version: "0.4.41".to_string(),
+        };
+
+        assert!(ensure_title_plugin_enabled(&plugin).unwrap());
+        let enabled = std::fs::read_to_string(&path).unwrap();
+        let entries: Vec<Value> = serde_saphyr::from_str(&enabled).unwrap();
+        assert_eq!(
+            entries,
+            vec![serde_json::json!({"id": "session-title-llm", "disabled": false})]
+        );
+        assert!(!ensure_title_plugin_enabled(&plugin).unwrap());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), enabled);
+        std::fs::remove_dir_all(home).unwrap();
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn credential_env_maps_magpie_key_for_adapter_gate() {
@@ -267,7 +335,7 @@ fn malformed_profile_fails_closed() {
     let root = temp_dir("malformed");
     let home = root.join("dsh-home");
     let dsh = root.join("dsh");
-    std::fs::write(&dsh, b"#!/bin/sh\n").unwrap();
+    write_dsh_cli(&dsh);
     std::fs::create_dir_all(profile_dir(&home)).unwrap();
     std::fs::write(profile_dir(&home).join("package.json"), "{not json").unwrap();
     let env = env_with(&[("DSH_HOME", home), ("DSH_CLI", dsh)]);

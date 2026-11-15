@@ -59,7 +59,7 @@ impl fmt::Debug for LaunchPlan {
     }
 }
 
-/// 单次 agent 启动的可选覆盖项（ADR-0030 D2/D3）：
+/// 单次 agent 启动的可选覆盖项（ADR-0031 D2/D3）：
 /// - `dsh_path`：传给 `dsh-acp --dsh-path` 的外部路径，或字面量 `bundled`；
 /// - `dsh_home`：隔离的 `DSH_HOME`，仅对 `requires: ["dsh-runtime"]` 的条目生效；
 /// - `extra_env`：显式注入的子进程环境（来自 keychain，禁止日志/Debug 输出值）。
@@ -67,7 +67,7 @@ impl fmt::Debug for LaunchPlan {
 pub struct LaunchOptions {
     pub dsh_path: Option<String>,
     pub dsh_home: Option<PathBuf>,
-    /// DSH plugin 形态：`dsh --profile acp` 的 CLI 路径（ADR-0030 D1 修订）。
+    /// DSH plugin 形态：`dsh --profile acp` 的 CLI 路径（ADR-0031 D1 修订）。
     /// 设置后忽略 `dsh_path`，启动的是用户 DSH profile 里的 adapter 插件。
     pub dsh_plugin: Option<PathBuf>,
     pub extra_env: BTreeMap<String, String>,
@@ -280,7 +280,7 @@ pub fn build_launch_with_env_and_options(
             })
         }
         Distribution::Npx { .. } => {
-            // ADR-0030 D1 修订：有 DSH Desktop 时优先 plugin 形态，adapter 由
+            // ADR-0031 D1 修订：有 DSH Desktop 时优先 plugin 形态，adapter 由
             // `dsh --profile acp` 加载，直接复用用户 profile 的 providers。
             if let Some(dsh) = &options.dsh_plugin {
                 let mut env = inherited_environment(env_source);

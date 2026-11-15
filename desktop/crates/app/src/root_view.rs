@@ -4632,6 +4632,12 @@ mod tests {
         let mut view = view();
         view.native_chat_mode = true;
         assert!(view.native_chat_mode, "前置条件：面板先处在 native 模式");
+        view.chat.sessions = vec![cgc_platform::acp::connection::SessionSummary {
+            session_id: "dsh-remote-only".into(),
+            title: Some("DSH history".into()),
+            updated_at: None,
+        }];
+        view.chat.restore_via_resume = true;
 
         view.reset_chat_for_external_agent("claude_code", "Claude Code");
 
@@ -4639,6 +4645,14 @@ mod tests {
         assert!(
             !view.native_chat_mode,
             "Agent Panel 仍停在 native 视图：ACP 会话建出来也看不见"
+        );
+        assert!(
+            view.chat.sessions.is_empty(),
+            "切换 agent 必须丢弃旧 session/list"
+        );
+        assert!(
+            !view.chat.restore_via_resume,
+            "新 agent 不能继承 DSH 的恢复方式"
         );
         assert_eq!(
             crate::chat_state::load_native_chat_mode(),

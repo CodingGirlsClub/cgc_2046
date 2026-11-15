@@ -799,47 +799,43 @@ pub fn friendly_session_error(message: &str) -> Option<String> {
     is_session_lock_conflict(message).then(|| SESSION_LOCKED_MESSAGE.to_string())
 }
 
-/// 把 `session/list` 的 agent 侧会话并入统一历史：本地已有同 session_id 的记录
-/// 优先（保留 transcript/标题）；缺失的补空占位行，点击后走 session/load|resume。
-pub fn merge_agent_sessions(
-    mut entries: Vec<HistoryEntry>,
+/// 将 `session/list` 中缺失的会话登记为 sidebar 元数据，不伪造本地正文。
+/// 已有记录原样保留，使用户重命名、归档与原始 agent 身份不被列表刷新覆盖。
+pub fn import_agent_sessions(
+    store: &ConversationStore,
     sessions: &[cgc_platform::acp::connection::SessionSummary],
-    agent_id: Option<&str>,
+    agent_id: &str,
     now: &str,
-) -> Vec<HistoryEntry> {
-    let known: std::collections::HashSet<String> = entries
-        .iter()
-        .filter_map(|entry| entry.session_id.clone())
-        .collect();
+) -> Result<(), ConversationStoreError> {
     for session in sessions {
-        if session.session_id.trim().is_empty() || known.contains(&session.session_id) {
+        if session.session_id.trim().is_empty() {
             continue;
         }
-        entries.push(HistoryEntry {
-            thread_id: acp_thread_id(&session.session_id),
+        let thread_id = acp_thread_id(&session.session_id);
+        if store.load_sidebar(&thread_id)?.is_some() {
+            continue;
+        }
+        let updated_at = session
+            .updated_at
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or(now)
+            .to_string();
+        store.upsert_sidebar(&SidebarThread {
+            thread_id,
             session_id: Some(session.session_id.clone()),
-            agent_id: agent_id.map(str::to_string),
+            agent_id: Some(agent_id.to_string()),
             title: session
                 .title
                 .clone()
                 .filter(|title| !title.trim().is_empty()),
-            updated_at: session
-                .updated_at
-                .clone()
-                .filter(|value| !value.trim().is_empty())
-                .unwrap_or_else(|| now.to_string()),
+            title_override: None,
+            created_at: updated_at.clone(),
+            updated_at,
             archived: false,
-            source: HistorySource::Acp,
-            working_directory: None,
-        });
+        })?;
     }
-    entries.sort_by(|left, right| {
-        right
-            .updated_at
-            .cmp(&left.updated_at)
-            .then_with(|| right.thread_id.cmp(&left.thread_id))
-    });
-    entries
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1600,36 +1596,57 @@ mod tests {
     }
 
     #[test]
-    fn agent_sessions_merge_dedupes_local_and_keeps_placeholders() {
+    fn agent_sessions_import_preserves_metadata_and_history_actions() {
         use cgc_platform::acp::connection::SessionSummary;
-        let local = vec![entry("acp-known", "2026-10-26T12:00:00Z", false)];
+
+        let store = ConversationStore::open_in_memory().unwrap();
+        let local = SidebarThread {
+            thread_id: "acp-known".into(),
+            agent_id: Some("deepseek".into()),
+            session_id: Some("known".into()),
+            title: Some("local title".into()),
+            title_override: Some("user title".into()),
+            created_at: "2026-10-26T11:00:00Z".into(),
+            updated_at: "2026-10-26T12:00:00Z".into(),
+            archived: true,
+        };
+        store.upsert_sidebar(&local).unwrap();
         let sessions = vec![
             SessionSummary {
-                session_id: "known".to_string(),
-                title: Some("server title".to_string()),
-                updated_at: Some("2026-10-26T13:00:00Z".to_string()),
+                session_id: "known".into(),
+                title: Some("server title".into()),
+                updated_at: Some("2026-10-26T13:00:00Z".into()),
             },
             SessionSummary {
-                session_id: "remote-only".to_string(),
+                session_id: "remote-only".into(),
                 title: None,
                 updated_at: None,
             },
         ];
-        let merged = merge_agent_sessions(local, &sessions, Some("deepseek"), "now");
-        assert_eq!(merged.len(), 2, "本地已有 session 不重复插入");
-        let known = merged
-            .iter()
-            .find(|item| item.session_id.as_deref() == Some("known"))
-            .expect("known");
-        assert_eq!(known.title.as_deref(), Some("title acp-known"));
-        let placeholder = merged
-            .iter()
-            .find(|item| item.session_id.as_deref() == Some("remote-only"))
-            .expect("remote placeholder");
-        assert_eq!(placeholder.thread_id, "acp-remote-only");
-        assert_eq!(placeholder.agent_id.as_deref(), Some("deepseek"));
-        assert_eq!(placeholder.updated_at, "now");
-        assert_eq!(placeholder.source, HistorySource::Acp);
+        let now = "2026-11-15T12:00:00Z";
+        import_agent_sessions(&store, &sessions, "deepseek", now).unwrap();
+        assert_eq!(store.load_sidebar("acp-known").unwrap(), Some(local));
+        let remote = store
+            .load_sidebar("acp-remote-only")
+            .unwrap()
+            .expect("remote metadata");
+        assert_eq!(remote.agent_id.as_deref(), Some("deepseek"));
+        assert_eq!(remote.session_id.as_deref(), Some("remote-only"));
+        assert_eq!(remote.updated_at, now);
+        assert!(store.load_content("acp-remote-only").unwrap().is_none());
+
+        store
+            .set_title_override("acp-remote-only", Some("renamed remotely discovered chat"))
+            .unwrap();
+        assert!(store.set_archived("acp-remote-only", true).unwrap());
+        import_agent_sessions(&store, &sessions, "deepseek", now).unwrap();
+        let restored = store.load_sidebar("acp-remote-only").unwrap().unwrap();
+        assert_eq!(
+            restored.title_override.as_deref(),
+            Some("renamed remotely discovered chat")
+        );
+        assert!(restored.archived);
+        assert_eq!(store.list_archived(10).unwrap().len(), 2);
     }
 
     #[test]

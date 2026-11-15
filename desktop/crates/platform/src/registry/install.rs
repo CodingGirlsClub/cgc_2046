@@ -224,7 +224,7 @@ impl std::fmt::Display for UninstallError {
 impl std::error::Error for UninstallError {}
 
 /// 卸载 npx agent：删除固定版本安装目录；DSH 条目同时删除隔离的 DSH_HOME
-/// （ADR-0030 D3：学员会话数据不残留）。
+/// （ADR-0031 D3：学员会话数据不残留）。
 ///
 /// `dsh_home` 由调用方注入（AppPaths::dsh_home_root），保持本函数可单测。
 pub fn uninstall_entry(
@@ -272,7 +272,7 @@ pub fn uninstall_entry(
     })
 }
 
-/// plugin 形态安装（ADR-0030 D1 修订）：通过 DSH CLI 把 adapter 写进用户
+/// plugin 形态安装（ADR-0031 D1 修订）：通过 DSH CLI 把 adapter 写进用户
 /// `profiles/acp`，adapter 由用户 DSH 的 runtime 加载，从而复用其 providers。
 ///
 /// 仅修改 ACP profile 的依赖与标题插件 patch，保留会话、凭据与用户设置。
@@ -350,6 +350,11 @@ pub fn uninstall_plugin_entry(
         });
     };
     let profile = crate::agent::dsh_plugin::profile_dir(&plugin.home);
+    let mut env = crate::agent::launch::inherited_environment(|key| std::env::var(key).ok());
+    env.insert(
+        "DSH_HOME".to_string(),
+        plugin.home.to_string_lossy().into_owned(),
+    );
     let plan = LaunchPlan {
         program: plugin.dsh.clone(),
         args: vec![
@@ -359,7 +364,7 @@ pub fn uninstall_plugin_entry(
             "remove".to_string(),
             package.clone(),
         ],
-        env: crate::agent::launch::inherited_environment(|key| std::env::var(key).ok()),
+        env,
         cwd: profile,
     };
     run_output(&plan, INSTALL_TIMEOUT)
@@ -368,6 +373,12 @@ pub fn uninstall_plugin_entry(
             path: plugin.home.clone(),
             message: error.to_string(),
         })?;
+    if crate::agent::dsh_plugin::read_profile_version(&plugin.home, package).is_some() {
+        return Err(UninstallError::RemoveFailed {
+            path: plugin.home.clone(),
+            message: format!("{package} is still declared in DSH profile acp"),
+        });
+    }
     Ok(UninstallResult {
         id: entry.id.clone(),
         removed_package: true,

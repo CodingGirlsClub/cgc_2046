@@ -22,6 +22,19 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::SyncSender;
 use std::time::Duration;
 
+struct PermissionRegistration<'a> {
+    request_id: String,
+    pending: &'a PendingPermissions,
+}
+
+impl Drop for PermissionRegistration<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut pending) = self.pending.lock() {
+            pending.remove(&self.request_id);
+        }
+    }
+}
+
 pub(super) fn run_thread(
     config: AcpHostConfig,
     transport: HostTransport,
@@ -127,6 +140,10 @@ async fn run_connection(
                             allow_option: allow_option.clone(),
                         },
                     );
+                let registration = PermissionRegistration {
+                    request_id: request_id.clone(),
+                    pending: &pending_for_permissions,
+                };
                 send_event(
                     &events_for_permissions,
                     HostEvent::PermissionRequested {
@@ -144,6 +161,7 @@ async fn run_connection(
                     futures::future::Either::Left((decision, _)) => decision.unwrap_or(None),
                     futures::future::Either::Right(_) => None,
                 };
+                drop(registration);
                 let outcome = match choice {
                     Some(option_id) => RequestPermissionOutcome::Selected(
                         SelectedPermissionOutcome::new(option_id),
@@ -388,4 +406,38 @@ pub(super) fn idle_expired(
     permissions_pending: bool,
 ) -> bool {
     current_activity == seen_activity && !permissions_pending
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cancelled_permission_wait_reenables_idle_watchdog() {
+        let pending: PendingPermissions = Default::default();
+        let (sender, receiver) = futures::channel::oneshot::channel();
+        pending.lock().unwrap().insert(
+            "cancelled".into(),
+            PendingPermission {
+                sender,
+                allow_option: None,
+            },
+        );
+        let registration = PermissionRegistration {
+            request_id: "cancelled".into(),
+            pending: &pending,
+        };
+        let mut waiter = Box::pin(async move {
+            let _registration = registration;
+            receiver.await
+        });
+        futures::executor::block_on(async {
+            assert!(futures::poll!(waiter.as_mut()).is_pending());
+        });
+        assert!(!idle_expired(0, 0, !pending.lock().unwrap().is_empty()));
+
+        drop(waiter);
+
+        assert!(idle_expired(0, 0, !pending.lock().unwrap().is_empty()));
+    }
 }

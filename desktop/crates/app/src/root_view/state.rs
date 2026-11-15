@@ -320,7 +320,7 @@ pub struct ShellState {
     pub(in crate::root_view) agent_auto_install_attempted: bool,
     pub(in crate::root_view) agent_install_error: Option<String>,
     pub(in crate::root_view) agent_registry_query: String,
-    /// ADR-0030 D3 opt-in：与本地 DSH 共享会话数据（切换后下一次新对话生效）。
+    /// ADR-0031 D3 opt-in：与本地 DSH 共享会话数据（切换后下一次新对话生效）。
     pub(in crate::root_view) dsh_share_local_home: bool,
     pub(in crate::root_view) chat_input: Option<Entity<gpui_kit::component::input::TextareaState>>,
     pub(in crate::root_view) chat_input_subscription: Option<Subscription>,

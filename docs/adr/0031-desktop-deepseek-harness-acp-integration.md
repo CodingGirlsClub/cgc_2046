@@ -3,11 +3,11 @@ status: accepted
 date: 2026-11-12
 ---
 
-# ADR-0030：桌面客户端集成 DeepSeek Harness ACP（openma 适配器）
+# ADR-0031：桌面客户端集成 DeepSeek Harness ACP（openma 适配器）
 
 > 日期：2026-11-12 ｜ 状态：**已接受（Accepted）** ｜ 决策者：用户（product owner）
 > 关联：ADR-0024（桌面技术栈）、ADR-0026（注册表信任）、ADR-0028（native / external 双轨）、ADR-0029（Agent 调用契约）
-> 方案：本地工作稿 `tmp/answers/dsh-acp-plan.md`（P0–P5，不入库）
+> 方案：本地工作稿 `tmp/answers/dsh-acp-plan.md`（P0-P5，不入库）
 
 ## 背景（Context）
 
@@ -19,7 +19,7 @@ date: 2026-11-12
 
 ## 决策（Decision）
 
-### D1 运行时：有 DSH Desktop 时优先 plugin 形态，standalone 回退
+### D1 运行时：本地 DSH profile 可用时优先 plugin，standalone 回退
 
 两种启动形态：
 
@@ -32,16 +32,16 @@ date: 2026-11-12
 
 ### D2 凭据 env-only：keychain 只注入子进程环境，不落明文
 
-CGC 托管的 DeepSeek Key 以本机 keychain 为唯一真源。启动 ACP 子进程时读取 keychain，只通过**子进程环境变量**注入（`DEEPSEEK_API_KEY`；按 provider 路由可对应 `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`，base URL 走 `DEEPSEEK_BASE_URL` 等已有环境变量），然后把子进程交还给适配器的环境回退路径。
+CGC 托管的 DeepSeek Key 以本机 keychain 为唯一真源。客户端只选择已启用、采用 OpenAI-compatible 协议的 Provider，将 Key 和端点映射为 ACP 子进程的 `DEEPSEEK_API_KEY` 与 `DEEPSEEK_BASE_URL`，不写入 DSH 配置。
 
 - **不写 `$DSH_HOME/.credentials.yaml`**：适配器的 `authenticate`（`api-key` / `gateway`）会调用 `saveCredential` 把明文持久化到该文件；默认不调用这条路径。P3 的客户端流程是：UI 检测到 `-32000 auth_required` 后引导用户在当前 Provider 设置里保存 Key（只进 OS keychain），再重启 adapter；下一次启动从 keychain 读取并注入 `DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL`，不经过 ACP `authenticate`，因此不会产生 `.credentials.yaml`。
 - 密钥不进入 settings、日志、遥测、崩溃报告与对话内容；日志沿用现有 `telemetry::redact_sensitive` 脱敏。
-- keychain 读取失败或无凭据时不启动带空 key 的进程：按 `-32000 auth_required` 走「登录」入口（P3）。
+- keychain 读取失败或没有可用 Key 时不注入空值；适配器没有其他可用凭据时返回 `auth_required`，客户端展示登录入口。
 - **plugin 形态的凭据名映射**：adapter 0.4.41 的 credential gate 按 `<PROVIDER>_API_KEY` 推导名字（例如 `MAGPIE_API_KEY`），与 DSH 自定义 provider 的 `apiKeyEnv`（例如 `MAGPIE_GATEWAY_KEY`）不一致。客户端在 plugin 启动时读取 `$DSH_HOME/.credentials.yaml` 的 `refs`（仅接受 owner-only 可读的文件），把 magpie 的引用值映射成 `MAGPIE_API_KEY` / `MAGPIE_RESPONSES_API_KEY` / `MAGPIE_ANTHROPIC_API_KEY` 注入子进程环境；只在内存中处理，不写盘、不记录值，CGC keychain 已注入的同名值优先。
 
-### D3 会话隔离：默认独立 `DSH_HOME`，可显式共享本地 DSH
+### D3 会话隔离：standalone 默认独立 `DSH_HOME`，可显式共享本地 DSH
 
-客户端为 DSH ACP 集成默认创建**独立的 `DSH_HOME`**（位于客户端数据根下，如 `<data_root>/dsh-home`），不复用用户自己的 `~/.dsh`，也不与 DSH Desktop 的会话/凭据目录混用。
+standalone 形态默认创建**独立的 `DSH_HOME`**（位于客户端数据根下，如 `<data_root>/dsh-home`），不复用用户自己的 `~/.dsh`，也不与 DSH Desktop 的会话/凭据目录混用。
 
 - 学员对话、profile、会话记录只落在该隔离目录，不进入用户自己的 DSH Desktop 数据；多账号 / 多工作台按数据根隔离。
 - 目录权限 0700；卸载时删除包与隔离 `DSH_HOME`（P4）。
@@ -75,6 +75,12 @@ DSH 的 ACP bundle 默认将 `session-title-llm` 设为 `disabled: true`。CGC �
 
 启用后由 DSH 根据首条用户消息额外请求标题模型，消耗用户在 DSH 中配置的模型额度。适配器内置运行时的默认上限为 `maxOutputTokens: 4096`、`timeoutMs: 60000`，plugin 形态以本地 DSH 的配置为准。CGC 不另行调用模型生成 DSH 标题，也不回写 `set_title`。standalone 形态保持适配器默认行为。回滚时可移除追加的条目，或显式设置 `disabled: true`；卸载 adapter 保留该用户 profile。
 
+### D6 会话索引与恢复
+
+- 接收 `session/list` 时为新发现的会话保存最小 sidebar 元数据，包括原始 agent、session ID、标题与时间；不伪造本地正文。现有重命名、归档和自动归档直接操作这份元数据，重复拉取保留用户的标题覆盖与归档状态。
+- 待恢复的 session ID 保留到 `Ready`；鉴权后重连继续恢复同一会话，显式新建或切换 agent 才清除目标与旧列表缓存。
+- DSH `session/resume` 不回放正文，客户端保留本地内容并合入提前收到的生成标题。恢复后从 Idle 开始，旧的未答审批只显示失效提示；用户 `title_override` 仍优先。
+
 ### 适配器版本与许可
 
 - 锁定 `@openma/deepseek-harness-acp@0.4.41`；Node 24 由客户端托管，不依赖系统 Node。
@@ -83,10 +89,10 @@ DSH 的 ACP bundle 默认将 `session-title-llm` 设为 `disabled: true`。CGC �
 
 ## 否决的替代
 
-- **外部 dsh 直接复用**：DSH Desktop 的 CLI 包装脚本指向 Electron `app.asar`，openma standalone adapter 无法加载；强行 `--dsh-path` 会直接失败，故统一使用 adapter 自带 bundled 运行时。
+- **standalone 直接加载外部 dsh**：DSH Desktop 的 CLI 包装脚本指向 Electron `app.asar`，openma standalone adapter 无法加载；强行 `--dsh-path` 会直接失败，因此 standalone 使用 adapter 自带 bundled 运行时。
 - **把 DSH Desktop 当硬前置**：会阻断未安装 DSH Desktop 的学员和 CI，且对 standalone adapter 并无实际运行收益；保留检测信息即可。
 - **ACP `authenticate` 落盘凭据**：`api-key` / `gateway` 会写 `$DSH_HOME/.credentials.yaml` 明文（0600 仍是明文），违背「凭据不落明文」；env-only 更简单也更安全。
-- **共享 `~/.dsh`**：学员对话会与用户自己的 DSH Desktop 数据混在一起，卸载清理也会误删用户数据。
+- **默认共享 `~/.dsh`**：学员对话会与用户自己的 DSH Desktop 数据混在一起，卸载清理也会误删用户数据；standalone 仅在用户开启共享时使用该目录，plugin 卸载始终保留用户 profile。
 
 ## 后果（Consequences）
 
