@@ -551,6 +551,11 @@ impl SettingsWindowView {
             return;
         }
         let provider = self.provider_from_draft_inputs(&draft, cx);
+        if provider.name.trim().is_empty() || provider.base_url.trim().is_empty() {
+            self.error = Some("请先填写 Provider 名称与 API URL".to_string());
+            cx.notify();
+            return;
+        }
         self.begin_key_validation(provider, key, cx);
     }
 
@@ -1880,6 +1885,7 @@ impl SettingsWindowView {
                     } else {
                         "保存"
                     },
+                    !form_is_new,
                 )
             })
         });
@@ -2399,6 +2405,7 @@ fn render_provider_list(
         .into_any_element()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_provider_cards(
     _cx: &mut App,
     weak: &WeakEntity<SettingsWindowView>,
@@ -2407,6 +2414,7 @@ fn render_provider_cards(
     notice: Option<String>,
     error: Option<String>,
     save_label: &'static str,
+    allow_clone: bool,
 ) -> AnyElement {
     let mut cards: Vec<AnyElement> = Vec::new();
     for (index, draft) in drafts.iter().map(|(index, draft)| (*index, draft)) {
@@ -2516,13 +2524,6 @@ fn render_provider_cards(
                         palette,
                     )
                 }))
-                .child(div().text_size(px(11.0)).text_color(palette.ink_3).child(draft.protocol.name()))
-                .child(SettingsWindowView::render_provider_field(
-                    "API URL *",
-                    Some(if draft.protocol == ProviderProtocol::AnthropicCompatible { "Anthropic API 根地址，可包含网关路径前缀或 /v1。" } else { "兼容 API 的基础 URL。" }),
-                    base_input,
-                    palette,
-                ))
                 .child(
                     div()
                         .flex()
@@ -2579,8 +2580,20 @@ fn render_provider_cards(
                                         });
                                     })
                             }),
-                        )
-                        .child(div().flex_1())
+                        ),
+                )
+                .child(SettingsWindowView::render_provider_field(
+                    "API URL *",
+                    Some(if draft.protocol == ProviderProtocol::AnthropicCompatible { "Anthropic API 根地址，可包含网关路径前缀或 /v1。" } else { "兼容 API 的基础 URL。" }),
+                    base_input,
+                    palette,
+                ))
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(space(1))
                         .child(
                             div()
                                 .id(SharedString::from(format!(
@@ -3393,7 +3406,7 @@ fn render_provider_cards(
                         .flex_row()
                         .items_center()
                         .gap(space(2))
-                        .child(
+                        .children(allow_clone.then(|| {
                             div()
                                 .id(SharedString::from(format!(
                                     "settings-provider-clone-{index}"
@@ -3412,8 +3425,8 @@ fn render_provider_cards(
                                     let _ = clone_weak.update(cx, |this, cx| {
                                         this.clone_provider(index, cx);
                                     });
-                                }),
-                        )
+                                })
+                        }))
                         .child(
                             div()
                                 .id(SharedString::from(format!(

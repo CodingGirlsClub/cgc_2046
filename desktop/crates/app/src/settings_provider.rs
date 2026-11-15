@@ -135,18 +135,13 @@ impl ProviderDraft {
             .unwrap_or_default();
         Self {
             id: format!("custom-{serial}"),
-            name: protocol.name().to_string(),
-            base_url: protocol.default_url().to_string(),
+            name: String::new(),
+            base_url: String::new(),
             anthropic_url: String::new(),
             responses_url: String::new(),
             models_url: String::new(),
             protocol,
-            models: match protocol {
-                ProviderProtocol::OpenAiCompatible => {
-                    "gpt-4o-mini | 128000 | 16384 | false | true | true".to_string()
-                }
-                ProviderProtocol::AnthropicCompatible => String::new(),
-            },
+            models: String::new(),
             has_key: false,
             model_params: Vec::new(),
             builtin: false,
@@ -327,10 +322,19 @@ mod tests {
     fn to_prefs_with_uses_current_form_values() {
         let draft =
             ProviderDraft::new_custom(cgc_agent_provider::ProviderProtocol::OpenAiCompatible);
+        assert!(draft.name.is_empty(), "a new provider starts unnamed");
+        assert!(
+            draft.base_url.is_empty(),
+            "a new provider starts without a URL"
+        );
+        assert!(
+            draft.models.is_empty(),
+            "a new provider starts without models"
+        );
         let prefs = draft.to_prefs_with("https://new.example/v1/", "New Provider");
         assert_eq!(prefs.base_url, "https://new.example/v1/");
         assert_eq!(prefs.name, "New Provider");
-        assert!(!prefs.models.is_empty());
+        assert!(prefs.models.is_empty());
     }
 
     #[test]
