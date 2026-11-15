@@ -428,6 +428,8 @@ impl SettingsWindowView {
             lines.remove(model_index);
         }
         draft.models = lines.join("\n");
+        // 参数向量必须与文本一起收缩，否则后续添加模型会把已删除项带回来。
+        draft.model_params = parse_model_lines(&draft.models).1;
         draft.model_fields.clear();
         if let Some(input) = draft.models_input.clone() {
             input.update(cx, |state, cx| {
@@ -448,6 +450,7 @@ impl SettingsWindowView {
         }
         text.push_str("new-model | 64000 | 8000 | false | true");
         draft.models = text.clone();
+        draft.model_params = parse_model_lines(&text).1;
         draft.model_fields.clear();
         if let Some(input) = draft.models_input.clone() {
             input.update(cx, |state, cx| state.set_value(text, window, cx));
