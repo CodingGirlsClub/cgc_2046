@@ -479,7 +479,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_deepseek_model_metadata() {
+    fn parses_metadata_with_efforts_and_modalities() {
         let body = r#"{"object":"list","data":[
             {"id":"deepseek-flash","object":"model","owned_by":"deepseek","name":"DeepSeek-V4.1-Flash",
              "context_window":1048576,"max_output_tokens":393216,
@@ -518,7 +518,7 @@ mod tests {
     }
 
     #[test]
-    fn reads_openrouter_style_context_length() {
+    fn reads_alternate_context_length_field() {
         let body = r#"{"data":[{"id":"claude-x","context_length":200000}]}"#;
         let models = parse_models(body).expect("parse");
         assert_eq!(models[0].context_window, Some(200_000));
@@ -599,7 +599,7 @@ mod tests {
     }
 
     #[test]
-    fn reads_magpie_reasoning_levels() {
+    fn reads_top_level_reasoning_levels() {
         let body = r#"{"data":[{"id":"auto/gpt-6-luna","reasoning_levels":["low","high","max"]}]}"#;
         let models = parse_models(body).expect("parse");
         assert_eq!(models[0].reasoning_efforts, vec!["low", "high", "max"]);
