@@ -1,7 +1,7 @@
 //! OpenAI Responses API（`POST /responses`）兼容 Provider。
 //!
 //! 与 Chat 适配器同一形状：独立线程跑同步 HTTP，SSE 事件经有界通道送回。
-//! 首版只覆盖文本、图片输入、函数工具与 usage；不回放 reasoning item。
+//! 覆盖文本、图片输入、函数工具与 usage；reasoning 在消息结束时以完整回放块发出。
 
 use std::{
     collections::BTreeMap,
@@ -346,6 +346,21 @@ struct PendingCall {
     emitted: bool,
 }
 
+impl PendingCall {
+    fn to_tool(&self, index: u64) -> Result<ToolUse, ProviderError> {
+        let id = self.id.clone().unwrap_or_else(|| format!("call_{index}"));
+        let name = self.name.clone().unwrap_or_else(|| format!("tool_{index}"));
+        let args = if self.arguments.trim().is_empty() {
+            Value::Object(Default::default())
+        } else {
+            serde_json::from_str(&self.arguments).map_err(|error| {
+                ProviderError::invalid_response(format!("tool arguments for {name}: {error}"))
+            })?
+        };
+        Ok(ToolUse { id, name, args })
+    }
+}
+
 /// 存在 `Content::Thinking.signature` 里的 Responses reasoning 回放数据。
 #[derive(serde::Serialize, serde::Deserialize)]
 struct ReasoningMeta {
@@ -360,7 +375,11 @@ struct StreamState {
     done: bool,
     tools_used: bool,
     thinking_text: String,
+    text: String,
     calls: BTreeMap<u64, PendingCall>,
+    /// 结束时要一次性发出的回放块（thinking 在前，text 与 tool use 补齐）。
+    replay: Vec<Content>,
+    replay_sent: bool,
 }
 
 impl StreamState {
@@ -383,6 +402,7 @@ impl StreamState {
             }
             "response.output_text.delta" => {
                 if let Some(delta) = text_field(&value, "delta") {
+                    self.text.push_str(delta);
                     events.push(CompletionEvent::Text(delta.to_string()));
                 }
             }
@@ -470,17 +490,14 @@ impl StreamState {
                             })
                             .expect("reasoning meta");
                             // sealed：文本同时留给明文回放（非 OpenAI host）。
-                            events.push(CompletionEvent::ContentBlock(Content::Thinking {
-                                text,
-                                signature,
-                            }));
+                            self.replay.push(Content::Thinking { text, signature });
                         }
                         None if !text.trim().is_empty() => {
                             // 明文的 reasoning（DeepSeek 等），供非 OpenAI host 回放。
-                            events.push(CompletionEvent::ContentBlock(Content::Thinking {
+                            self.replay.push(Content::Thinking {
                                 text,
                                 signature: String::new(),
-                            }));
+                            });
                         }
                         None => {}
                     }
@@ -491,7 +508,7 @@ impl StreamState {
                 if let Some(usage) = value.pointer("/response/usage") {
                     events.push(CompletionEvent::Usage(usage_of(usage)));
                 }
-                events.extend(self.flush()?);
+                events.extend(self.take_replay_events()?);
                 let reason = if kind == "response.incomplete" {
                     match value
                         .pointer("/response/incomplete_details/reason")
@@ -540,16 +557,8 @@ impl StreamState {
         }
         call.emitted = true;
         self.tools_used = true;
-        let id = call.id.clone().unwrap_or_else(|| format!("call_{index}"));
-        let name = call.name.clone().unwrap_or_else(|| format!("tool_{index}"));
-        let args = if call.arguments.trim().is_empty() {
-            Value::Object(Default::default())
-        } else {
-            serde_json::from_str(&call.arguments).map_err(|error| {
-                ProviderError::invalid_response(format!("tool arguments for {name}: {error}"))
-            })?
-        };
-        Ok(Some(CompletionEvent::ToolUse(ToolUse { id, name, args })))
+        let tool = call.to_tool(index)?;
+        Ok(Some(CompletionEvent::ToolUse(tool)))
     }
 
     fn flush(&mut self) -> Result<Vec<CompletionEvent>, ProviderError> {
@@ -571,7 +580,7 @@ impl StreamState {
     }
 
     fn finish(&mut self) -> Result<Vec<CompletionEvent>, ProviderError> {
-        let mut events = self.flush()?;
+        let mut events = self.take_replay_events()?;
         if !self.stop_sent {
             let reason = if self.tools_used {
                 StopReason::ToolUse
@@ -580,6 +589,32 @@ impl StreamState {
             };
             self.push_stop(&mut events, reason);
         }
+        Ok(events)
+    }
+
+    /// 结束（或流自然收尾）时一次性发出完整回放块。
+    ///
+    /// `agent_core` 里非空的 `replay_content` 会替换 assistant 的文本与工具调用，
+    /// 因此这里必须包含 thinking、全部文本与所有 tool use，缺一个就会丢消息或断掉工具续接。
+    fn take_replay_events(&mut self) -> Result<Vec<CompletionEvent>, ProviderError> {
+        if self.replay_sent {
+            return Ok(Vec::new());
+        }
+        self.replay_sent = true;
+        let tool_events = self.flush()?;
+        let mut blocks = std::mem::take(&mut self.replay);
+        if !self.text.is_empty() {
+            blocks.push(Content::Text(std::mem::take(&mut self.text)));
+        }
+        for (index, call) in &self.calls {
+            blocks.push(Content::ToolUse(call.to_tool(*index)?));
+        }
+        if blocks.is_empty() {
+            return Ok(tool_events);
+        }
+        let mut events = Vec::with_capacity(blocks.len() + tool_events.len());
+        events.extend(blocks.into_iter().map(CompletionEvent::ContentBlock));
+        events.extend(tool_events);
         Ok(events)
     }
 }
@@ -762,22 +797,53 @@ mod tests {
     }
 
     #[test]
-    fn reasoning_done_carries_a_replay_content_block() {
+    fn completed_message_carries_complete_replay_blocks() {
         let mut state = StreamState::default();
-        let events = state
+        state
             .on_event(json!({
                 "type": "response.output_item.done",
                 "output_index": 0,
                 "item": {"type": "reasoning", "id": "rs_1", "encrypted_content": "cipher", "summary": []}
             }))
             .unwrap();
-        match &events[0] {
-            CompletionEvent::ContentBlock(Content::Thinking { text, signature }) => {
-                assert!(text.is_empty(), "text already came from deltas");
+        state
+            .on_event(json!({
+                "type": "response.output_text.delta",
+                "delta": "answer"
+            }))
+            .unwrap();
+        let tool_events = state
+            .on_event(json!({
+                "type": "response.output_item.done",
+                "output_index": 1,
+                "item": {"type": "function_call", "call_id": "call_1", "name": "read_file", "arguments": "{\"path\":\"a\"}"}
+            }))
+            .unwrap();
+        assert!(tool_events
+            .iter()
+            .any(|event| matches!(event, CompletionEvent::ToolUse(tool) if tool.id == "call_1")));
+        let events = state
+            .on_event(json!({"type": "response.completed", "response": {}}))
+            .unwrap();
+        let blocks: Vec<&Content> = events
+            .iter()
+            .filter_map(|event| match event {
+                CompletionEvent::ContentBlock(block) => Some(block),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(blocks.len(), 3, "thinking + text + tool use");
+        match blocks[0] {
+            Content::Thinking { signature, .. } => {
                 assert!(signature.contains("cipher"));
                 assert!(signature.contains("rs_1"));
             }
-            other => panic!("unexpected event: {other:?}"),
+            other => panic!("unexpected first block: {other:?}"),
+        }
+        assert_eq!(blocks[1], &Content::Text("answer".to_string()));
+        match blocks[2] {
+            Content::ToolUse(tool) => assert_eq!(tool.id, "call_1"),
+            other => panic!("unexpected last block: {other:?}"),
         }
     }
 

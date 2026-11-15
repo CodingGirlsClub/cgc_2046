@@ -727,6 +727,7 @@ impl SettingsWindowView {
     }
 
     fn save_provider(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.sync_endpoint_inputs(index, cx);
         if !self.validate_thinking_fields(index, cx) {
             return;
         }
@@ -960,6 +961,7 @@ impl SettingsWindowView {
 
     /// 用当前表单里的 URL / Key（或已保存的 Key）读取供应商模型列表。
     fn fetch_models(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.sync_endpoint_inputs(index, cx);
         let Some(draft) = self.provider_drafts.get(index).cloned() else {
             return;
         };
@@ -999,6 +1001,7 @@ impl SettingsWindowView {
         self.error = None;
         cx.notify();
         let list_url = optional(&draft.models_url);
+        let provider_id = draft.id.clone();
         let task = cx.background_executor().spawn(async move {
             match list_url {
                 Some(url) => list_models_at(&url, &key),
@@ -1007,7 +1010,17 @@ impl SettingsWindowView {
         });
         cx.spawn(async move |this, cx| {
             let result = task.await;
-            let _ = this.update(cx, |this, cx| this.finish_fetch_models(index, result, cx));
+            let _ = this.update(cx, |this, cx| {
+                // provider 可能在请求期间被删除或重排：按 id 重新定位，不能用旧 index。
+                let Some(index) = this
+                    .provider_drafts
+                    .iter()
+                    .position(|draft| draft.id == provider_id)
+                else {
+                    return;
+                };
+                this.finish_fetch_models(index, result, cx);
+            });
         })
         .detach();
     }
@@ -1110,12 +1123,22 @@ impl SettingsWindowView {
         self.error = None;
         cx.notify();
         let protocol = draft.protocol;
+        let provider_id = draft.id.clone();
         let task = cx
             .background_executor()
             .spawn(async move { test_models_for(protocol, &base_url, &key, &models) });
         cx.spawn(async move |this, cx| {
             let results = task.await;
-            let _ = this.update(cx, |this, cx| this.finish_test_models(index, results, cx));
+            let _ = this.update(cx, |this, cx| {
+                let Some(index) = this
+                    .provider_drafts
+                    .iter()
+                    .position(|draft| draft.id == provider_id)
+                else {
+                    return;
+                };
+                this.finish_test_models(index, results, cx);
+            });
         })
         .detach();
     }
@@ -1363,13 +1386,21 @@ impl SettingsWindowView {
         }
         self.error = None;
         cx.notify();
+        let provider_id = draft.id.clone();
         let task = cx
             .background_executor()
             .spawn(async move { detect_protocols(&base_url, &key) });
         cx.spawn(async move |this, cx| {
             let results = task.await;
             let _ = this.update(cx, |this, cx| {
-                this.finish_detect_protocols(index, results, cx)
+                let Some(index) = this
+                    .provider_drafts
+                    .iter()
+                    .position(|draft| draft.id == provider_id)
+                else {
+                    return;
+                };
+                this.finish_detect_protocols(index, results, cx);
             });
         })
         .detach();
