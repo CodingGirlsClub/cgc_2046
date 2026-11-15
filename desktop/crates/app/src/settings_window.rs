@@ -650,6 +650,16 @@ impl SettingsWindowView {
         key: String,
         cx: &mut Context<Self>,
     ) {
+        // 验证期间用户可能切换过启用开关：以磁盘上的当前值为准，别把它盖回去。
+        if let Some(current) = self
+            .provider_settings
+            .load()
+            .provider(&provider.id)
+            .cloned()
+        {
+            provider.enabled = current.enabled;
+            provider.builtin = current.builtin;
+        }
         if let Err(error) = self.provider_settings.apply(ProviderPrefsChange::SaveKey {
             provider: provider.clone(),
             key,
@@ -888,6 +898,8 @@ impl SettingsWindowView {
         let Some(draft) = self.provider_drafts.get(index).cloned() else {
             return;
         };
+        // 停用/启用会改变最终配置：丢弃仍在进行的 Key 验证，避免它带着旧 enabled 落盘。
+        self.cancel_validation_for(&draft.id);
         match self
             .provider_settings
             .apply(ProviderPrefsChange::SetProviderEnabled {
