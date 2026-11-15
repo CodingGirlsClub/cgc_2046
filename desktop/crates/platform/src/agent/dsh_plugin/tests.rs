@@ -113,6 +113,26 @@ fn probe_skips_non_executable_dsh_candidates() {
 }
 
 #[test]
+fn windows_cli_candidates_include_executable_extensions() {
+    let root = temp_dir("windows-cli");
+    let bin = root.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let exe = bin.join("dsh.exe");
+    let cmd = bin.join("dsh.cmd");
+    write_dsh_cli(&exe);
+    write_dsh_cli(&cmd);
+    let env = env_with(&[("PATH", bin)]);
+    let read = |key: &str| env.get(key).cloned();
+    assert_eq!(find_dsh_in(read, true), Some(exe));
+    assert_eq!(
+        find_dsh_in(read, false),
+        None,
+        "非 Windows 不识别 .exe 扩展名"
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn title_generation_preserves_profile_and_is_idempotent() {
     for existing in [None, Some(""), Some("- id: other-plugin\n  disabled: true")] {
         let home = temp_dir("title-default");

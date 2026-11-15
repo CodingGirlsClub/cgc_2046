@@ -40,20 +40,37 @@ pub fn read_profile_version(home: &Path, package: &str) -> Option<String> {
 }
 
 /// `dsh` CLI：`DSH_CLI` > PATH 上的 dsh > `~/.local/bin/dsh`。
+/// Windows 上按可执行扩展名查找 `dsh.exe` / `dsh.cmd` / `dsh.bat`。
 pub fn find_dsh(env: impl Fn(&str) -> Option<PathBuf>) -> Option<PathBuf> {
+    find_dsh_in(env, cfg!(windows))
+}
+
+fn find_dsh_in(env: impl Fn(&str) -> Option<PathBuf>, windows: bool) -> Option<PathBuf> {
     if let Some(path) = env("DSH_CLI").filter(|path| is_executable(path)) {
         return Some(path);
     }
+    let names = candidate_names(windows);
     if let Some(path) = env("PATH").and_then(|path| {
         std::env::split_paths(&path)
-            .map(|dir| dir.join("dsh"))
+            .flat_map(|dir| names.iter().map(move |name| dir.join(name)))
             .find(|candidate| is_executable(candidate))
     }) {
         return Some(path);
     }
-    env("HOME")
-        .map(|home| home.join(".local/bin/dsh"))
-        .filter(|path| is_executable(path))
+    env("HOME").and_then(|home| {
+        names
+            .iter()
+            .map(|name| home.join(".local/bin").join(name))
+            .find(|path| is_executable(path))
+    })
+}
+
+fn candidate_names(windows: bool) -> &'static [&'static str] {
+    if windows {
+        &["dsh.exe", "dsh.cmd", "dsh.bat", "dsh"]
+    } else {
+        &["dsh"]
+    }
 }
 
 fn is_executable(path: &Path) -> bool {
