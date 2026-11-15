@@ -149,3 +149,73 @@ fn responses_accepts_a_function_call_output() {
     assert!(!text.trim().is_empty(), "reply text should not be empty");
     println!("round-2 reply: {text}");
 }
+
+#[test]
+#[ignore = "needs a live Responses endpoint (MAGPIE_BASE_URL / MAGPIE_API_KEY)"]
+fn responses_replays_sealed_reasoning() {
+    use cgc_agent_provider::{Content, Role};
+    let base_url = std::env::var("MAGPIE_BASE_URL").expect("MAGPIE_BASE_URL");
+    let api_key = std::env::var("MAGPIE_API_KEY").expect("MAGPIE_API_KEY");
+    let model = Model::new(
+        ProviderId::new("magpie"),
+        "Magpie",
+        "auto/deepseek-v4.1-flash",
+        "DeepSeek V4.1 Flash",
+        ModelLimits::new(1_048_576, 384_000),
+    );
+    let provider = ResponsesCompatibleProvider::new(ResponsesCompatibleConfig::new(
+        base_url,
+        api_key,
+        vec![model.clone()],
+    ));
+
+    let request = Request::new(vec![Message::user("What is 2+2? Answer briefly.")])
+        .with_reasoning_effort(Some("high".to_string()))
+        .with_max_output_tokens(512);
+    let mut stream = futures::executor::block_on(provider.stream(&model, request))
+        .expect("open responses stream");
+    let mut thinking = String::new();
+    let mut signature = None;
+    while let Some(event) = futures::executor::block_on(futures::StreamExt::next(&mut stream)) {
+        if let CompletionEvent::Thinking {
+            text,
+            signature: sig,
+        } = event.expect("stream event")
+        {
+            thinking.push_str(&text);
+            if sig.is_some() {
+                signature = sig;
+            }
+        }
+    }
+    let Some(signature) = signature else {
+        eprintln!("provider returned no sealed reasoning item; replay cannot be exercised");
+        return;
+    };
+    assert!(!signature.is_empty(), "sealed reasoning signature");
+
+    let replay = vec![
+        Message::user("What is 2+2? Answer briefly."),
+        Message::new(
+            Role::Assistant,
+            vec![Content::Thinking {
+                text: thinking,
+                signature,
+            }],
+        ),
+        Message::user("And 3+3? Answer briefly."),
+    ];
+    let request = Request::new(replay)
+        .with_reasoning_effort(Some("high".to_string()))
+        .with_max_output_tokens(64);
+    let mut stream =
+        futures::executor::block_on(provider.stream(&model, request)).expect("open replay stream");
+    let mut reply = String::new();
+    while let Some(event) = futures::executor::block_on(futures::StreamExt::next(&mut stream)) {
+        if let CompletionEvent::Text(delta) = event.expect("replay event") {
+            reply.push_str(&delta);
+        }
+    }
+    assert!(!reply.trim().is_empty(), "reply after replaying reasoning");
+    println!("replay reply: {reply}");
+}

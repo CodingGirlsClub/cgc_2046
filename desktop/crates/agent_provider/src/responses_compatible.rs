@@ -159,13 +159,25 @@ pub(crate) fn build_body(model: &Model, request: &Request) -> Value {
                 }
                 if assistant {
                     for part in &message.content {
-                        if let Content::ToolUse(tool_use) = part {
-                            input.push(json!({
+                        match part {
+                            Content::ToolUse(tool_use) => input.push(json!({
                                 "type": "function_call",
                                 "call_id": tool_use.id,
                                 "name": tool_use.name,
                                 "arguments": tool_use.args.to_string(),
-                            }));
+                            })),
+                            Content::Thinking { signature, .. } => {
+                                // Responses 的 sealed reasoning：原样回放（OpenAI 只认自己的加密内容）。
+                                if let Ok(meta) = serde_json::from_str::<ReasoningMeta>(signature) {
+                                    input.push(json!({
+                                        "type": "reasoning",
+                                        "id": meta.id,
+                                        "encrypted_content": meta.encrypted_content,
+                                        "summary": [],
+                                    }));
+                                }
+                            }
+                            _ => {}
                         }
                     }
                 }
@@ -319,6 +331,13 @@ struct PendingCall {
     emitted: bool,
 }
 
+/// 存在 `Content::Thinking.signature` 里的 Responses reasoning 回放数据。
+#[derive(serde::Serialize, serde::Deserialize)]
+struct ReasoningMeta {
+    id: String,
+    encrypted_content: String,
+}
+
 #[derive(Default)]
 struct StreamState {
     started: bool,
@@ -381,8 +400,8 @@ impl StreamState {
                     }
                 }
             }
-            "response.output_item.done" => {
-                if item_kind(&value) == Some("function_call") {
+            "response.output_item.done" => match item_kind(&value) {
+                Some("function_call") => {
                     let index = output_index(&value);
                     let call = self.calls.entry(index).or_default();
                     if let Some(id) = value.pointer("/item/call_id").and_then(Value::as_str) {
@@ -400,7 +419,32 @@ impl StreamState {
                         events.push(event);
                     }
                 }
-            }
+                Some("reasoning") => {
+                    // 用 done 里的完整 encrypted_content；added 里的可能是半截。
+                    if let Some(encrypted) = value
+                        .pointer("/item/encrypted_content")
+                        .and_then(Value::as_str)
+                        .filter(|encrypted| !encrypted.is_empty())
+                    {
+                        let id = value
+                            .pointer("/item/id")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string();
+                        let signature = serde_json::to_string(&ReasoningMeta {
+                            id,
+                            encrypted_content: encrypted.to_string(),
+                        })
+                        .expect("reasoning meta");
+                        // 文本已由 summary/reasoning delta 送过，这里只补回放用的签名。
+                        events.push(CompletionEvent::Thinking {
+                            text: String::new(),
+                            signature: Some(signature),
+                        });
+                    }
+                }
+                _ => {}
+            },
             "response.completed" | "response.incomplete" => {
                 if let Some(usage) = value.pointer("/response/usage") {
                     events.push(CompletionEvent::Usage(usage_of(usage)));
@@ -673,6 +717,70 @@ mod tests {
             }))
             .unwrap();
         assert!(events.contains(&CompletionEvent::Stop(StopReason::MaxTokens)));
+    }
+
+    #[test]
+    fn reasoning_done_carries_a_replay_signature() {
+        let mut state = StreamState::default();
+        let events = state
+            .on_event(json!({
+                "type": "response.output_item.done",
+                "output_index": 0,
+                "item": {"type": "reasoning", "id": "rs_1", "encrypted_content": "cipher", "summary": []}
+            }))
+            .unwrap();
+        match &events[0] {
+            CompletionEvent::Thinking { text, signature } => {
+                assert!(text.is_empty(), "text already came from deltas");
+                let signature = signature.as_deref().expect("signature");
+                assert!(signature.contains("cipher"));
+                assert!(signature.contains("rs_1"));
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn body_replays_a_sealed_reasoning_item() {
+        let signature = r#"{"id":"rs_1","encrypted_content":"cipher"}"#;
+        let request = Request {
+            messages: vec![Message::new(
+                Role::Assistant,
+                vec![
+                    Content::Thinking {
+                        text: "why".to_string(),
+                        signature: signature.to_string(),
+                    },
+                    Content::ToolUse(ToolUse {
+                        id: "call_1".to_string(),
+                        name: "read_file".to_string(),
+                        args: json!({"path": "a"}),
+                    }),
+                ],
+            )],
+            ..Request::default()
+        };
+        let body = build_body(&model(), &request);
+        assert_eq!(body["input"][0]["type"], "reasoning");
+        assert_eq!(body["input"][0]["id"], "rs_1");
+        assert_eq!(body["input"][0]["encrypted_content"], "cipher");
+        assert_eq!(body["input"][1]["type"], "function_call");
+    }
+
+    #[test]
+    fn anthropic_signatures_are_not_replayed_as_reasoning() {
+        let request = Request {
+            messages: vec![Message::new(
+                Role::Assistant,
+                vec![Content::Thinking {
+                    text: "why".to_string(),
+                    signature: "anthropic-signature".to_string(),
+                }],
+            )],
+            ..Request::default()
+        };
+        let body = build_body(&model(), &request);
+        assert_eq!(body["input"].as_array().map(Vec::len), Some(0));
     }
 
     #[test]
