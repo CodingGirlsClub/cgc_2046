@@ -612,6 +612,7 @@ fn model_switch_and_history_open_preserve_contents_and_restore_selection() {
         model_params: Vec::new(),
         has_key: true,
         builtin: false,
+        enabled: true,
         protocol: cgc_agent_provider::ProviderProtocol::OpenAiCompatible,
     }]);
     owner.persist();
@@ -696,6 +697,7 @@ fn no_enabled_models_unconfigures_refresh_and_allows_reconfiguration() {
                 }],
                 has_key: true,
                 builtin: false,
+                enabled: true,
                 protocol: cgc_agent_provider::ProviderProtocol::OpenAiCompatible,
             }],
             ..AgentPrefs::default()

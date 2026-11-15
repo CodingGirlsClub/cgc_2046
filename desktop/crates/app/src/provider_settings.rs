@@ -2,7 +2,9 @@
 
 use std::fmt;
 
-use cgc_agent_store::{provider_key_account, AgentPrefs, PrefsStore, ProviderPrefs};
+use cgc_agent_store::{
+    is_builtin_provider_id, provider_key_account, AgentPrefs, PrefsStore, ProviderPrefs,
+};
 use cgc_platform::paths::AppPaths;
 use cgc_platform::session::KeychainStore;
 
@@ -59,9 +61,17 @@ impl ProviderSettings {
             .is_some_and(|key| !key.is_empty())
     }
 
+    /// 读取已保存的 Key：让"获取模型"在用户尚未重新输入 Key 时也能用。
+    pub(crate) fn key(&self, provider_id: &str) -> Option<String> {
+        self.keychain
+            .load_secret(&provider_key_account(provider_id))
+            .filter(|key| !key.is_empty())
+    }
+
     pub(crate) fn apply(&self, change: ProviderPrefsChange) -> Result<(), ProviderSettingsError> {
         match change {
-            ProviderPrefsChange::SaveProvider(provider) => {
+            ProviderPrefsChange::SaveProvider(mut provider) => {
+                provider.builtin |= is_builtin_provider_id(&provider.id);
                 let mut prefs = self.prefs.load();
                 let selected = prefs.selected_provider.as_deref();
                 let should_select = selected.is_none() || selected == Some(provider.id.as_str());
@@ -72,6 +82,7 @@ impl ProviderSettings {
                 self.save(&mut prefs)
             }
             ProviderPrefsChange::SaveKey { mut provider, key } => {
+                provider.builtin |= is_builtin_provider_id(&provider.id);
                 let account = provider_key_account(&provider.id);
                 let previous = self.keychain.load_secret(&account);
                 self.keychain
@@ -209,6 +220,7 @@ mod tests {
             has_key: false,
             model_params: Vec::new(),
             builtin: false,
+            enabled: true,
             protocol: cgc_agent_provider::ProviderProtocol::OpenAiCompatible,
         }
     }
@@ -224,6 +236,63 @@ mod tests {
         // agent_prefs.json 是目录时 save() 的 rename 必然失败，用来模拟磁盘/权限错误。
         std::fs::create_dir_all(root.join("agent_prefs.json")).expect("failing prefs dir");
         settings(root)
+    }
+
+    #[test]
+    fn saving_a_builtin_provider_keeps_its_catalog_mark() {
+        let root = std::env::temp_dir().join(format!("cgc-builtin-mark-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let settings = settings(&root);
+        let mut builtin = provider();
+        builtin.id = "deepseek".into();
+        builtin.name = "DeepSeek".into();
+        settings
+            .apply(ProviderPrefsChange::SaveProvider(builtin))
+            .expect("save builtin");
+        let saved = settings
+            .load()
+            .provider("deepseek")
+            .cloned()
+            .expect("saved builtin");
+        assert!(saved.builtin);
+    }
+
+    #[test]
+    fn saving_a_custom_provider_stays_custom() {
+        let root = std::env::temp_dir().join(format!("cgc-custom-mark-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let settings = settings(&root);
+        settings
+            .apply(ProviderPrefsChange::SaveProvider(provider()))
+            .expect("save custom");
+        let saved = settings
+            .load()
+            .provider("test-provider")
+            .cloned()
+            .expect("saved custom");
+        assert!(!saved.builtin);
+    }
+
+    #[test]
+    fn saving_a_key_for_a_builtin_provider_keeps_its_catalog_mark() {
+        let root = std::env::temp_dir().join(format!("cgc-builtin-key-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let settings = settings(&root);
+        let mut builtin = provider();
+        builtin.id = "deepseek".into();
+        builtin.name = "DeepSeek".into();
+        settings
+            .apply(ProviderPrefsChange::SaveKey {
+                provider: builtin,
+                key: "secret".into(),
+            })
+            .expect("save key");
+        let saved = settings
+            .load()
+            .provider("deepseek")
+            .cloned()
+            .expect("saved builtin");
+        assert!(saved.builtin);
     }
 
     #[test]

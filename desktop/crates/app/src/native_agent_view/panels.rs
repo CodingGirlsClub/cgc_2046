@@ -237,6 +237,7 @@ impl NativeAgentView {
         let approval_root = cx.entity().downgrade();
         let model_groups: Vec<PickerGroup> = providers_for_menu
             .iter()
+            .filter(|provider| provider.enabled)
             .filter_map(|provider| {
                 let items: Vec<PickerItem> = provider
                     .models

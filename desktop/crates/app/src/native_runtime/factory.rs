@@ -171,7 +171,13 @@ pub(super) fn initialize_with_keychain(
         config,
         Production {
             host,
-            providers: Arc::new(prefs.providers),
+            providers: Arc::new(
+                prefs
+                    .providers
+                    .into_iter()
+                    .filter(|provider| provider.enabled)
+                    .collect(),
+            ),
             data_root,
             keychain,
             allow_echo,

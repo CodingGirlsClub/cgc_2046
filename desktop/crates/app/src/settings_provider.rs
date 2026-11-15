@@ -1,8 +1,11 @@
 //! Provider 表单的草稿数据与模型行解析（从 settings_window 拆出）。
 
+use cgc_agent_provider::probe::RemoteModel;
 use cgc_agent_provider::{ProviderProtocol, ThinkingMode};
 use cgc_agent_store::{ModelPrefs, ProviderPrefs};
+use gpui_kit::component::combobox::ComboboxState;
 use gpui_kit::component::input::{InputState, TextareaState};
+use gpui_kit::component::searchable_list::SearchableVec;
 use gpui_kit::*;
 
 #[derive(Clone)]
@@ -30,6 +33,7 @@ pub(crate) struct ProviderDraft {
     pub(crate) has_key: bool,
     pub(crate) model_params: Vec<ModelPrefs>,
     pub(crate) builtin: bool,
+    pub(crate) enabled: bool,
     pub(crate) base_url_input: Option<Entity<InputState>>,
     pub(crate) models_input: Option<Entity<TextareaState>>,
     pub(crate) api_key_input: Option<Entity<InputState>>,
@@ -37,11 +41,34 @@ pub(crate) struct ProviderDraft {
     pub(crate) model_fields: Vec<ModelFieldInputs>,
     pub(crate) key_editing: bool,
     pub(crate) confirm_clear: bool,
+    /// 最近一次"获取模型"的结果；空表示尚未获取。
+    pub(crate) remote_models: Vec<RemoteModel>,
+    pub(crate) remote_picker: Option<Entity<ComboboxState<SearchableVec<String>>>>,
+    pub(crate) fetching_models: bool,
+    pub(crate) fetch_error: Option<String>,
+    /// 高级模式：按文本批量编辑模型行。
+    pub(crate) models_advanced_open: bool,
 }
 
 pub(crate) use cgc_agent_store::model_lines::{
-    append_reasoning_efforts, format_model_lines, parse_model_lines,
+    append_reasoning_efforts, format_model_lines, normalized_provider_name, parse_model_lines,
 };
+
+/// 复制 Provider 时取一个不重名的显示名：`base 2`、`base 3`…（比较时忽略大小写与首尾空白）。
+pub(crate) fn next_provider_name(base: &str, existing: &[String]) -> String {
+    let base = base.trim();
+    let mut serial = 2;
+    loop {
+        let candidate = format!("{base} {serial}");
+        let taken = existing
+            .iter()
+            .any(|name| normalized_provider_name(name) == normalized_provider_name(&candidate));
+        if !taken {
+            return candidate;
+        }
+        serial += 1;
+    }
+}
 
 impl ProviderDraft {
     pub(crate) fn from_prefs(provider: &ProviderPrefs) -> Self {
@@ -54,6 +81,7 @@ impl ProviderDraft {
             has_key: provider.has_key,
             model_params: provider.model_params.clone(),
             builtin: provider.builtin,
+            enabled: provider.enabled,
             base_url_input: None,
             models_input: None,
             api_key_input: None,
@@ -61,6 +89,11 @@ impl ProviderDraft {
             model_fields: Vec::new(),
             key_editing: false,
             confirm_clear: false,
+            remote_models: Vec::new(),
+            remote_picker: None,
+            fetching_models: false,
+            fetch_error: None,
+            models_advanced_open: false,
         }
     }
 
@@ -83,6 +116,7 @@ impl ProviderDraft {
             has_key: false,
             model_params: Vec::new(),
             builtin: false,
+            enabled: true,
             base_url_input: None,
             models_input: None,
             api_key_input: None,
@@ -90,6 +124,11 @@ impl ProviderDraft {
             model_fields: Vec::new(),
             key_editing: false,
             confirm_clear: false,
+            remote_models: Vec::new(),
+            remote_picker: None,
+            fetching_models: false,
+            fetch_error: None,
+            models_advanced_open: false,
         }
     }
 
@@ -105,7 +144,8 @@ impl ProviderDraft {
             models,
             has_key: self.has_key,
             model_params,
-            builtin: false,
+            builtin: self.builtin,
+            enabled: self.enabled,
         }
     }
 
@@ -196,7 +236,32 @@ impl KeyValidation {
 
 #[cfg(test)]
 mod tests {
-    use super::{KeyValidation, KeyValidationAction, ProviderDraft};
+    use super::{next_provider_name, KeyValidation, KeyValidationAction, ProviderDraft};
+
+    #[test]
+    fn copied_provider_gets_a_free_name() {
+        assert_eq!(next_provider_name("DeepSeek", &[]), "DeepSeek 2");
+        assert_eq!(
+            next_provider_name("DeepSeek", &["DeepSeek".to_string()]),
+            "DeepSeek 2"
+        );
+        assert_eq!(
+            next_provider_name(
+                "DeepSeek",
+                &["DeepSeek".to_string(), "deepseek 2".to_string()]
+            ),
+            "DeepSeek 3"
+        );
+    }
+
+    #[test]
+    fn draft_keeps_enabled_flag_through_prefs_roundtrip() {
+        let mut draft =
+            ProviderDraft::new_custom(cgc_agent_provider::ProviderProtocol::OpenAiCompatible);
+        draft.enabled = false;
+        let prefs = draft.to_prefs_with("https://example.test", "Example");
+        assert!(!prefs.enabled);
+    }
 
     #[test]
     fn to_prefs_with_uses_current_form_values() {

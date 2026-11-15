@@ -133,6 +133,7 @@ fn prefs_with_provider(production: &Production, has_key: bool, model_enabled: bo
             base_url: "https://example.invalid".to_string(),
             models: vec!["chat".to_string(), "flash".to_string()],
             has_key,
+            enabled: true,
             model_params: vec![
                 cgc_agent_store::ModelPrefs::new("chat"),
                 cgc_agent_store::ModelPrefs {

@@ -17,8 +17,15 @@ pub struct ProviderPrefs {
     pub has_key: bool,
     /// 模型级参数（按 model id 索引；缺省时用默认值）。
     pub model_params: Vec<ModelPrefs>,
+    /// 是否参与模型选择与请求；停用只隐藏，不删除 Key 与模型配置。
+    #[serde(default = "default_true")]
+    pub enabled: bool,
     /// 是否来自内置目录（内置条目不需要写入用户文件）。
     pub builtin: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// 单个模型的参数（context / output / thinking）。
@@ -187,10 +194,12 @@ impl AgentPrefs {
     pub fn active_provider(&self) -> Option<&ProviderPrefs> {
         if let Some(id) = &self.selected_provider {
             if let Some(provider) = self.providers.iter().find(|provider| &provider.id == id) {
-                return Some(provider);
+                if provider.enabled {
+                    return Some(provider);
+                }
             }
         }
-        self.providers.first()
+        self.providers.iter().find(|provider| provider.enabled)
     }
 
     pub fn provider(&self, id: &str) -> Option<&ProviderPrefs> {
@@ -219,6 +228,28 @@ impl AgentPrefs {
     }
 }
 
+/// 复制 Provider 时取一个未被占用的 id：`base` 空闲就用 `base`，否则 `base-2`、`base-3`…
+pub fn next_provider_id(base: &str, existing: &[String]) -> String {
+    if !existing.iter().any(|id| id == base) {
+        return base.to_string();
+    }
+    let mut serial = 2;
+    loop {
+        let candidate = format!("{base}-{serial}");
+        if !existing.iter().any(|id| id == &candidate) {
+            return candidate;
+        }
+        serial += 1;
+    }
+}
+
+/// 该 id 是否来自内置目录；保存这类条目时保留 `builtin` 标记。
+pub fn is_builtin_provider_id(provider_id: &str) -> bool {
+    builtin_providers()
+        .iter()
+        .any(|provider| provider.id == provider_id)
+}
+
 /// 每个 provider 的 API key 在钥匙串里的 account。
 pub fn provider_key_account(provider_id: &str) -> String {
     format!("native_agent_provider_api_key:{provider_id}")
@@ -234,6 +265,7 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
             models: Vec::new(),
             has_key: false,
             model_params: Vec::new(),
+            enabled: true,
             builtin: true,
             protocol: ProviderProtocol::OpenAiCompatible,
         }
@@ -416,6 +448,7 @@ mod tests {
             models: vec!["model-a".to_string()],
             has_key: true,
             model_params: Vec::new(),
+            enabled: true,
             builtin: false,
             protocol: ProviderProtocol::OpenAiCompatible,
         }
@@ -503,6 +536,7 @@ mod tests {
                 models: vec!["deepseek-flash".to_string()],
                 has_key: true,
                 model_params: vec![flash],
+                enabled: true,
                 builtin: true,
                 protocol: ProviderProtocol::OpenAiCompatible,
             }],
@@ -559,6 +593,21 @@ mod tests {
 mod model_param_tests {
     use super::*;
 
+    // 本模块只测模型参数，用局部 fixture 构造最小 provider，不依赖另一测试模块的 helper。
+    fn provider(id: &str, base_url: &str) -> ProviderPrefs {
+        ProviderPrefs {
+            id: id.to_string(),
+            name: "Test".to_string(),
+            base_url: base_url.to_string(),
+            models: vec!["model-a".to_string()],
+            has_key: true,
+            model_params: Vec::new(),
+            builtin: false,
+            enabled: true,
+            protocol: ProviderProtocol::OpenAiCompatible,
+        }
+    }
+
     #[test]
     fn builtin_catalog_covers_domestic_providers() {
         let providers = builtin_providers();
@@ -599,6 +648,73 @@ mod model_param_tests {
         assert_eq!(provider.model_config("m1").context_window, 200_000);
         provider.remove_model("m1");
         assert!(provider.models.is_empty());
+    }
+
+    #[test]
+    fn builtin_provider_ids_are_recognized() {
+        assert!(is_builtin_provider_id("deepseek"));
+        assert!(!is_builtin_provider_id("custom-1"));
+    }
+
+    #[test]
+    fn disabled_provider_is_skipped_when_choosing_active() {
+        let mut prefs = AgentPrefs::default();
+        let mut disabled = provider("a", "https://a");
+        disabled.enabled = false;
+        prefs.upsert_provider(disabled);
+        prefs.upsert_provider(provider("b", "https://b"));
+        assert_eq!(prefs.active_provider().map(|p| p.id.as_str()), Some("b"));
+    }
+
+    #[test]
+    fn selected_disabled_provider_falls_back_to_an_enabled_one() {
+        let mut prefs = AgentPrefs::default();
+        prefs.upsert_provider(provider("a", "https://a"));
+        let mut disabled = provider("b", "https://b");
+        disabled.enabled = false;
+        prefs.upsert_provider(disabled);
+        prefs.selected_provider = Some("b".into());
+        assert_eq!(prefs.active_provider().map(|p| p.id.as_str()), Some("a"));
+    }
+
+    #[test]
+    fn no_enabled_provider_has_no_active() {
+        let mut prefs = AgentPrefs::default();
+        let mut disabled = provider("a", "https://a");
+        disabled.enabled = false;
+        prefs.upsert_provider(disabled);
+        assert!(prefs.active_provider().is_none());
+    }
+
+    #[test]
+    fn provider_without_enabled_field_still_counts_as_enabled() {
+        let legacy = serde_json::json!({
+            "id": "deepseek",
+            "name": "DeepSeek",
+            "base_url": "https://api.deepseek.com",
+            "models": ["deepseek-flash"],
+            "has_key": true,
+            "model_params": [],
+            "builtin": true
+        });
+        let prefs: ProviderPrefs = serde_json::from_value(legacy).expect("legacy provider");
+        assert!(prefs.enabled);
+    }
+
+    #[test]
+    fn copied_provider_gets_a_free_id() {
+        assert_eq!(next_provider_id("deepseek", &[]), "deepseek");
+        assert_eq!(
+            next_provider_id("deepseek", &["deepseek".to_string()]),
+            "deepseek-2"
+        );
+        assert_eq!(
+            next_provider_id(
+                "deepseek",
+                &["deepseek".to_string(), "deepseek-2".to_string()]
+            ),
+            "deepseek-3"
+        );
     }
 
     #[test]

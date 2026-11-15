@@ -452,6 +452,7 @@ mod tests {
             base_url: "https://example.test/v1".into(),
             models: models.iter().map(|(id, _)| id.to_string()).collect(),
             has_key: true,
+            enabled: true,
             model_params: models
                 .iter()
                 .map(|(id, enabled)| ModelPrefs {

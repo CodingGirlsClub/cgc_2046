@@ -51,6 +51,7 @@ fn adaptive_effort_capabilities_survive_model_line_editing() {
         models: vec!["model".into()],
         has_key: false,
         builtin: false,
+        enabled: true,
         model_params: vec![model],
     };
     let (_, edited) = cgc_agent_store::model_lines::parse_model_lines(
