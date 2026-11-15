@@ -1084,7 +1084,11 @@ impl SettingsWindowView {
     }
 
     /// 对当前启用中的模型各发一次最小对话请求，标出供应商列表里其实不可用的模型。
-    fn test_all_models(&mut self, index: usize, cx: &mut Context<Self>) {
+    fn test_all_models(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        // 与 chips 相同：先采纳批量编辑文本、再把卡片输入框写回参数，
+        // 否则测试的是保存前的旧模型集合。
+        self.reconcile_bulk_text(index, cx);
+        self.sync_model_fields(index, window, cx);
         self.sync_endpoint_inputs(index, cx);
         let Some(draft) = self.provider_drafts.get(index).cloned() else {
             return;
@@ -2851,9 +2855,9 @@ fn render_provider_cards(
                                 })
                                 .on_click({
                                     let test_weak = weak.clone();
-                                    move |_, _, cx| {
+                                    move |_, window, cx| {
                                         let _ = test_weak.update(cx, |this, cx| {
-                                            this.test_all_models(index, cx);
+                                            this.test_all_models(index, window, cx);
                                         });
                                     }
                                 }),
