@@ -41,8 +41,9 @@ use crate::provider_fetch::merge_remote_models;
 use crate::provider_settings::{ProviderPrefsChange, ProviderSettings};
 use crate::root_view::{title_bar_left_inset, TITLEBAR_HEIGHT};
 use crate::settings_provider::{
-    append_reasoning_efforts, format_model_lines, next_provider_name, optional, parse_model_lines,
-    KeyValidation, KeyValidationAction, ModelFieldInputs, ProviderDraft,
+    append_reasoning_efforts, edited_models, efforts_in_text, format_model_lines,
+    next_provider_name, optional, parse_model_lines, KeyValidation, KeyValidationAction,
+    ModelFieldInputs, ProviderDraft,
 };
 use crate::theme::{self, space, RADIUS_MEDIUM, RADIUS_SMALL};
 use cgc_platform::session::AuthApi;
@@ -320,6 +321,12 @@ impl SettingsWindowView {
         if draft.model_fields.is_empty() {
             return;
         }
+        // 卡片没有声明 efforts 时，用文本里同一模型写的列兜底（批量编辑刚写的内容）。
+        let source_text = draft
+            .models_input
+            .as_ref()
+            .map(|input| input.read(cx).value().to_string())
+            .unwrap_or_else(|| draft.models.clone());
         let text = draft
             .model_fields
             .iter()
@@ -353,13 +360,14 @@ impl SettingsWindowView {
                         }
                     }
                 }
-                if let Some(previous) = draft
+                let efforts = draft
                     .model_params
                     .iter()
                     .find(|model| model.id == field.model_id)
-                {
-                    append_reasoning_efforts(&mut line, &previous.reasoning_efforts);
-                }
+                    .map(|model| model.reasoning_efforts.clone())
+                    .filter(|efforts| !efforts.is_empty())
+                    .unwrap_or_else(|| efforts_in_text(&source_text, &field.model_id));
+                append_reasoning_efforts(&mut line, &efforts);
                 line
             })
             .collect::<Vec<_>>()
@@ -736,6 +744,15 @@ impl SettingsWindowView {
         let Some(models_input) = draft.models_input.clone() else {
             return;
         };
+        // 批量编辑后点保存：以文本为准，别让卡片同步覆盖刚写进去的模型与 efforts。
+        let edited = models_input.read(cx).value().to_string();
+        if let Some((_, params)) = edited_models(&draft.models, &edited) {
+            if let Some(slot) = self.provider_drafts.get_mut(index) {
+                slot.models = edited;
+                slot.model_params = params;
+                slot.model_fields.clear();
+            }
+        }
         self.sync_model_fields(index, window, cx);
         let Some(draft) = self.provider_drafts.get(index).cloned() else {
             return;

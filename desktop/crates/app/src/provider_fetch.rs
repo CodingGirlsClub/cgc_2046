@@ -57,11 +57,18 @@ pub(crate) fn merge_remote_models(
         if !chosen.contains(&model.id) || models.iter().any(|id| id == &model.id) {
             continue;
         }
-        let config = existing
-            .iter()
-            .find(|config| config.id == model.id)
-            .cloned()
-            .unwrap_or_else(|| from_remote(model, catalog));
+        let config = match existing.iter().find(|config| config.id == model.id) {
+            Some(local) => {
+                let mut local = local.clone();
+                // 本地没声明档位时用供应商的补上；已有声明保持用户的选择。
+                if local.reasoning_efforts.is_empty() && !model.reasoning_efforts.is_empty() {
+                    local.reasoning_efforts = model.reasoning_efforts.clone();
+                    local.supports_thinking = true;
+                }
+                local
+            }
+            None => from_remote(model, catalog),
+        };
         models.push(model.id.clone());
         params.push(config);
     }
@@ -186,6 +193,32 @@ mod tests {
         let (_, params) =
             merge_remote_models(&fetched, &existing, &chosen(&["deepseek-flash"]), &catalog);
         assert_eq!(params[0].context_window, 8_192);
+    }
+
+    #[test]
+    fn refetch_fills_missing_effort_levels() {
+        let existing = vec![ModelPrefs::new("m")];
+        let fetched = vec![RemoteModel {
+            reasoning_efforts: vec!["low".into(), "high".into()],
+            ..remote("m")
+        }];
+        let (_, params) = merge_remote_models(&fetched, &existing, &chosen(&["m"]), &[]);
+        assert_eq!(params[0].reasoning_efforts, vec!["low", "high"]);
+        assert!(params[0].supports_thinking);
+    }
+
+    #[test]
+    fn refetch_keeps_explicit_effort_levels() {
+        let existing = vec![ModelPrefs {
+            reasoning_efforts: vec!["max".into()],
+            ..ModelPrefs::new("m")
+        }];
+        let fetched = vec![RemoteModel {
+            reasoning_efforts: vec!["low".into(), "high".into()],
+            ..remote("m")
+        }];
+        let (_, params) = merge_remote_models(&fetched, &existing, &chosen(&["m"]), &[]);
+        assert_eq!(params[0].reasoning_efforts, vec!["max"]);
     }
 
     #[test]

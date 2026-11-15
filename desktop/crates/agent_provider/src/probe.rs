@@ -42,6 +42,11 @@ fn efforts(row: &serde_json::Value) -> Vec<String> {
         .or_else(|| {
             row.get("supported_reasoning_levels")
                 .and_then(serde_json::Value::as_array)
+        })
+        .or_else(|| {
+            // magpie / 自家网关的列表格式。
+            row.get("reasoning_levels")
+                .and_then(serde_json::Value::as_array)
         });
     levels
         .map(|levels| {
@@ -591,6 +596,13 @@ mod tests {
         assert_eq!(classify_status(403), ProbeState::Unauthorized);
         assert_eq!(classify_status(404), ProbeState::Missing);
         assert_eq!(classify_status(500), ProbeState::Missing);
+    }
+
+    #[test]
+    fn reads_magpie_reasoning_levels() {
+        let body = r#"{"data":[{"id":"auto/gpt-6-luna","reasoning_levels":["low","high","max"]}]}"#;
+        let models = parse_models(body).expect("parse");
+        assert_eq!(models[0].reasoning_efforts, vec!["low", "high", "max"]);
     }
 
     #[test]

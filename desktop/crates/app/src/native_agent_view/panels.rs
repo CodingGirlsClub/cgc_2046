@@ -227,7 +227,8 @@ impl NativeAgentView {
         let thinking_supported = current_model_config.supports_thinking;
         let effort_levels =
             if thinking_supported && current_model_config.reasoning_efforts.is_empty() {
-                vec!["Thinking".to_string()]
+                // 没有档位信息时只表示“开/关”，不要叫 Thinking 让人以为在切模式。
+                vec!["默认".to_string()]
             } else {
                 current_model_config.reasoning_efforts.clone()
             };
@@ -296,7 +297,7 @@ impl NativeAgentView {
                 effort_levels
                     .get(current_effort)
                     .map(String::as_str)
-                    .unwrap_or("Thinking")
+                    .unwrap_or("默认")
             } else {
                 "Off"
             }

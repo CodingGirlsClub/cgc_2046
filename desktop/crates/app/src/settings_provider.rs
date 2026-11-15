@@ -74,6 +74,24 @@ pub(crate) use cgc_agent_store::model_lines::{
     append_reasoning_efforts, format_model_lines, normalized_provider_name, parse_model_lines,
 };
 
+/// 从模型行文本里取某个模型的 efforts（卡片没有声明时用它保住用户手写的列）。
+pub(crate) fn efforts_in_text(text: &str, id: &str) -> Vec<String> {
+    parse_model_lines(text)
+        .1
+        .into_iter()
+        .find(|model| model.id == id)
+        .map(|model| model.reasoning_efforts)
+        .unwrap_or_default()
+}
+
+/// 批量编辑后保存：文本与草稿不同就以文本为准，避免卡片同步把用户刚写的内容覆盖。
+pub(crate) fn edited_models(
+    draft_models: &str,
+    textarea: &str,
+) -> Option<(Vec<String>, Vec<ModelPrefs>)> {
+    (draft_models != textarea).then(|| parse_model_lines(textarea))
+}
+
 /// 复制 Provider 时取一个不重名的显示名：`base 2`、`base 3`…（比较时忽略大小写与首尾空白）。
 pub(crate) fn next_provider_name(base: &str, existing: &[String]) -> String {
     let base = base.trim();
@@ -276,7 +294,10 @@ impl KeyValidation {
 
 #[cfg(test)]
 mod tests {
-    use super::{next_provider_name, KeyValidation, KeyValidationAction, ProviderDraft};
+    use super::{
+        edited_models, efforts_in_text, next_provider_name, KeyValidation, KeyValidationAction,
+        ProviderDraft,
+    };
 
     #[test]
     fn copied_provider_gets_a_free_name() {
@@ -292,6 +313,23 @@ mod tests {
             ),
             "DeepSeek 3"
         );
+    }
+
+    #[test]
+    fn efforts_in_text_reads_the_written_column() {
+        let text = "m | 64000 | 8000 | true | true | true | false | efforts=low,high";
+        assert_eq!(efforts_in_text(text, "m"), vec!["low", "high"]);
+        assert!(efforts_in_text(text, "other").is_empty());
+    }
+
+    #[test]
+    fn edited_models_prefer_the_textarea() {
+        let draft = "m | 64000 | 8000 | true | true | true | false";
+        let edited = "m | 64000 | 8000 | true | true | true | false | efforts=low,high";
+        let (models, params) = edited_models(draft, edited).expect("edited");
+        assert_eq!(models, vec!["m"]);
+        assert_eq!(params[0].reasoning_efforts, vec!["low", "high"]);
+        assert!(edited_models(draft, draft).is_none());
     }
 
     #[test]

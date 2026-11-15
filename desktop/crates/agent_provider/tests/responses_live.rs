@@ -12,6 +12,10 @@ use cgc_agent_provider::{
     ResponsesCompatibleConfig, ResponsesCompatibleProvider,
 };
 
+fn model_id() -> String {
+    std::env::var("MAGPIE_MODEL").unwrap_or_else(|_| "auto/deepseek-v4.1-flash".to_string())
+}
+
 #[test]
 #[ignore = "needs a live Responses endpoint (MAGPIE_BASE_URL / MAGPIE_API_KEY)"]
 fn responses_streams_text_from_a_live_endpoint() {
@@ -20,7 +24,7 @@ fn responses_streams_text_from_a_live_endpoint() {
     let model = Model::new(
         ProviderId::new("magpie"),
         "Magpie",
-        "auto/deepseek-v4.1-flash",
+        model_id(),
         "DeepSeek V4.1 Flash",
         ModelLimits::new(1_048_576, 384_000),
     );
@@ -59,7 +63,7 @@ fn responses_returns_a_function_call() {
     let model = Model::new(
         ProviderId::new("magpie"),
         "Magpie",
-        "auto/deepseek-v4.1-flash",
+        model_id(),
         "DeepSeek V4.1 Flash",
         ModelLimits::new(1_048_576, 384_000),
     );
@@ -105,7 +109,7 @@ fn responses_accepts_a_function_call_output() {
     let model = Model::new(
         ProviderId::new("magpie"),
         "Magpie",
-        "auto/deepseek-v4.1-flash",
+        model_id(),
         "DeepSeek V4.1 Flash",
         ModelLimits::new(1_048_576, 384_000),
     );
@@ -159,7 +163,7 @@ fn responses_replays_sealed_reasoning() {
     let model = Model::new(
         ProviderId::new("magpie"),
         "Magpie",
-        "auto/deepseek-v4.1-flash",
+        model_id(),
         "DeepSeek V4.1 Flash",
         ModelLimits::new(1_048_576, 384_000),
     );
@@ -175,34 +179,50 @@ fn responses_replays_sealed_reasoning() {
     let mut stream = futures::executor::block_on(provider.stream(&model, request))
         .expect("open responses stream");
     let mut thinking = String::new();
-    let mut signature = None;
+    let mut block_text = String::new();
+    let mut signature = String::new();
     while let Some(event) = futures::executor::block_on(futures::StreamExt::next(&mut stream)) {
-        if let CompletionEvent::Thinking {
-            text,
-            signature: sig,
-        } = event.expect("stream event")
-        {
-            thinking.push_str(&text);
-            if sig.is_some() {
+        let event = event.expect("stream event");
+        match &event {
+            CompletionEvent::ContentBlock(block) => eprintln!("block: {block:?}"),
+            CompletionEvent::Thinking { text, .. } => eprintln!("thinking: {text:?}"),
+            CompletionEvent::Stop(reason) => eprintln!("stop: {reason:?}"),
+            _ => {}
+        }
+        match event {
+            CompletionEvent::Thinking { text, .. } => thinking.push_str(&text),
+            CompletionEvent::ContentBlock(Content::Thinking {
+                text,
+                signature: sig,
+            }) => {
+                block_text = text;
                 signature = sig;
             }
+            _ => {}
         }
     }
-    let Some(signature) = signature else {
-        eprintln!("provider returned no sealed reasoning item; replay cannot be exercised");
-        return;
+    let text = if block_text.is_empty() {
+        thinking
+    } else {
+        block_text
     };
-    assert!(!signature.is_empty(), "sealed reasoning signature");
+    if signature.is_empty() && text.trim().is_empty() {
+        eprintln!("provider returned no reasoning to replay");
+        return;
+    }
+    eprintln!(
+        "replaying {} reasoning (encrypted: {})",
+        if signature.is_empty() {
+            "plain"
+        } else {
+            "sealed"
+        },
+        !signature.is_empty()
+    );
 
     let replay = vec![
         Message::user("What is 2+2? Answer briefly."),
-        Message::new(
-            Role::Assistant,
-            vec![Content::Thinking {
-                text: thinking,
-                signature,
-            }],
-        ),
+        Message::new(Role::Assistant, vec![Content::Thinking { text, signature }]),
         Message::user("And 3+3? Answer briefly."),
     ];
     let request = Request::new(replay)

@@ -97,7 +97,8 @@ impl Provider for ResponsesCompatibleProvider {
         request: Request,
     ) -> future::BoxFuture<'static, Result<CompletionStream, ProviderError>> {
         let config = Arc::clone(&self.config);
-        let body = build_body(model, &request);
+        let allow_plain_reasoning = !is_openai_host(&self.config.base_url);
+        let body = build_body(model, &request, allow_plain_reasoning);
         let (sender, receiver) =
             mpsc::channel::<Result<CompletionEvent, ProviderError>>(DELTA_CAPACITY);
         let spawn = std::thread::Builder::new()
@@ -119,7 +120,10 @@ impl Provider for ResponsesCompatibleProvider {
 }
 
 /// 把统一请求映射成 Responses 的 JSON body。
-pub(crate) fn build_body(model: &Model, request: &Request) -> Value {
+///
+/// `allow_plain_reasoning`：非 OpenAI 官方 host 允许回放明文 reasoning
+/// （DeepSeek 等实现要求回传 reasoning_text；OpenAI 只认自己的加密内容）。
+pub(crate) fn build_body(model: &Model, request: &Request, allow_plain_reasoning: bool) -> Value {
     let mut instructions: Vec<String> = Vec::new();
     let mut input: Vec<Value> = Vec::new();
     for message in &request.messages {
@@ -166,14 +170,20 @@ pub(crate) fn build_body(model: &Model, request: &Request) -> Value {
                                 "name": tool_use.name,
                                 "arguments": tool_use.args.to_string(),
                             })),
-                            Content::Thinking { signature, .. } => {
-                                // Responses 的 sealed reasoning：原样回放（OpenAI 只认自己的加密内容）。
+                            Content::Thinking { text, signature } => {
+                                // sealed（OpenAI）：原样回放加密内容；
+                                // 明文（DeepSeek 等）：回放 reasoning_text，仅限非 OpenAI host。
                                 if let Ok(meta) = serde_json::from_str::<ReasoningMeta>(signature) {
                                     input.push(json!({
                                         "type": "reasoning",
                                         "id": meta.id,
                                         "encrypted_content": meta.encrypted_content,
                                         "summary": [],
+                                    }));
+                                } else if allow_plain_reasoning && !text.trim().is_empty() {
+                                    input.push(json!({
+                                        "type": "reasoning",
+                                        "content": [{ "type": "reasoning_text", "text": text }],
                                     }));
                                 }
                             }
@@ -247,6 +257,11 @@ pub(crate) fn build_body(model: &Model, request: &Request) -> Value {
             .collect::<Vec<_>>());
     }
     body
+}
+
+/// OpenAI 官方只接受自己的 sealed reasoning；其他 host 允许明文 reasoning 回放。
+fn is_openai_host(base_url: &str) -> bool {
+    base_url.to_ascii_lowercase().contains("api.openai.com")
 }
 
 fn run_request(
@@ -344,6 +359,7 @@ struct StreamState {
     stop_sent: bool,
     done: bool,
     tools_used: bool,
+    thinking_text: String,
     calls: BTreeMap<u64, PendingCall>,
 }
 
@@ -372,6 +388,7 @@ impl StreamState {
             }
             "response.reasoning_summary_text.delta" | "response.reasoning_text.delta" => {
                 if let Some(delta) = text_field(&value, "delta") {
+                    self.thinking_text.push_str(delta);
                     events.push(CompletionEvent::Thinking {
                         text: delta.to_string(),
                         signature: None,
@@ -421,26 +438,51 @@ impl StreamState {
                 }
                 Some("reasoning") => {
                     // 用 done 里的完整 encrypted_content；added 里的可能是半截。
-                    if let Some(encrypted) = value
+                    let summary = value
+                        .pointer("/item/summary")
+                        .and_then(Value::as_array)
+                        .map(|parts| {
+                            parts
+                                .iter()
+                                .filter_map(|part| part.get("text").and_then(Value::as_str))
+                                .collect::<String>()
+                        })
+                        .unwrap_or_default();
+                    let text = if self.thinking_text.is_empty() {
+                        summary
+                    } else {
+                        std::mem::take(&mut self.thinking_text)
+                    };
+                    let encrypted = value
                         .pointer("/item/encrypted_content")
                         .and_then(Value::as_str)
-                        .filter(|encrypted| !encrypted.is_empty())
-                    {
-                        let id = value
-                            .pointer("/item/id")
-                            .and_then(Value::as_str)
-                            .unwrap_or_default()
-                            .to_string();
-                        let signature = serde_json::to_string(&ReasoningMeta {
-                            id,
-                            encrypted_content: encrypted.to_string(),
-                        })
-                        .expect("reasoning meta");
-                        // 文本已由 summary/reasoning delta 送过，这里只补回放用的签名。
-                        events.push(CompletionEvent::Thinking {
-                            text: String::new(),
-                            signature: Some(signature),
-                        });
+                        .filter(|encrypted| !encrypted.is_empty());
+                    match encrypted {
+                        Some(encrypted) => {
+                            let id = value
+                                .pointer("/item/id")
+                                .and_then(Value::as_str)
+                                .unwrap_or_default()
+                                .to_string();
+                            let signature = serde_json::to_string(&ReasoningMeta {
+                                id,
+                                encrypted_content: encrypted.to_string(),
+                            })
+                            .expect("reasoning meta");
+                            // sealed：文本同时留给明文回放（非 OpenAI host）。
+                            events.push(CompletionEvent::ContentBlock(Content::Thinking {
+                                text,
+                                signature,
+                            }));
+                        }
+                        None if !text.trim().is_empty() => {
+                            // 明文的 reasoning（DeepSeek 等），供非 OpenAI host 回放。
+                            events.push(CompletionEvent::ContentBlock(Content::Thinking {
+                                text,
+                                signature: String::new(),
+                            }));
+                        }
+                        None => {}
                     }
                 }
                 _ => {}
@@ -592,7 +634,7 @@ mod tests {
             messages: vec![Message::system("be brief"), Message::user("hi")],
             ..Request::default()
         };
-        let body = build_body(&model(), &request);
+        let body = build_body(&model(), &request, false);
         assert_eq!(body["instructions"], "be brief");
         assert_eq!(body["input"][0]["type"], "message");
         assert_eq!(body["input"][0]["role"], "user");
@@ -617,7 +659,7 @@ mod tests {
             ],
             ..Request::default()
         };
-        let body = build_body(&model(), &request);
+        let body = build_body(&model(), &request, false);
         assert_eq!(body["input"][0]["type"], "function_call");
         assert_eq!(body["input"][0]["call_id"], "call_1");
         assert_eq!(body["input"][1]["type"], "function_call_output");
@@ -634,7 +676,7 @@ mod tests {
             )],
             ..Request::default()
         };
-        let body = build_body(&model(), &request);
+        let body = build_body(&model(), &request, false);
         assert_eq!(body["tools"][0]["type"], "function");
         assert_eq!(body["tools"][0]["name"], "read_file");
         assert!(body["tools"][0].get("function").is_none());
@@ -720,7 +762,7 @@ mod tests {
     }
 
     #[test]
-    fn reasoning_done_carries_a_replay_signature() {
+    fn reasoning_done_carries_a_replay_content_block() {
         let mut state = StreamState::default();
         let events = state
             .on_event(json!({
@@ -730,9 +772,8 @@ mod tests {
             }))
             .unwrap();
         match &events[0] {
-            CompletionEvent::Thinking { text, signature } => {
+            CompletionEvent::ContentBlock(Content::Thinking { text, signature }) => {
                 assert!(text.is_empty(), "text already came from deltas");
-                let signature = signature.as_deref().expect("signature");
                 assert!(signature.contains("cipher"));
                 assert!(signature.contains("rs_1"));
             }
@@ -760,7 +801,7 @@ mod tests {
             )],
             ..Request::default()
         };
-        let body = build_body(&model(), &request);
+        let body = build_body(&model(), &request, false);
         assert_eq!(body["input"][0]["type"], "reasoning");
         assert_eq!(body["input"][0]["id"], "rs_1");
         assert_eq!(body["input"][0]["encrypted_content"], "cipher");
@@ -779,7 +820,7 @@ mod tests {
             )],
             ..Request::default()
         };
-        let body = build_body(&model(), &request);
+        let body = build_body(&model(), &request, false);
         assert_eq!(body["input"].as_array().map(Vec::len), Some(0));
     }
 
