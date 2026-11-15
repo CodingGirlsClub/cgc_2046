@@ -49,6 +49,9 @@ export const FLASHBACK_VOICES_ROUTE = 'pages/flashback-voices/index'
  */
 export const PASSWORD_CENTER_SCENE = 'pw'
 
+/** 小程序密码中心页（忘记密码码的落地面）。 */
+export const PASSWORD_CENTER_ROUTE = 'pages/account-password/index'
+
 /** 公开卡页 path（分享卡片 path 单源；#771）——无前导斜杠形态供路由比较 */
 export const FLASHBACK_SHARED_CARD_ROUTE = 'pages/flashback-shared-card/index'
 
@@ -150,10 +153,13 @@ function innerAppShowRoute(query: AppShowQuery, currentRoute: string, currentQue
   }
 
   const scene = query.scene?.trim()
-  // 忘记密码页的固定小程序码（scene="pw"）：页面本身就是目标，不能按邀请处理——
-  // 否则会被改写到 join 页并把 "pw" 存成一次性邀请凭据。
-  // 只按**入站** scene 判定；当前停在哪一页与这条深链无关。
-  if (scene === PASSWORD_CENTER_SCENE) return null
+  // 忘记密码页的固定小程序码（scene="pw"）：不是邀请凭据，不进 join / pendingScene；
+  // 但热启动时小程序可能停在别的页，必须把用户送到密码页（冷启动由 entryIsTarget 抑制重复导航）。
+  if (scene === PASSWORD_CENTER_SCENE) {
+    return normalizePath(currentRoute) === PASSWORD_CENTER_ROUTE
+      ? null
+      : `/${PASSWORD_CENTER_ROUTE}`
+  }
   if (scene) return buildJoinSharePath(scene)
 
   const id = query.id?.trim()
@@ -247,7 +253,11 @@ function entryIsTarget(options: AppEntryOptions, url: string | null): boolean {
   // 同样是无定位参数的入口面）path 相同即目标——token 等参数属链接身份，不做值
   // 比较（KTD2）。join（scene 链路）保持不抑制：pendingScene 必须落盘且 join 页
   // 消费语义未变。
-  const noIdEntryRoutes: readonly string[] = [...FLASHBACK_ENTRY_ROUTES, 'pages/flashback/index']
+  const noIdEntryRoutes: readonly string[] = [
+    ...FLASHBACK_ENTRY_ROUTES,
+    'pages/flashback/index',
+    PASSWORD_CENTER_ROUTE
+  ]
   return noIdEntryRoutes.includes(normalizePath(path))
 }
 

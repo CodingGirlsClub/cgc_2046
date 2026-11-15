@@ -6,6 +6,7 @@ import {
   buildFlashbackEntryPath,
   buildJoinSharePath,
   FLASHBACK_CARD_SHARE_IMAGE,
+  PASSWORD_CENTER_ROUTE,
   platformFallbackRoute,
   resolveAppShowRoute,
   resolveEntry
@@ -464,15 +465,22 @@ test('P0-4/P1 resolveEntry 热启动 link 目标现在已注册（tt）→ 直�
   assert.equal(decision.navigate, true)
 })
 
-test('密码页固定码 scene=pw 不当作邀请：冷/热启动都不跳 join、不落 pendingScene', () => {
-  const path = 'pages/account-password/index'
+test('密码页固定码 scene=pw：不落 pendingScene，冷启动不重复导航，热启动从其它页跳到密码页', () => {
+  const path = PASSWORD_CENTER_ROUTE
+
   const cold = resolveEntry({ path, query: { scene: 'pw' } })
-  assert.deepEqual(sceneAndUrl(cold), { scene: null, url: null })
+  assert.deepEqual(sceneAndUrl(cold), { scene: null, url: `/${path}` })
   assert.equal(cold.navigate, false)
 
-  const warm = resolveEntry({ path, query: { scene: 'pw' } }, [{ route: path, options: { scene: 'pw' } }])
-  assert.deepEqual(sceneAndUrl(warm), { scene: null, url: null })
-  assert.equal(warm.navigate, false)
+  const warm = resolveEntry({ path, query: { scene: 'pw' } }, [{ route: 'pages/profile/index' }])
+  assert.deepEqual(sceneAndUrl(warm), { scene: null, url: `/${path}` })
+  assert.equal(warm.navigate, true)
+
+  const same = resolveEntry({ path, query: { scene: 'pw' } }, [
+    { route: path, options: { scene: 'pw' } }
+  ])
+  assert.deepEqual(sceneAndUrl(same), { scene: null, url: null })
+  assert.equal(same.navigate, false)
 })
 
 test('当前停在密码页时，其它入站深链仍然生效（短路只认入站 scene）', () => {
