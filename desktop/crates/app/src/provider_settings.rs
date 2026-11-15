@@ -2,6 +2,7 @@
 
 use std::fmt;
 
+use cgc_agent_provider::probe::RemoteModel;
 use cgc_agent_store::{
     is_builtin_provider_id, provider_key_account, AgentPrefs, PrefsStore, ProviderPrefs,
 };
@@ -11,6 +12,12 @@ use cgc_platform::session::KeychainStore;
 #[derive(Clone, Debug)]
 pub(crate) enum ProviderPrefsChange {
     SaveProvider(ProviderPrefs),
+    /// 只更新已保存 provider 的模型目录（获取成功后立即落盘）。
+    SaveProviderCatalog {
+        provider_id: String,
+        models: Vec<RemoteModel>,
+        fetched_at: u64,
+    },
     SaveKey {
         provider: ProviderPrefs,
         key: String,
@@ -79,6 +86,24 @@ impl ProviderSettings {
                 if should_select {
                     prefs.selected_provider = Some(provider.id);
                 }
+                self.save(&mut prefs)
+            }
+            ProviderPrefsChange::SaveProviderCatalog {
+                provider_id,
+                models,
+                fetched_at,
+            } => {
+                let mut prefs = self.prefs.load();
+                let Some(provider) = prefs
+                    .providers
+                    .iter_mut()
+                    .find(|provider| provider.id == provider_id)
+                else {
+                    // 草稿 provider 尚未保存：等保存时一起写入。
+                    return Ok(());
+                };
+                provider.available_models = models;
+                provider.models_fetched_at = fetched_at;
                 self.save(&mut prefs)
             }
             ProviderPrefsChange::SaveKey { mut provider, key } => {
@@ -177,6 +202,7 @@ impl ProviderSettings {
 mod tests {
     use std::sync::Arc;
 
+    use cgc_agent_provider::probe::RemoteModel;
     use cgc_agent_store::{provider_key_account, PrefsStore, ProviderPrefs};
     use cgc_platform::session::{KeychainStore, SecretBackend};
 
@@ -502,6 +528,56 @@ mod tests {
             settings.keychain.load_secret(&account).as_deref(),
             Some("to-be-kept")
         );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn catalog_updates_only_the_named_provider() {
+        let root = std::env::temp_dir().join(format!("cgc-catalog-save-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let settings = settings(&root);
+        settings
+            .apply(ProviderPrefsChange::SaveProvider(provider()))
+            .expect("save provider");
+        let models = vec![RemoteModel {
+            id: "vendor-model".into(),
+            name: Some("Vendor Model".into()),
+            context_window: Some(128_000),
+            max_output_tokens: Some(8_000),
+            supports_images: Some(false),
+            reasoning_efforts: vec!["low".into(), "high".into()],
+        }];
+        settings
+            .apply(ProviderPrefsChange::SaveProviderCatalog {
+                provider_id: "test-provider".into(),
+                models: models.clone(),
+                fetched_at: 1_700_000_000,
+            })
+            .expect("save catalog");
+        let saved = settings
+            .load()
+            .provider("test-provider")
+            .cloned()
+            .expect("saved");
+        assert_eq!(saved.available_models, models);
+        assert_eq!(saved.models_fetched_at, 1_700_000_000);
+        assert_eq!(saved.models, vec!["test-model".to_string()]);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn catalog_update_for_unsaved_provider_is_ignored() {
+        let root = std::env::temp_dir().join(format!("cgc-catalog-unsaved-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let settings = settings(&root);
+        settings
+            .apply(ProviderPrefsChange::SaveProviderCatalog {
+                provider_id: "missing".into(),
+                models: Vec::new(),
+                fetched_at: 1,
+            })
+            .expect("no-op");
+        assert!(settings.load().provider("missing").is_none());
         let _ = std::fs::remove_dir_all(&root);
     }
 }

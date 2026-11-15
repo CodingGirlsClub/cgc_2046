@@ -369,6 +369,7 @@ impl SettingsWindowView {
             .collect::<Vec<_>>()
             .join("\n");
         draft.models = text.clone();
+        draft.model_params = parse_model_lines(&text).1;
         if let Some(input) = draft.models_input.clone() {
             input.update(cx, |state, cx| state.set_value(text, window, cx));
         }
@@ -1017,32 +1018,46 @@ impl SettingsWindowView {
         result: Result<Vec<RemoteModel>, ProviderError>,
         cx: &mut Context<Self>,
     ) {
-        let Some(draft) = self.provider_drafts.get_mut(index) else {
-            return;
-        };
-        draft.fetching_models = false;
-        match result {
-            Ok(models) if models.is_empty() => {
-                draft.remote_models.clear();
-                draft.fetch_error =
-                    Some("供应商返回了空列表：请检查 URL，或用批量编辑手填模型".to_string());
+        let mut persisted: Option<(String, Vec<RemoteModel>, u64)> = None;
+        {
+            let Some(draft) = self.provider_drafts.get_mut(index) else {
+                return;
+            };
+            draft.fetching_models = false;
+            match result {
+                Ok(models) if models.is_empty() => {
+                    draft.remote_models.clear();
+                    draft.fetch_error =
+                        Some("供应商返回了空列表：请检查 URL，或用批量编辑手填模型".to_string());
+                }
+                Ok(models) => {
+                    let fetched_at = now_unix();
+                    draft.models_fetched_at = fetched_at;
+                    draft.remote_models = models;
+                    draft.fetch_error = None;
+                    persisted = Some((draft.id.clone(), draft.remote_models.clone(), fetched_at));
+                }
+                Err(error) if list_unsupported(&error) => {
+                    // 保留上次成功获取的目录，只提示本次失败。
+                    draft.fetch_error = Some("该服务不提供模型列表，请用批量编辑手填".to_string());
+                }
+                Err(error) => {
+                    let detail: String = error.to_string().chars().take(140).collect();
+                    draft.fetch_error = Some(format!(
+                        "获取失败：{}（{detail}）",
+                        provider_validation_message(&error)
+                    ));
+                }
             }
-            Ok(models) => {
-                draft.models_fetched_at = now_unix();
-                draft.remote_models = models;
-                draft.fetch_error = None;
-            }
-            Err(error) if list_unsupported(&error) => {
-                draft.remote_models.clear();
-                draft.fetch_error = Some("该服务不提供模型列表，请用批量编辑手填".to_string());
-            }
-            Err(error) => {
-                draft.remote_models.clear();
-                let detail: String = error.to_string().chars().take(140).collect();
-                draft.fetch_error = Some(format!(
-                    "获取失败：{}（{detail}）",
-                    provider_validation_message(&error)
-                ));
+        }
+        if let Some((provider_id, models, fetched_at)) = persisted {
+            let change = ProviderPrefsChange::SaveProviderCatalog {
+                provider_id,
+                models,
+                fetched_at,
+            };
+            if let Err(error) = self.provider_settings.apply(change) {
+                self.error = Some(error.to_string());
             }
         }
         cx.notify();
@@ -1183,6 +1198,8 @@ impl SettingsWindowView {
 
     /// chips 改动后把模型参数写回文本与文本区。
     fn flush_models_text(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        // 先把卡片输入框里的未保存编辑并入参数，避免 chips 操作把它们覆盖掉。
+        self.sync_model_fields(index, window, cx);
         let Some(draft) = self.provider_drafts.get_mut(index) else {
             return;
         };
