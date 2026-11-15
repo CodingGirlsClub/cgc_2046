@@ -873,28 +873,27 @@ impl SettingsWindowView {
         cx.notify();
     }
 
-    /// 停用/启用：只改开关并落盘，不读取输入框，避免把未保存的表单编辑一并提交。
+    /// 停用/启用：只改已保存配置的开关，不读取输入框，避免把未保存的表单编辑一并提交。
     fn set_provider_enabled(&mut self, index: usize, enabled: bool, cx: &mut Context<Self>) {
         let Some(draft) = self.provider_drafts.get(index).cloned() else {
             return;
         };
-        let mut provider = draft.to_prefs_with(&draft.base_url, &draft.name);
-        provider.enabled = enabled;
-        provider.builtin |= is_builtin_provider_id(&provider.id);
         match self
             .provider_settings
-            .apply(ProviderPrefsChange::SaveProvider(provider.clone()))
-        {
+            .apply(ProviderPrefsChange::SetProviderEnabled {
+                provider_id: draft.id.clone(),
+                enabled,
+            }) {
             Ok(()) => {
                 if let Some(slot) = self.provider_drafts.get_mut(index) {
                     slot.enabled = enabled;
-                    slot.builtin = provider.builtin;
                 }
                 self.error = None;
+                let name = draft.name.clone();
                 let message = if enabled {
-                    format!("{} 已启用", provider.name)
+                    format!("{name} 已启用")
                 } else {
-                    format!("{} 已停用", provider.name)
+                    format!("{name} 已停用")
                 };
                 self.refresh_provider_runtime(message, cx);
             }

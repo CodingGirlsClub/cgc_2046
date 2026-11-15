@@ -18,6 +18,11 @@ pub(crate) enum ProviderPrefsChange {
         models: Vec<RemoteModel>,
         fetched_at: u64,
     },
+    /// 只更新已保存 provider 的启用状态。
+    SetProviderEnabled {
+        provider_id: String,
+        enabled: bool,
+    },
     SaveKey {
         provider: ProviderPrefs,
         key: String,
@@ -104,6 +109,22 @@ impl ProviderSettings {
                 };
                 provider.available_models = models;
                 provider.models_fetched_at = fetched_at;
+                self.save(&mut prefs)
+            }
+            ProviderPrefsChange::SetProviderEnabled {
+                provider_id,
+                enabled,
+            } => {
+                let mut prefs = self.prefs.load();
+                let Some(provider) = prefs
+                    .providers
+                    .iter_mut()
+                    .find(|provider| provider.id == provider_id)
+                else {
+                    // 草稿 provider 尚未保存：开关只留在草稿里，保存时一起写入。
+                    return Ok(());
+                };
+                provider.enabled = enabled;
                 self.save(&mut prefs)
             }
             ProviderPrefsChange::SaveKey { mut provider, key } => {
@@ -578,6 +599,36 @@ mod tests {
             })
             .expect("no-op");
         assert!(settings.load().provider("missing").is_none());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn enabling_only_updates_the_flag() {
+        let root = std::env::temp_dir().join(format!("cgc-enable-only-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let settings = settings(&root);
+        let mut saved = provider();
+        saved.protocol = cgc_agent_provider::ProviderProtocol::AnthropicCompatible;
+        settings
+            .apply(ProviderPrefsChange::SaveProvider(saved))
+            .expect("save provider");
+        settings
+            .apply(ProviderPrefsChange::SetProviderEnabled {
+                provider_id: "test-provider".into(),
+                enabled: false,
+            })
+            .expect("disable");
+        let after = settings
+            .load()
+            .provider("test-provider")
+            .cloned()
+            .expect("provider");
+        assert!(!after.enabled);
+        assert_eq!(
+            after.protocol,
+            cgc_agent_provider::ProviderProtocol::AnthropicCompatible
+        );
+        assert_eq!(after.models, vec!["test-model".to_string()]);
         let _ = std::fs::remove_dir_all(&root);
     }
 }
