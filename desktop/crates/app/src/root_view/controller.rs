@@ -3239,6 +3239,7 @@ impl RootView {
                 match result {
                     Ok(result) => {
                         this.agent_install_error = None;
+                        let node = NodeRuntimeManager::default_manager().installed_runtime();
                         if let Some(row) = this
                             .agent_registry_rows
                             .iter_mut()
@@ -3250,6 +3251,14 @@ impl RootView {
                                     .clone()
                                     .unwrap_or_else(|| installed_version.clone()),
                             };
+                            // 安装前读不到 bundled 版本（包还没落地），装完必须重探，
+                            // 否则 runtime 行会一直停在 "unknown"。
+                            if row.entry.uses_dsh_runtime() {
+                                row.runtime = cgc_platform::agent::dsh_runtime::probe_dsh_runtime(
+                                    Some(&row.entry),
+                                    node.as_ref(),
+                                );
+                            }
                         }
                     }
                     Err(error) => this.agent_install_error = Some(error.to_string()),
