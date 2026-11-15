@@ -204,6 +204,16 @@ pub fn anthropic_messages_url(base_url: &str) -> String {
     }
 }
 
+/// Anthropic 的模型列表端点：`/v1/models`（base 已带 /v1 则不重复）。
+pub fn anthropic_models_url(base_url: &str) -> String {
+    let base = base_url.trim_end_matches('/');
+    if base.ends_with("/v1") {
+        format!("{base}/models")
+    } else {
+        format!("{base}/v1/models")
+    }
+}
+
 /// Anthropic 端点的判定：参数错误（400/422）说明端点存在；404 说明不是 Anthropic。
 pub fn classify_probe_status(status: u16) -> ProbeState {
     match status {
@@ -597,6 +607,18 @@ mod tests {
         assert_eq!(classify_status(403), ProbeState::Unauthorized);
         assert_eq!(classify_status(404), ProbeState::Missing);
         assert_eq!(classify_status(500), ProbeState::Missing);
+    }
+
+    #[test]
+    fn anthropic_models_url_adds_v1_once() {
+        assert_eq!(
+            anthropic_models_url("https://api.anthropic.com"),
+            "https://api.anthropic.com/v1/models"
+        );
+        assert_eq!(
+            anthropic_models_url("https://api.anthropic.com/v1"),
+            "https://api.anthropic.com/v1/models"
+        );
     }
 
     #[test]

@@ -9,9 +9,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use cgc_agent_provider::{
-    detect_protocols, list_models, list_models_at, list_unsupported, probe::RemoteModel,
-    test_models_for, validate_credentials, ProbeState, ProviderError, ProviderErrorCategory,
-    ProviderProtocol, ThinkingMode,
+    anthropic_models_url, detect_protocols, list_models, list_models_at, list_unsupported,
+    probe::RemoteModel, test_models_for, validate_credentials, ProbeState, ProviderError,
+    ProviderErrorCategory, ProviderProtocol, ThinkingMode,
 };
 use cgc_agent_store::{
     builtin_providers, is_builtin_provider_id, next_provider_id, normalized_provider_name,
@@ -1029,7 +1029,10 @@ impl SettingsWindowView {
         }
         self.error = None;
         cx.notify();
-        let list_url = optional(&draft.models_url);
+        let list_url = optional(&draft.models_url).or_else(|| {
+            (draft.protocol == ProviderProtocol::AnthropicCompatible)
+                .then(|| anthropic_models_url(&base_url))
+        });
         let provider_id = draft.id.clone();
         let task = cx.background_executor().spawn(async move {
             match list_url {
