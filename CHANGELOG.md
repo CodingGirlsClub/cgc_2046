@@ -22,6 +22,13 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 - [Desktop] DeepSeek Harness 以 plugin 形态安装或升级时默认启用自动对话标题，保留用户显式关闭的设置。
 
+## [微信 v0.2.7] - 2026-11-15
+
+- [Miniprogram] 新增「登录密码」页面（`pages/account-password`）：学员可在小程序内修改登录密码；入口在登录页与「我的」页。密码规则判据下沉 `src/domain/password-center.ts`，由 `tests/password-center.test.ts` 钉住。
+- [Miniprogram] 分享路由与页面注册名单同步纳入新页面（`platform-pages.ts` / `share-route.ts`）。
+- [Miniprogram] 同步后端 Notes 相关 operation 的 codegen 产物。
+
+
 ## [2026-11-12]
 
 ### Added

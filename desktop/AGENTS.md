@@ -19,6 +19,7 @@ GPUI + gpui-kit 的原生桌面客户端。组织方式对齐 Zed：`crates/` �
 - **UI 尽量使用 GPUI Kit 组件**：具体有哪些、怎么用，去 `gpui_kit` 依赖源码里找，自己决定。
 - **许可门禁**：新增依赖须与 AGPL-3.0 兼容；GPL-3.0 类先开 issue 人裁（`docs/开源合规/依赖引入规则.md`）。
 - **敏感值**：token、对话内容、核销码、用户手机号不进日志/遥测/崩溃报告（AD-13/AD-16）。
+- **Windows 子进程必须隐藏控制台**：release 是 GUI 子系统（`crates/app/src/main.rs` 的 `windows_subsystem`），父进程没有 console；未设 `CREATE_NO_WINDOW`(0x08000000) 的 console 子进程（`git`/`cmd`/`curl`/`tar`/`node`）会各自弹黑窗。spawn 前调用 `cgc_platform::process::hide_console_window`；不依赖 platform 的 crate 用本地 6 行实现（见 `agent_checkpoint::checkpoint::git_command`）。CI 的 PE 守卫只保证主进程子系统，子进程靠这条约束。
 - **人工合并**：`.github/**`、依赖锁文件（`Cargo.lock`）、根 `AGENTS.md` 的改动由人合并。
 
 ## 验收
@@ -39,7 +40,7 @@ GPUI + gpui-kit 的原生桌面客户端。组织方式对齐 Zed：`crates/` �
   默认端点会推导出 `http://localhost:4000/mcp`；本地 backend 没启动时，ACP agent 会在 session 初始化阶段报 MCP `ECONNREFUSED`，工具卡失败并可能把面板卡在“思考中”。
 
 - **`CGC_AUTH=fake` 只用于纯 UI/假数据联调**：它只替换登录/数据 API，不会伪造 MCP server；fake lease token 发到生产 MCP 也会失败。验证 ACP 工具链必须用真实登录，不加 `CGC_AUTH=fake`。
-- Desktop 的 Provider HTTP 客户端（`ureq`）没有启用 `socks-proxy`；本地 shell 若注入 `ALL_PROXY=socks5h://...`，会导致 native 模型请求 `Connection refused`。启动前清掉 `ALL_PROXY/all_proxy`，或只保留可用的 HTTP 代理。
+- Desktop 的 Provider HTTP 客户端（`ureq`）没有启用 `socks-proxy`：只要环境里有 `ALL_PROXY=socks5h://...`，native 模型请求、Key 验证与「获取模型」都会失败（客户端会提示清除该变量）。终端启动一律带 `-u ALL_PROXY -u all_proxy`（见下方命令）；`open`/Finder 启动无法单次清变量，需要 `launchctl unsetenv ALL_PROXY all_proxy` 后重启客户端。HTTP 代理（`http://`）不受此限制：本机直连超时（Clash 等）时改用 `HTTPS_PROXY=http://127.0.0.1:7890 HTTP_PROXY=http://127.0.0.1:7890` 启动即可，`ureq` 原生支持 HTTP 代理，不需要新增依赖。
 
 ## 模块地图（对齐 Zed）
 

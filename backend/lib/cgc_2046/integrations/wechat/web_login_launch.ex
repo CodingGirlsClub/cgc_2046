@@ -2,11 +2,66 @@ defmodule Cgc2046.Integrations.Wechat.WebLoginLaunch do
   @moduledoc "Login launch artifacts, using the existing SDK token lifecycle without request logging or retries."
   alias Cgc2046.Integrations.Wechat.SdkClient
   @page "pages/web-login/index"
+  @password_page "pages/account-password/index"
 
   def generate(mode, public_code) when mode in [:qr, :link] do
     with {:ok, client} <- SdkClient.fetch(),
          {:ok, response} <- request(mode, public_code, client.get_access_token()) do
       parse(mode, public_code, response)
+    else
+      _ -> {:error, :mini_web_login_unavailable}
+    end
+  end
+
+  @doc """
+  忘记密码页的固定小程序码：scene=pw，直达小程序密码页。
+
+  码本身不含任何凭证（进页面仍需微信登录），因此进程内缓存一次即可。
+  `check_path: true` 要求密码页已发布；未发布或接口失败返回错误，
+  由调用方降级为文字引导。
+  """
+  @qr_cache_seconds 60
+
+  def password_center_qr do
+    key = {__MODULE__, :password_center_qr}
+    now = System.monotonic_time(:second)
+
+    case :persistent_term.get(key, nil) do
+      %{url: url} ->
+        {:ok, %{qr_data_url: url}}
+
+      %{error_until: until} when until > now ->
+        {:error, :mini_web_login_unavailable}
+
+      _ ->
+        case fetch_password_center_qr() do
+          {:ok, %{qr_data_url: url}} = ok ->
+            :persistent_term.put(key, %{url: url})
+            ok
+
+          {:error, _} = error ->
+            # 短负缓存：密码页未发布期间，避免每个访客都触发一次微信接口。
+            :persistent_term.put(key, %{error_until: now + @qr_cache_seconds})
+            error
+        end
+    end
+  end
+
+  defp fetch_password_center_qr do
+    with {:ok, client} <- SdkClient.fetch(),
+         {:ok, response} <-
+           post(
+             "getwxacodeunlimit",
+             %{
+               page: @password_page,
+               scene: "pw",
+               check_path: true,
+               env_version: "release"
+             },
+             client.get_access_token()
+           ),
+         {:ok, %{qr_data_url: _} = payload} <- parse(:qr, nil, response) do
+      {:ok, payload}
     else
       _ -> {:error, :mini_web_login_unavailable}
     end
@@ -27,6 +82,10 @@ defmodule Cgc2046.Integrations.Wechat.WebLoginLaunch do
            %{path: @page, query: "cq=wl_" <> code, expire_type: 1, expire_interval: 1}}
       end
 
+    post(path, body, token)
+  end
+
+  defp post(path, body, token) do
     opts = [
       url: "https://api.weixin.qq.com/wxa/" <> path,
       params: [access_token: token],

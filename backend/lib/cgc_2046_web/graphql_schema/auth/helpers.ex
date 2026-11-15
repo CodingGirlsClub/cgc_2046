@@ -7,6 +7,28 @@ defmodule Cgc2046Web.GraphqlSchema.Auth.Helpers do
   require Logger
 
   @doc """
+  当前请求 token 的 platform claim（无则 nil）。
+
+  setPassword 换发 token 时必须沿用：小程序会话若丢掉 `platform: "wechat"`，
+  既不能再批准 Web/Desktop 扫码登录（`WechatMiniWebLogin.mini_actor/1` 要求该 claim），
+  也会落进 web 吊销桶，被后续 web 登录误杀。
+  """
+  def session_platform(context) do
+    with %{"platform" => platform} <- context[:mini_web_claims] || %{},
+         {:ok, atom} <- platform_atom(platform) do
+      atom
+    else
+      _ -> nil
+    end
+  end
+
+  defp platform_atom("wechat"), do: {:ok, :wechat}
+  defp platform_atom("tt"), do: {:ok, :tt}
+  defp platform_atom("xhs"), do: {:ok, :xhs}
+  defp platform_atom("desktop"), do: {:ok, :desktop}
+  defp platform_atom(_), do: :error
+
+  @doc """
   账号密码登录的共享实现（web `signIn` 与第一方客户端 `signInForDesktop` 共用）：
   含 @ 走邮箱，否则手机号归一化后走手机号策略；失败统一映射为 `:authentication_failed`
   （防枚举，不新增错误出口）。

@@ -46,8 +46,7 @@ impl RootView {
         let working_directory = entry.working_directory.clone();
         let actions = history_row_actions(entry);
         let title = entry
-            .title
-            .clone()
+            .display_title()
             .filter(|title| !title.trim().is_empty())
             .unwrap_or_else(|| match source {
                 HistorySource::Terminal => "Terminal".to_string(),
@@ -55,6 +54,15 @@ impl RootView {
             });
         let agent_label = acp_history::agent_display_name(entry.agent_label());
         let time_label = acp_history::relative_time_label(&entry.updated_at, now);
+        let home = crate::root_view::controller::home_dir()
+            .and_then(|path| path.to_str().map(str::to_string));
+        let live_terminal_id = thread_id
+            .strip_prefix("terminal:")
+            .filter(|id| self.terminal_panel.contains(id));
+        let same_dir_count = live_terminal_id
+            .and(working_directory.as_deref())
+            .map(|directory| self.terminal_panel.same_cwd_count(directory))
+            .unwrap_or(0);
         let is_current = match source {
             HistorySource::Acp => entry
                 .session_id
@@ -63,8 +71,9 @@ impl RootView {
             HistorySource::Native => self.native_agent_view.as_ref().is_some_and(|view| {
                 view.read(cx).current_thread_id().as_deref() == Some(thread_id.as_str())
             }),
-            // 终端行的 key 是历史记录 id，不跟踪当前活动实例。
-            HistorySource::Terminal => false,
+            HistorySource::Terminal => {
+                live_terminal_id.is_some_and(|id| self.terminal_panel.is_active(id))
+            }
         };
         let renaming = self
             .history_sidebar
@@ -171,7 +180,24 @@ impl RootView {
                         div()
                             .text_size(px(10.0))
                             .text_color(palette.ink_3)
-                            .child(format!("{agent_label} · {time_label}")),
+                            .child(match source {
+                                HistorySource::Terminal => entry
+                                    .working_directory
+                                    .as_deref()
+                                    .map(|directory| {
+                                        let cwd =
+                                            acp_history::abbreviate_cwd(directory, home.as_deref());
+                                        if same_dir_count > 1 {
+                                            format!(
+                                                "同目录 ×{same_dir_count} · {cwd} · {time_label}"
+                                            )
+                                        } else {
+                                            format!("{cwd} · {time_label}")
+                                        }
+                                    })
+                                    .unwrap_or_else(|| format!("{agent_label} · {time_label}")),
+                                _ => format!("{agent_label} · {time_label}"),
+                            }),
                     ),
             )
             .on_click(move |_, window, cx| {
@@ -317,7 +343,9 @@ mod history_row_tests {
             session_id: Some("sess-1".to_string()),
             agent_id: Some("omp".to_string()),
             title: Some("t".to_string()),
+            title_suffix: None,
             updated_at: "2026-10-26T12:00:00Z".to_string(),
+            created_at: None,
             archived,
             source,
             working_directory: None,

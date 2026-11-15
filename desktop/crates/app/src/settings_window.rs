@@ -9,16 +9,22 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use cgc_agent_provider::{
-    validate_credentials, ProviderError, ProviderErrorCategory, ProviderProtocol, ThinkingMode,
+    anthropic_models_url, detect_protocols, list_models, list_models_at, list_unsupported,
+    probe::RemoteModel, test_models_for, validate_credentials, ProbeState, ProviderError,
+    ProviderErrorCategory, ProviderProtocol, ThinkingMode,
 };
-use cgc_agent_store::{builtin_providers, normalized_provider_name, ProviderPrefs};
+use cgc_agent_store::{
+    builtin_providers, is_builtin_provider_id, next_provider_id, normalized_provider_name,
+    ModelPrefs, ProviderPrefs,
+};
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::group_box::GroupBoxVariant;
-use gpui_kit::component::input::{Input, InputState, TextareaState};
+use gpui_kit::component::input::{Input, InputState, Textarea, TextareaState};
 use gpui_kit::component::setting::{
     NumberFieldOptions, SelectIndex, SettingField, SettingGroup, SettingItem, SettingPage, Settings,
 };
+use gpui_kit::component::switch::Switch;
 use gpui_kit::component::Sizable;
 use gpui_kit::component::TitleBar;
 use gpui_kit::prelude::FluentBuilder;
@@ -29,10 +35,12 @@ use crate::build_info;
 use crate::i18n::{translate, Key, Language};
 use crate::native_runtime::{NativeRuntimeError, NativeRuntimeHandle};
 use crate::preferences::{self, CursorBlinkPreference};
+use crate::provider_fetch::{fill_missing_efforts, merge_remote_models, now_unix};
 use crate::provider_settings::{ProviderPrefsChange, ProviderSettings};
 use crate::root_view::{title_bar_left_inset, TITLEBAR_HEIGHT};
 use crate::settings_provider::{
-    append_reasoning_efforts, format_model_lines, parse_model_lines, KeyValidation,
+    append_reasoning_efforts, catalog_status, edited_models, efforts_in_text, format_model_lines,
+    next_provider_name, optional, parse_model_lines, CatalogTab, KeyValidation,
     KeyValidationAction, ModelFieldInputs, ProviderDraft,
 };
 use crate::theme::{self, space, RADIUS_MEDIUM, RADIUS_SMALL};
@@ -230,11 +238,14 @@ impl SettingsWindowView {
                 };
                 let budget_input =
                     cx.new(|cx| InputState::new(window, cx).default_value(budget.to_string()));
+                let efforts = model.reasoning_efforts.join(",");
+                let efforts_input = cx.new(|cx| InputState::new(window, cx).default_value(efforts));
                 fields.push(ModelFieldInputs {
                     model_id: model.id.clone(),
                     name_input,
                     context_input,
                     output_input,
+                    efforts_input,
                     enabled: model.enabled,
                     thinking: model.supports_thinking,
                     supports_tools: model.supports_tools,
@@ -259,6 +270,37 @@ impl SettingsWindowView {
                 cx.new(|cx| InputState::new(window, cx).placeholder("API Key（保存到系统钥匙串）"));
             self.provider_drafts[index].api_key_input = Some(input);
         }
+        if draft.anthropic_url_input.is_none() {
+            let value = draft.anthropic_url.clone();
+            let input = cx.new(|cx| {
+                InputState::new(window, cx)
+                    .placeholder("https://api.example.com/anthropic（可选）")
+                    .default_value(value)
+            });
+            self.provider_drafts[index].anthropic_url_input = Some(input);
+        }
+        if draft.responses_url_input.is_none() {
+            let value = draft.responses_url.clone();
+            let input = cx.new(|cx| {
+                InputState::new(window, cx)
+                    .placeholder("https://api.example.com/v1（可选）")
+                    .default_value(value)
+            });
+            self.provider_drafts[index].responses_url_input = Some(input);
+        }
+        if draft.models_url_input.is_none() {
+            let value = draft.models_url.clone();
+            let input = cx.new(|cx| {
+                InputState::new(window, cx)
+                    .placeholder("https://api.example.com/models（可选）")
+                    .default_value(value)
+            });
+            self.provider_drafts[index].models_url_input = Some(input);
+        }
+        if draft.model_id_input.is_none() {
+            let input = cx.new(|cx| InputState::new(window, cx).placeholder("添加模型 ID…"));
+            self.provider_drafts[index].model_id_input = Some(input);
+        }
     }
 
     fn sync_model_fields(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
@@ -268,6 +310,12 @@ impl SettingsWindowView {
         if draft.model_fields.is_empty() {
             return;
         }
+        // 卡片没有声明 efforts 时，用文本里同一模型写的列兜底（批量编辑刚写的内容）。
+        let source_text = draft
+            .models_input
+            .as_ref()
+            .map(|input| input.read(cx).value().to_string())
+            .unwrap_or_else(|| draft.models.clone());
         let text = draft
             .model_fields
             .iter()
@@ -301,18 +349,34 @@ impl SettingsWindowView {
                         }
                     }
                 }
-                if let Some(previous) = draft
+                let declared: Vec<String> = draft
                     .model_params
                     .iter()
                     .find(|model| model.id == field.model_id)
-                {
-                    append_reasoning_efforts(&mut line, &previous.reasoning_efforts);
-                }
+                    .map(|model| model.reasoning_efforts.clone())
+                    .unwrap_or_default();
+                let efforts: Vec<String> = field
+                    .efforts_input
+                    .read(cx)
+                    .value()
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|effort| !effort.is_empty())
+                    .map(str::to_string)
+                    .collect();
+                // 仅"本来未声明"时回退文本；已声明却被清空是用户显式删除。
+                let efforts = if efforts.is_empty() && declared.is_empty() {
+                    efforts_in_text(&source_text, &field.model_id)
+                } else {
+                    efforts
+                };
+                append_reasoning_efforts(&mut line, &efforts);
                 line
             })
             .collect::<Vec<_>>()
             .join("\n");
         draft.models = text.clone();
+        draft.model_params = parse_model_lines(&text).1;
         if let Some(input) = draft.models_input.clone() {
             input.update(cx, |state, cx| state.set_value(text, window, cx));
         }
@@ -364,6 +428,8 @@ impl SettingsWindowView {
             lines.remove(model_index);
         }
         draft.models = lines.join("\n");
+        // 参数向量必须与文本一起收缩，否则后续添加模型会把已删除项带回来。
+        draft.model_params = parse_model_lines(&draft.models).1;
         draft.model_fields.clear();
         if let Some(input) = draft.models_input.clone() {
             input.update(cx, |state, cx| {
@@ -384,6 +450,7 @@ impl SettingsWindowView {
         }
         text.push_str("new-model | 64000 | 8000 | false | true");
         draft.models = text.clone();
+        draft.model_params = parse_model_lines(&text).1;
         draft.model_fields.clear();
         if let Some(input) = draft.models_input.clone() {
             input.update(cx, |state, cx| state.set_value(text, window, cx));
@@ -421,7 +488,36 @@ impl SettingsWindowView {
             slot.models = models;
             slot.model_params = default.model_params.clone();
         }
-        self.notice = Some("已恢复默认参数（保存后生效）".to_string());
+        self.notice = Some("已恢复内置默认（保存后生效）".to_string());
+        cx.notify();
+    }
+
+    /// 离开编辑页：丢弃未保存的草稿，回到已保存（或内置默认）的状态。
+    fn leave_provider_form(&mut self, cx: &mut Context<Self>) {
+        let target = match &self.ai_view {
+            AiRoute::EditProvider(id) | AiRoute::NewProvider(id) => Some(id.clone()),
+            _ => None,
+        };
+        if let Some(id) = target {
+            self.cancel_validation_for(&id);
+            let prefs = self.provider_settings.load();
+            let restored = prefs.provider(&id).cloned().or_else(|| {
+                builtin_providers()
+                    .into_iter()
+                    .find(|provider| provider.id == id)
+            });
+            match restored {
+                Some(provider) => {
+                    if let Some(slot) = self.provider_drafts.iter_mut().find(|draft| draft.id == id)
+                    {
+                        *slot = ProviderDraft::from_prefs(&provider);
+                    }
+                }
+                None => self.provider_drafts.retain(|draft| draft.id != id),
+            }
+        }
+        self.ai_view = AiRoute::Providers;
+        self.error = None;
         cx.notify();
     }
 
@@ -456,6 +552,7 @@ impl SettingsWindowView {
             return;
         }
         self.sync_model_fields(index, window, cx);
+        self.sync_endpoint_inputs(index, cx);
         let Some(draft) = self.provider_drafts.get(index).cloned() else {
             return;
         };
@@ -469,19 +566,23 @@ impl SettingsWindowView {
             return;
         }
         let provider = self.provider_from_draft_inputs(&draft, cx);
-        self.begin_key_validation(provider, key, true, cx);
+        if provider.name.trim().is_empty() || provider.base_url.trim().is_empty() {
+            self.error = Some("请先填写 Provider 名称与 API URL".to_string());
+            cx.notify();
+            return;
+        }
+        self.begin_key_validation(provider, key, cx);
     }
 
     fn begin_key_validation(
         &mut self,
         provider: ProviderPrefs,
         key: String,
-        return_to_providers: bool,
         cx: &mut Context<Self>,
     ) {
         let serial = match self.key_validation.begin(&provider) {
             KeyValidationAction::Save => {
-                self.save_key_configuration(provider, key, return_to_providers, cx);
+                self.save_key_configuration(provider, key, cx);
                 return;
             }
             KeyValidationAction::Busy => {
@@ -496,13 +597,25 @@ impl SettingsWindowView {
         cx.notify();
         let task_provider = provider.clone();
         let task_key = key.clone();
-        let task = cx
-            .background_executor()
-            .spawn(async move { validate_credentials(&task_provider.base_url, &task_key) });
+        let task_models_url = task_provider
+            .models_url
+            .clone()
+            .filter(|url| !url.trim().is_empty())
+            .or_else(|| {
+                (task_provider.protocol == ProviderProtocol::AnthropicCompatible)
+                    .then(|| anthropic_models_url(&task_provider.base_url))
+            });
+        let task = cx.background_executor().spawn(async move {
+            validate_credentials(
+                &task_provider.base_url,
+                task_models_url.as_deref(),
+                &task_key,
+            )
+        });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
-                this.finish_key_validation(provider, key, return_to_providers, serial, result, cx);
+                this.finish_key_validation(provider, key, serial, result, cx);
             });
         })
         .detach();
@@ -512,7 +625,6 @@ impl SettingsWindowView {
         &mut self,
         provider: ProviderPrefs,
         key: String,
-        return_to_providers: bool,
         serial: u64,
         result: Result<(), ProviderError>,
         cx: &mut Context<Self>,
@@ -522,7 +634,7 @@ impl SettingsWindowView {
         }
         match result {
             Ok(()) => {
-                self.save_key_configuration(provider, key, return_to_providers, cx);
+                self.save_key_configuration(provider, key, cx);
                 return;
             }
             Err(error) => {
@@ -540,9 +652,18 @@ impl SettingsWindowView {
         &mut self,
         mut provider: ProviderPrefs,
         key: String,
-        return_to_providers: bool,
         cx: &mut Context<Self>,
     ) {
+        // 验证期间用户可能切换过启用开关：以磁盘上的当前值为准，别把它盖回去。
+        if let Some(current) = self
+            .provider_settings
+            .load()
+            .provider(&provider.id)
+            .cloned()
+        {
+            provider.enabled = current.enabled;
+            provider.builtin = current.builtin;
+        }
         if let Err(error) = self.provider_settings.apply(ProviderPrefsChange::SaveKey {
             provider: provider.clone(),
             key,
@@ -563,18 +684,32 @@ impl SettingsWindowView {
             draft.model_params = provider.model_params.clone();
             draft.has_key = true;
             draft.builtin = provider.builtin;
+            draft.enabled = provider.enabled;
             draft.key_editing = false;
             draft.api_key_input = None;
         }
         self.error = None;
-        if return_to_providers {
-            self.ai_view = AiRoute::Providers;
-        }
+        // 保存后留在表单：用户还要接着点「获取模型」或微调模型参数。
+        self.ai_view = AiRoute::EditProvider(provider.id.clone());
         let saved = if provider.protocol == ProviderProtocol::AnthropicCompatible {
             format!("{} API Key 已保存", provider.name)
         } else {
             format!("{} API Key 已验证并保存", provider.name)
         };
+        let needs_models = self
+            .provider_drafts
+            .iter()
+            .find(|draft| draft.id == provider.id)
+            .is_some_and(|draft| draft.models.trim().is_empty());
+        if needs_models {
+            if let Some(index) = self
+                .provider_drafts
+                .iter()
+                .position(|draft| draft.id == provider.id)
+            {
+                self.fetch_models(index, cx);
+            }
+        }
         self.refresh_provider_runtime(saved, cx);
     }
 
@@ -624,6 +759,7 @@ impl SettingsWindowView {
     }
 
     fn save_provider(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.sync_endpoint_inputs(index, cx);
         if !self.validate_thinking_fields(index, cx) {
             return;
         }
@@ -638,6 +774,15 @@ impl SettingsWindowView {
         let Some(models_input) = draft.models_input.clone() else {
             return;
         };
+        // 批量编辑后点保存：以文本为准，别让卡片同步覆盖刚写进去的模型与 efforts。
+        let edited = models_input.read(cx).value().to_string();
+        if let Some((_, params)) = edited_models(&draft.models, &edited) {
+            if let Some(slot) = self.provider_drafts.get_mut(index) {
+                slot.models = edited;
+                slot.model_params = params;
+                slot.model_fields.clear();
+            }
+        }
         self.sync_model_fields(index, window, cx);
         let Some(draft) = self.provider_drafts.get(index).cloned() else {
             return;
@@ -650,6 +795,8 @@ impl SettingsWindowView {
             .unwrap_or_else(|| draft.name.clone());
         let models_text = models_input.read(cx).value().to_string();
         let (models, model_params) = parse_model_lines(&models_text);
+        // 只获取过模型、没点「加入选中模型」：保存时用远程元数据补空档位。
+        let model_params = fill_missing_efforts(&model_params, &draft.remote_models);
         if base_url.is_empty() || models.is_empty() || name.is_empty() {
             self.error = Some("Provider Name、Base URL 与至少一个 Model 不能为空".to_string());
             cx.notify();
@@ -672,11 +819,17 @@ impl SettingsWindowView {
             id: draft.id.clone(),
             name: name.clone(),
             base_url,
+            anthropic_url: optional(&draft.anthropic_url),
+            responses_url: optional(&draft.responses_url),
+            models_url: optional(&draft.models_url),
             models,
             has_key: draft.has_key,
             model_params,
-            builtin: false,
+            builtin: draft.builtin || is_builtin_provider_id(&draft.id),
+            enabled: draft.enabled,
             protocol: draft.protocol,
+            available_models: draft.remote_models.clone(),
+            models_fetched_at: draft.models_fetched_at,
         };
         if let Some(api_key_input) = draft.api_key_input.clone() {
             let api_key = api_key_input.read(cx).value().trim().to_string();
@@ -684,7 +837,7 @@ impl SettingsWindowView {
                 provider.has_key = true;
             }
             if !api_key.is_empty() {
-                self.begin_key_validation(provider, api_key, true, cx);
+                self.begin_key_validation(provider, api_key, cx);
                 return;
             }
         }
@@ -694,14 +847,14 @@ impl SettingsWindowView {
         {
             Ok(()) => {
                 self.error = None;
-                self.ai_view = AiRoute::Providers;
+                self.ai_view = AiRoute::EditProvider(provider.id.clone());
                 if let Some(draft) = self.provider_drafts.get_mut(index) {
                     draft.base_url = provider.base_url.clone();
                     draft.name = provider.name.clone();
                     draft.models = format_model_lines(&provider);
                     draft.model_params = provider.model_params.clone();
                     draft.has_key = provider.has_key;
-                    draft.builtin = false;
+                    draft.builtin = provider.builtin;
                 }
                 self.refresh_provider_runtime("Provider 已保存".to_string(), cx);
                 return;
@@ -741,6 +894,616 @@ impl SettingsWindowView {
         self.provider_drafts.push(draft);
         self.ai_view = AiRoute::NewProvider(id);
         self.notice = Some("新增 Provider：填写名称/URL/模型后保存".to_string());
+        cx.notify();
+    }
+
+    /// 停用/启用：只改已保存配置的开关，不读取输入框，避免把未保存的表单编辑一并提交。
+    fn set_provider_enabled(&mut self, index: usize, enabled: bool, cx: &mut Context<Self>) {
+        let Some(draft) = self.provider_drafts.get(index).cloned() else {
+            return;
+        };
+        // 停用/启用会改变最终配置：丢弃仍在进行的 Key 验证，避免它带着旧 enabled 落盘。
+        self.cancel_validation_for(&draft.id);
+        match self
+            .provider_settings
+            .apply(ProviderPrefsChange::SetProviderEnabled {
+                provider_id: draft.id.clone(),
+                enabled,
+            }) {
+            Ok(()) => {
+                if let Some(slot) = self.provider_drafts.get_mut(index) {
+                    slot.enabled = enabled;
+                }
+                self.error = None;
+                let name = draft.name.clone();
+                let message = if enabled {
+                    format!("{name} 已启用")
+                } else {
+                    format!("{name} 已停用")
+                };
+                self.refresh_provider_runtime(message, cx);
+            }
+            Err(error) => {
+                self.error = Some(error.to_string());
+                cx.notify();
+            }
+        }
+    }
+
+    /// 复制一个 Provider：新 id/名称、独立输入框、不复制 Key。
+    fn clone_provider(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(source) = self.provider_drafts.get(index).cloned() else {
+            return;
+        };
+        let ids: Vec<String> = self
+            .provider_drafts
+            .iter()
+            .map(|draft| draft.id.clone())
+            .collect();
+        let names: Vec<String> = self
+            .provider_drafts
+            .iter()
+            .map(|draft| draft.name.clone())
+            .collect();
+        let mut copy = source.clone();
+        copy.id = next_provider_id(&source.id, &ids);
+        copy.name = next_provider_name(&source.name, &names);
+        copy.has_key = false;
+        copy.enabled = true;
+        copy.builtin = false;
+        copy.key_editing = true;
+        copy.confirm_clear = false;
+        // 输入框 Entity 共享会导致编辑副本时改到原件，全部丢弃由 ensure_provider_inputs 重建。
+        copy.base_url_input = None;
+        copy.models_input = None;
+        copy.name_input = None;
+        copy.api_key_input = None;
+        copy.model_fields.clear();
+        copy.remote_models.clear();
+        copy.fetching_models = false;
+        copy.fetch_error = None;
+        copy.models_advanced_open = false;
+        copy.testing_models = false;
+        copy.model_tests.clear();
+        copy.anthropic_url_input = None;
+        copy.responses_url_input = None;
+        copy.models_url_input = None;
+        copy.endpoints_open = false;
+        copy.protocol_probes.clear();
+        copy.probing_protocols = false;
+        let provider = copy.to_prefs_with(&copy.base_url, &copy.name);
+        match self
+            .provider_settings
+            .apply(ProviderPrefsChange::SaveProvider(provider))
+        {
+            Ok(()) => {
+                let id = copy.id.clone();
+                let name = copy.name.clone();
+                self.provider_drafts.push(copy);
+                self.error = None;
+                self.ai_view = AiRoute::EditProvider(id);
+                self.notice = Some(format!("已复制为 {name}：填入 API Key 后保存"));
+                cx.notify();
+            }
+            Err(error) => {
+                self.error = Some(error.to_string());
+                cx.notify();
+            }
+        }
+    }
+
+    /// 用当前表单里的 URL / Key（或已保存的 Key）读取供应商模型列表。
+    fn fetch_models(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.sync_endpoint_inputs(index, cx);
+        let Some(draft) = self.provider_drafts.get(index).cloned() else {
+            return;
+        };
+        if draft.fetching_models {
+            return;
+        }
+        let base_url = draft
+            .base_url_input
+            .as_ref()
+            .map(|input| input.read(cx).value().trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| draft.base_url.clone());
+        let typed = draft
+            .api_key_input
+            .as_ref()
+            .map(|input| input.read(cx).value().trim().to_string())
+            .unwrap_or_default();
+        let key = if typed.is_empty() {
+            self.provider_settings.key(&draft.id).unwrap_or_default()
+        } else {
+            typed
+        };
+        if base_url.is_empty() {
+            self.error = Some("请先填写 API URL".to_string());
+            cx.notify();
+            return;
+        }
+        if key.is_empty() {
+            self.error = Some("请先填写 API Key（保存前也可以用来获取）".to_string());
+            cx.notify();
+            return;
+        }
+        if let Some(slot) = self.provider_drafts.get_mut(index) {
+            slot.fetching_models = true;
+            slot.fetch_error = None;
+        }
+        self.error = None;
+        cx.notify();
+        let list_url = optional(&draft.models_url).or_else(|| {
+            (draft.protocol == ProviderProtocol::AnthropicCompatible)
+                .then(|| anthropic_models_url(&base_url))
+        });
+        let provider_id = draft.id.clone();
+        let task = cx.background_executor().spawn(async move {
+            match list_url {
+                Some(url) => list_models_at(&url, &key),
+                None => list_models(&base_url, &key),
+            }
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                // provider 可能在请求期间被删除或重排：按 id 重新定位，不能用旧 index。
+                let Some(index) = this
+                    .provider_drafts
+                    .iter()
+                    .position(|draft| draft.id == provider_id)
+                else {
+                    return;
+                };
+                this.finish_fetch_models(index, result, cx);
+            });
+        })
+        .detach();
+    }
+
+    fn finish_fetch_models(
+        &mut self,
+        index: usize,
+        result: Result<Vec<RemoteModel>, ProviderError>,
+        cx: &mut Context<Self>,
+    ) {
+        let mut persisted: Option<(String, Vec<RemoteModel>, u64)> = None;
+        {
+            let Some(draft) = self.provider_drafts.get_mut(index) else {
+                return;
+            };
+            draft.fetching_models = false;
+            match result {
+                Ok(models) if models.is_empty() => {
+                    draft.remote_models.clear();
+                    draft.fetch_error =
+                        Some("供应商返回了空列表：请检查 URL，或用批量编辑手填模型".to_string());
+                }
+                Ok(models) => {
+                    let fetched_at = now_unix();
+                    draft.models_fetched_at = fetched_at;
+                    draft.remote_models = models;
+                    draft.fetch_error = None;
+                    persisted = Some((draft.id.clone(), draft.remote_models.clone(), fetched_at));
+                }
+                Err(error) if list_unsupported(&error) => {
+                    // 保留上次成功获取的目录，只提示本次失败。
+                    draft.fetch_error = Some("该服务不提供模型列表，请用批量编辑手填".to_string());
+                }
+                Err(error) => {
+                    let detail: String = error.to_string().chars().take(140).collect();
+                    draft.fetch_error = Some(format!(
+                        "获取失败：{}（{detail}）",
+                        provider_validation_message(&error)
+                    ));
+                }
+            }
+        }
+        if let Some((provider_id, models, fetched_at)) = persisted {
+            let change = ProviderPrefsChange::SaveProviderCatalog {
+                provider_id,
+                models,
+                fetched_at,
+            };
+            if let Err(error) = self.provider_settings.apply(change) {
+                self.error = Some(error.to_string());
+            }
+        }
+        cx.notify();
+    }
+
+    /// 对当前启用中的模型各发一次最小对话请求，标出供应商列表里其实不可用的模型。
+    fn test_all_models(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        // 与 chips 相同：先采纳批量编辑文本、再把卡片输入框写回参数，
+        // 否则测试的是保存前的旧模型集合。
+        self.reconcile_bulk_text(index, cx);
+        self.sync_model_fields(index, window, cx);
+        self.sync_endpoint_inputs(index, cx);
+        let Some(draft) = self.provider_drafts.get(index).cloned() else {
+            return;
+        };
+        if draft.testing_models {
+            return;
+        }
+        let base_url = draft
+            .base_url_input
+            .as_ref()
+            .map(|input| input.read(cx).value().trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| draft.base_url.clone());
+        // Anthropic 的独立端点优先，与 native runtime 的 endpoint_url 保持一致。
+        let endpoint = if draft.protocol == ProviderProtocol::AnthropicCompatible {
+            optional(&draft.anthropic_url).unwrap_or_else(|| base_url.clone())
+        } else {
+            base_url
+        };
+        let typed = draft
+            .api_key_input
+            .as_ref()
+            .map(|input| input.read(cx).value().trim().to_string())
+            .unwrap_or_default();
+        let key = if typed.is_empty() {
+            self.provider_settings.key(&draft.id).unwrap_or_default()
+        } else {
+            typed
+        };
+        if key.is_empty() {
+            self.error = Some("请先填写或保存 API Key".to_string());
+            cx.notify();
+            return;
+        }
+        let models: Vec<String> = draft
+            .model_params
+            .iter()
+            .filter(|model| model.enabled)
+            .map(|model| model.id.clone())
+            .collect();
+        if models.is_empty() {
+            self.error = Some("请先启用要测试的模型".to_string());
+            cx.notify();
+            return;
+        }
+        if let Some(slot) = self.provider_drafts.get_mut(index) {
+            slot.testing_models = true;
+            slot.model_tests.clear();
+        }
+        self.error = None;
+        cx.notify();
+        let protocol = draft.protocol;
+        let provider_id = draft.id.clone();
+        let task = cx
+            .background_executor()
+            .spawn(async move { test_models_for(protocol, &endpoint, &key, &models) });
+        cx.spawn(async move |this, cx| {
+            let results = task.await;
+            let _ = this.update(cx, |this, cx| {
+                let Some(index) = this
+                    .provider_drafts
+                    .iter()
+                    .position(|draft| draft.id == provider_id)
+                else {
+                    return;
+                };
+                this.finish_test_models(index, results, cx);
+            });
+        })
+        .detach();
+    }
+
+    fn finish_test_models(
+        &mut self,
+        index: usize,
+        results: Vec<(String, Result<(), ProviderError>)>,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(draft) = self.provider_drafts.get_mut(index) {
+            draft.testing_models = false;
+            draft.model_tests = results.into_iter().collect();
+        }
+        cx.notify();
+    }
+
+    /// 批量编辑文本优先：文本区与草稿不一致时，以文本为准重建模型参数。
+    ///
+    /// 与 `save_provider` 的 `edited_models` 同一规则；chips 操作前先做这一步，
+    /// 避免用卡片旧值覆盖用户刚在批量编辑里写的内容。
+    fn reconcile_bulk_text(&mut self, index: usize, cx: &App) {
+        let Some(draft) = self.provider_drafts.get(index).cloned() else {
+            return;
+        };
+        let Some(input) = draft.models_input.clone() else {
+            return;
+        };
+        let edited = input.read(cx).value().to_string();
+        if let Some((_, params)) = edited_models(&draft.models, &edited) {
+            if let Some(slot) = self.provider_drafts.get_mut(index) {
+                slot.models = edited;
+                slot.model_params = params;
+                slot.model_fields.clear();
+            }
+        }
+    }
+
+    /// 本地模型 chip：切换是否启用（picker 里可见）。
+    fn toggle_model_enabled(
+        &mut self,
+        index: usize,
+        id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.reconcile_bulk_text(index, cx);
+        self.sync_model_fields(index, window, cx);
+        {
+            let Some(slot) = self.provider_drafts.get_mut(index) else {
+                return;
+            };
+            let Some(model) = slot.model_params.iter_mut().find(|model| model.id == id) else {
+                return;
+            };
+            model.enabled = !model.enabled;
+        }
+        self.flush_models_text(index, window, cx);
+    }
+
+    fn set_all_models_enabled(
+        &mut self,
+        index: usize,
+        enabled: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.reconcile_bulk_text(index, cx);
+        self.sync_model_fields(index, window, cx);
+        {
+            let Some(slot) = self.provider_drafts.get_mut(index) else {
+                return;
+            };
+            for model in &mut slot.model_params {
+                model.enabled = enabled;
+            }
+        }
+        self.flush_models_text(index, window, cx);
+    }
+
+    /// 未加入的远程模型 chip：直接加入，保留供应商元数据。
+    fn add_remote_model(
+        &mut self,
+        index: usize,
+        id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.reconcile_bulk_text(index, cx);
+        self.sync_model_fields(index, window, cx);
+        let Some(draft) = self.provider_drafts.get(index).cloned() else {
+            return;
+        };
+        let chosen: std::collections::BTreeSet<String> = std::iter::once(id.to_string()).collect();
+        let catalog: Vec<ModelPrefs> = builtin_providers()
+            .into_iter()
+            .flat_map(|provider| provider.model_params)
+            .collect();
+        let (_, params) =
+            merge_remote_models(&draft.remote_models, &draft.model_params, &chosen, &catalog);
+        if let Some(slot) = self.provider_drafts.get_mut(index) {
+            slot.model_params = params;
+            slot.model_fields.clear();
+        }
+        self.flush_models_text(index, window, cx);
+    }
+
+    /// chips 改动后把模型参数写回文本与文本区。
+    fn flush_models_text(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(draft) = self.provider_drafts.get_mut(index) else {
+            return;
+        };
+        let text = format_model_lines(&ProviderPrefs {
+            models: draft
+                .model_params
+                .iter()
+                .map(|model| model.id.clone())
+                .collect(),
+            model_params: draft.model_params.clone(),
+            ..Default::default()
+        });
+        draft.models = text.clone();
+        draft.model_fields.clear();
+        if let Some(input) = draft.models_input.clone() {
+            input.update(cx, |state, cx| state.set_value(text, window, cx));
+        }
+        cx.notify();
+    }
+
+    /// 「添加模型 ID」：输入框里的 id 直接加入；远程目录有元数据就一并带上。
+    fn add_model_by_id(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.reconcile_bulk_text(index, cx);
+        self.sync_model_fields(index, window, cx);
+        let Some(draft) = self.provider_drafts.get(index).cloned() else {
+            return;
+        };
+        let Some(input) = draft.model_id_input.clone() else {
+            return;
+        };
+        let id = input.read(cx).value().trim().to_string();
+        if id.is_empty() {
+            return;
+        }
+        if draft.model_params.iter().any(|model| model.id == id) {
+            self.error = Some(format!("模型 {id} 已存在"));
+            cx.notify();
+            return;
+        }
+        let params = if draft.remote_models.iter().any(|remote| remote.id == id) {
+            let chosen: std::collections::BTreeSet<String> = std::iter::once(id.clone()).collect();
+            let catalog: Vec<ModelPrefs> = builtin_providers()
+                .into_iter()
+                .flat_map(|provider| provider.model_params)
+                .collect();
+            merge_remote_models(&draft.remote_models, &draft.model_params, &chosen, &catalog).1
+        } else {
+            let mut params = draft.model_params.clone();
+            params.push(ModelPrefs {
+                enabled: true,
+                ..ModelPrefs::new(&id)
+            });
+            params
+        };
+        if let Some(slot) = self.provider_drafts.get_mut(index) {
+            slot.model_params = params;
+            slot.model_fields.clear();
+        }
+        input.update(cx, |state, cx| state.set_value(String::new(), window, cx));
+        self.flush_models_text(index, window, cx);
+    }
+
+    fn set_catalog_expanded(&mut self, index: usize, expanded: bool, cx: &mut Context<Self>) {
+        if let Some(slot) = self.provider_drafts.get_mut(index) {
+            slot.catalog_expanded = expanded;
+        }
+        cx.notify();
+    }
+
+    fn set_catalog_tab(&mut self, index: usize, tab: CatalogTab, cx: &mut Context<Self>) {
+        if let Some(slot) = self.provider_drafts.get_mut(index) {
+            slot.catalog_tab = tab;
+        }
+        cx.notify();
+    }
+
+    fn toggle_models_settings(&mut self, index: usize, cx: &mut Context<Self>) {
+        if let Some(slot) = self.provider_drafts.get_mut(index) {
+            slot.models_settings_open = !slot.models_settings_open;
+        }
+        cx.notify();
+    }
+
+    fn toggle_models_advanced(&mut self, index: usize, cx: &mut Context<Self>) {
+        if let Some(slot) = self.provider_drafts.get_mut(index) {
+            slot.models_advanced_open = !slot.models_advanced_open;
+        }
+        cx.notify();
+    }
+
+    /// 把“更多端点”输入框的当前值写回草稿（保存与验证前调用）。
+    fn sync_endpoint_inputs(&mut self, index: usize, cx: &App) {
+        let Some(draft) = self.provider_drafts.get(index).cloned() else {
+            return;
+        };
+        let read = |input: &Option<Entity<InputState>>| {
+            input
+                .as_ref()
+                .map(|input| input.read(cx).value().trim().to_string())
+                .unwrap_or_default()
+        };
+        let anthropic_url = read(&draft.anthropic_url_input);
+        let responses_url = read(&draft.responses_url_input);
+        let models_url = read(&draft.models_url_input);
+        if let Some(slot) = self.provider_drafts.get_mut(index) {
+            slot.anthropic_url = anthropic_url;
+            slot.responses_url = responses_url;
+            slot.models_url = models_url;
+        }
+    }
+
+    fn set_provider_protocol(
+        &mut self,
+        index: usize,
+        protocol: ProviderProtocol,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(slot) = self.provider_drafts.get_mut(index) {
+            slot.protocol = protocol;
+        }
+        cx.notify();
+    }
+
+    /// 对当前 Base URL 只读探测两种协议；只有一种可用时自动选中它。
+    fn detect_provider_protocols(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(draft) = self.provider_drafts.get(index).cloned() else {
+            return;
+        };
+        if draft.probing_protocols {
+            return;
+        }
+        let base_url = draft
+            .base_url_input
+            .as_ref()
+            .map(|input| input.read(cx).value().trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| draft.base_url.clone());
+        let typed = draft
+            .api_key_input
+            .as_ref()
+            .map(|input| input.read(cx).value().trim().to_string())
+            .unwrap_or_default();
+        let key = if typed.is_empty() {
+            self.provider_settings.key(&draft.id).unwrap_or_default()
+        } else {
+            typed
+        };
+        if base_url.is_empty() {
+            self.error = Some("请先填写 API URL".to_string());
+            cx.notify();
+            return;
+        }
+        if key.is_empty() {
+            self.error = Some("检测协议需要 API Key".to_string());
+            cx.notify();
+            return;
+        }
+        if let Some(slot) = self.provider_drafts.get_mut(index) {
+            slot.probing_protocols = true;
+            slot.protocol_probes.clear();
+        }
+        self.error = None;
+        cx.notify();
+        let provider_id = draft.id.clone();
+        let task = cx
+            .background_executor()
+            .spawn(async move { detect_protocols(&base_url, &key) });
+        cx.spawn(async move |this, cx| {
+            let results = task.await;
+            let _ = this.update(cx, |this, cx| {
+                let Some(index) = this
+                    .provider_drafts
+                    .iter()
+                    .position(|draft| draft.id == provider_id)
+                else {
+                    return;
+                };
+                this.finish_detect_protocols(index, results, cx);
+            });
+        })
+        .detach();
+    }
+
+    fn finish_detect_protocols(
+        &mut self,
+        index: usize,
+        results: Vec<(ProviderProtocol, ProbeState)>,
+        cx: &mut Context<Self>,
+    ) {
+        let supported: Vec<ProviderProtocol> = results
+            .iter()
+            .filter(|(_, state)| *state == ProbeState::Supported)
+            .map(|(protocol, _)| *protocol)
+            .collect();
+        if let Some(slot) = self.provider_drafts.get_mut(index) {
+            slot.probing_protocols = false;
+            slot.protocol = match supported.as_slice() {
+                [only] => *only,
+                _ => slot.protocol,
+            };
+            slot.protocol_probes = results;
+        }
+        cx.notify();
+    }
+
+    fn toggle_endpoints(&mut self, index: usize, cx: &mut Context<Self>) {
+        if let Some(slot) = self.provider_drafts.get_mut(index) {
+            slot.endpoints_open = !slot.endpoints_open;
+        }
         cx.notify();
     }
 
@@ -1260,33 +2023,22 @@ impl SettingsWindowView {
                             }),
                     )
                     .child(
-                        div().flex().gap(space(1)).children(
-                            [
-                                ProviderProtocol::OpenAiCompatible,
-                                ProviderProtocol::AnthropicCompatible,
-                            ]
-                            .into_iter()
-                            .map(|protocol| {
-                                let add_weak = add_weak.clone();
-                                div()
-                                    .id(SharedString::from(format!(
-                                        "settings-providers-add-{protocol:?}"
-                                    )))
-                                    .role(Role::Button)
-                                    .aria_label(format!("添加 {} Provider", protocol.name()))
-                                    .px(space(2))
-                                    .py(px(4.0))
-                                    .rounded(px(RADIUS_MEDIUM))
-                                    .bg(palette.accent)
-                                    .text_color(palette.canvas)
-                                    .text_size(px(11.0))
-                                    .child(format!("＋ {}", protocol.name()))
-                                    .on_click(move |_, _, cx| {
-                                        let _ = add_weak
-                                            .update(cx, |this, cx| this.add_provider(protocol, cx));
-                                    })
+                        div()
+                            .id("settings-providers-add")
+                            .role(Role::Button)
+                            .aria_label("添加 Provider")
+                            .px(space(2))
+                            .py(px(4.0))
+                            .rounded(px(RADIUS_MEDIUM))
+                            .bg(palette.accent)
+                            .text_color(palette.canvas)
+                            .text_size(px(11.0))
+                            .child("＋ 添加 Provider")
+                            .on_click(move |_, _, cx| {
+                                let _ = add_weak.update(cx, |this, cx| {
+                                    this.add_provider(ProviderProtocol::OpenAiCompatible, cx);
+                                });
                             }),
-                        ),
                     )
                     .into_any_element()
             })
@@ -1301,32 +2053,13 @@ impl SettingsWindowView {
             .and_then(|id| drafts.iter().find(|draft| &draft.id == id))
             .map(|draft| draft.name.clone())
             .unwrap_or_default();
-        let form_index = form_target
-            .as_ref()
-            .and_then(|id| drafts.iter().position(|draft| &draft.id == id))
-            .unwrap_or(0);
-        let form_is_builtin = drafts
-            .get(form_index)
-            .map(|draft| draft.builtin)
-            .unwrap_or(false);
         let form_back = {
             let back_weak = weak.clone();
             let form_name = form_name.clone();
             SettingItem::render(move |_options, _window, cx| {
                 let palette = theme::palette_from_theme(cx);
                 let weak = back_weak.clone();
-                let restore_weak_outer = weak.clone();
-                let cancel_weak = weak.clone();
                 div()
-                    .id("settings-provider-form-back")
-                    .role(Role::Button)
-                    .aria_label("返回 LLM Providers")
-                    .px(space(1))
-                    .py(px(2.0))
-                    .rounded(px(RADIUS_SMALL))
-                    .text_size(px(12.0))
-                    .text_color(palette.ink_2)
-                    .hover(|style| style.bg(palette.soft))
                     .child(
                         div()
                             .flex()
@@ -1355,49 +2088,10 @@ impl SettingsWindowView {
                                     ))
                                     .on_click(move |_, _, cx| {
                                         let _ = weak.update(cx, |this, cx| {
-                                            this.ai_view = AiRoute::Providers;
-                                            cx.notify();
+                                            this.leave_provider_form(cx);
                                         });
                                     }),
                             )
-                            .child(
-                                div()
-                                    .id("settings-provider-form-cancel")
-                                    .role(Role::Button)
-                                    .aria_label("取消")
-                                    .px(space(2))
-                                    .py(px(3.0))
-                                    .rounded(px(RADIUS_SMALL))
-                                    .text_size(px(11.0))
-                                    .text_color(palette.ink_3)
-                                    .hover(|style| style.bg(palette.soft))
-                                    .child("取消")
-                                    .on_click(move |_, _, cx| {
-                                        let _ = cancel_weak.update(cx, |this, cx| {
-                                            this.ai_view = AiRoute::Providers;
-                                            cx.notify();
-                                        });
-                                    }),
-                            )
-                            .children(form_is_builtin.then(|| {
-                                let restore_weak = restore_weak_outer.clone();
-                                div()
-                                    .id("settings-provider-form-restore")
-                                    .role(Role::Button)
-                                    .aria_label("恢复默认")
-                                    .px(space(2))
-                                    .py(px(3.0))
-                                    .rounded(px(RADIUS_SMALL))
-                                    .text_size(px(11.0))
-                                    .text_color(palette.ink_2)
-                                    .hover(|style| style.bg(palette.soft))
-                                    .child("恢复默认")
-                                    .on_click(move |_, window, cx| {
-                                        let _ = restore_weak.update(cx, |this, cx| {
-                                            this.restore_provider_default(form_index, window, cx);
-                                        });
-                                    })
-                            }))
                             .into_any_element(),
                     )
                     .into_any_element()
@@ -1425,6 +2119,7 @@ impl SettingsWindowView {
                     } else {
                         "保存"
                     },
+                    !form_is_new,
                 )
             })
         });
@@ -1595,6 +2290,12 @@ impl SettingsWindowView {
             "cgc-settings-{}",
             self.settings_nonce
         )))
+        // 上游默认侧栏 250px：在 620px 宽的设置窗口里占 40%，内容区只剩
+        // 370px；而 page 标题只有 2~5 个中文字，留白过大。188px 仍能容纳
+        // 搜索框与「窗口与布局」这类最长标题（含二级子项缩进），内容区回到
+        // 432px；用户可在 168~300px 内拖拽调整。
+        .sidebar_width(px(188.0))
+        .sidebar_size_range(px(168.0)..px(300.0))
         .default_selected_index(SelectIndex {
             page_ix: self.settings_page,
             group_ix: None,
@@ -1864,14 +2565,14 @@ fn render_provider_list(
                             "settings-provider-open-{index}"
                         )))
                         .role(Role::Button)
-                        .aria_label("高级配置")
+                        .aria_label("编辑配置")
                         .px(space(2))
                         .py(px(4.0))
                         .rounded(px(RADIUS_MEDIUM))
                         .border_1()
                         .border_color(palette.line)
                         .text_size(px(11.0))
-                        .child("高级配置 >")
+                        .child("编辑配置 >")
                         .on_click(move |_, _, cx| {
                             let _ = weak_row.update(cx, |this, cx| {
                                 this.ai_view = AiRoute::EditProvider(target.clone());
@@ -1944,6 +2645,7 @@ fn render_provider_list(
         .into_any_element()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_provider_cards(
     _cx: &mut App,
     weak: &WeakEntity<SettingsWindowView>,
@@ -1952,10 +2654,11 @@ fn render_provider_cards(
     notice: Option<String>,
     error: Option<String>,
     save_label: &'static str,
+    allow_clone: bool,
 ) -> AnyElement {
     let mut cards: Vec<AnyElement> = Vec::new();
     for (index, draft) in drafts.iter().map(|(index, draft)| (*index, draft)) {
-        let (Some(base_input), Some(_models_input), Some(key_input)) = (
+        let (Some(base_input), Some(models_input), Some(key_input)) = (
             draft.base_url_input.clone(),
             draft.models_input.clone(),
             draft.api_key_input.clone(),
@@ -1974,6 +2677,9 @@ fn render_provider_cards(
         };
         let remove_weak = weak.clone();
         let save_weak = weak.clone();
+        let enable_weak = weak.clone();
+        let clone_weak = weak.clone();
+        let restore_weak = weak.clone();
         cards.push(
             div()
                 .flex()
@@ -1993,6 +2699,43 @@ fn render_provider_cards(
                                 .text_color(status_color)
                                 .child(status),
                         )
+                        .child(
+                            Switch::new(SharedString::from(format!(
+                                "settings-provider-enabled-{index}"
+                            )))
+                            .checked(draft.enabled)
+                            .accessibility_label("启用 provider")
+                            .tooltip(if draft.enabled {
+                                "已启用：模型出现在模型选择器"
+                            } else {
+                                "已停用：保留 Key 与配置，模型不出现在选择器"
+                            })
+                            .on_change(move |checked, _, cx| {
+                                let _ = enable_weak.update(cx, |this, cx| {
+                                    this.set_provider_enabled(index, *checked, cx);
+                                });
+                            }),
+                        )
+                        .children(draft.builtin.then(|| {
+                            div()
+                                .id(SharedString::from(format!(
+                                    "settings-provider-restore-{index}"
+                                )))
+                                .role(Role::Button)
+                                .aria_label("恢复内置默认")
+                                .px(space(2))
+                                .py(px(3.0))
+                                .rounded(px(RADIUS_SMALL))
+                                .text_size(px(11.0))
+                                .text_color(palette.ink_3)
+                                .hover(|style| style.bg(palette.soft))
+                                .child("恢复内置默认")
+                                .on_click(move |_, window, cx| {
+                                    let _ = restore_weak.update(cx, |this, cx| {
+                                        this.restore_provider_default(index, window, cx);
+                                    });
+                                })
+                        }))
                         .child(
                             div()
                                 .id(SharedString::from(format!(
@@ -2021,13 +2764,197 @@ fn render_provider_cards(
                         palette,
                     )
                 }))
-                .child(div().text_size(px(11.0)).text_color(palette.ink_3).child(draft.protocol.name()))
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(space(1))
+                        .child(div().text_size(px(11.0)).text_color(palette.ink_3).child("协议"))
+                        .children(
+                            [
+                                (ProviderProtocol::OpenAiCompatible, "OpenAI 兼容"),
+                                (ProviderProtocol::OpenAiResponses, "OpenAI Responses"),
+                                (ProviderProtocol::AnthropicCompatible, "Anthropic 兼容"),
+                            ]
+                            .into_iter()
+                            .map(|(protocol, label)| {
+                                let selected = draft.protocol == protocol;
+                                let protocol_weak = weak.clone();
+                                div()
+                                    .id(SharedString::from(format!(
+                                        "settings-provider-protocol-{index}-{label}"
+                                    )))
+                                    .role(Role::Button)
+                                    .aria_label(label)
+                                    .px(space(2))
+                                    .py(px(3.0))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .border_1()
+                                    .border_color(if selected {
+                                        palette.accent
+                                    } else {
+                                        palette.line
+                                    })
+                                    .text_size(px(11.0))
+                                    .text_color(if selected {
+                                        palette.accent
+                                    } else {
+                                        palette.ink_2
+                                    })
+                                    .child({
+                                        let mark = draft
+                                            .protocol_probes
+                                            .iter()
+                                            .find(|(probed, _)| *probed == protocol)
+                                            .map(|(_, state)| match state {
+                                                ProbeState::Supported => " · 可用",
+                                                ProbeState::Unauthorized => " · 需鉴权",
+                                                ProbeState::Missing => " · 不可用",
+                                            })
+                                            .unwrap_or("");
+                                        format!("{label}{mark}")
+                                    })
+                                    .on_click(move |_, _, cx| {
+                                        let _ = protocol_weak.update(cx, |this, cx| {
+                                            this.set_provider_protocol(index, protocol, cx);
+                                        });
+                                    })
+                            }),
+                        ),
+                )
                 .child(SettingsWindowView::render_provider_field(
                     "API URL *",
                     Some(if draft.protocol == ProviderProtocol::AnthropicCompatible { "Anthropic API 根地址，可包含网关路径前缀或 /v1。" } else { "兼容 API 的基础 URL。" }),
                     base_input,
                     palette,
                 ))
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(space(1))
+                        .child(
+                            div()
+                                .id(SharedString::from(format!(
+                                    "settings-provider-detect-protocols-{index}"
+                                )))
+                                .role(Role::Button)
+                                .aria_label("检测协议")
+                                .px(space(2))
+                                .py(px(3.0))
+                                .rounded(px(RADIUS_SMALL))
+                                .border_1()
+                                .border_color(palette.line)
+                                .text_size(px(11.0))
+                                .text_color(palette.ink_2)
+                                .child(if draft.probing_protocols {
+                                    "检测中…"
+                                } else {
+                                    "检测协议"
+                                })
+                                .on_click({
+                                    let probe_weak = weak.clone();
+                                    move |_, _, cx| {
+                                        let _ = probe_weak.update(cx, |this, cx| {
+                                            this.detect_provider_protocols(index, cx);
+                                        });
+                                    }
+                                }),
+                        )
+                        .child(
+                            div()
+                                .id(SharedString::from(format!(
+                                    "settings-models-test-{index}"
+                                )))
+                                .role(Role::Button)
+                                .aria_label("逐个测试已选模型")
+                                .px(space(2))
+                                .py(px(3.0))
+                                .rounded(px(RADIUS_SMALL))
+                                .border_1()
+                                .border_color(palette.line)
+                                .text_size(px(11.0))
+                                .text_color(palette.ink_2)
+                                .child(if draft.testing_models {
+                                    "测试中…"
+                                } else {
+                                    "逐个测试已选模型"
+                                })
+                                .on_click({
+                                    let test_weak = weak.clone();
+                                    move |_, window, cx| {
+                                        let _ = test_weak.update(cx, |this, cx| {
+                                            this.test_all_models(index, window, cx);
+                                        });
+                                    }
+                                }),
+                        )
+                        .child(
+                            div()
+                                .id(SharedString::from(format!(
+                                    "settings-provider-endpoints-{index}"
+                                )))
+                                .role(Role::Button)
+                                .aria_label("更多端点")
+                                .px(space(2))
+                                .py(px(3.0))
+                                .rounded(px(RADIUS_SMALL))
+                                .border_1()
+                                .border_color(palette.line)
+                                .text_size(px(11.0))
+                                .text_color(if draft.endpoints_open {
+                                    palette.accent
+                                } else {
+                                    palette.ink_2
+                                })
+                                .child(if draft.endpoints_open {
+                                    "更多端点 ▴"
+                                } else {
+                                    "更多端点 ▾"
+                                })
+                                .on_click({
+                                    let endpoints_weak = weak.clone();
+                                    move |_, _, cx| {
+                                        let _ = endpoints_weak.update(cx, |this, cx| {
+                                            this.toggle_endpoints(index, cx);
+                                        });
+                                    }
+                                }),
+                        ),
+                )
+                .children(draft.endpoints_open.then(|| {
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(space(1))
+                        .children(draft.anthropic_url_input.clone().map(|input| {
+                            SettingsWindowView::render_provider_field(
+                                "Anthropic 地址（可选）",
+                                Some("选 Anthropic 协议时优先使用；留空则用 API URL。"),
+                                input,
+                                palette,
+                            )
+                        }))
+                        .children(draft.responses_url_input.clone().map(|input| {
+                            SettingsWindowView::render_provider_field(
+                                "Responses 地址（可选）",
+                                Some("预留字段，当前 native 运行时暂不使用。"),
+                                input,
+                                palette,
+                            )
+                        }))
+                        .children(draft.models_url_input.clone().map(|input| {
+                            SettingsWindowView::render_provider_field(
+                                "模型列表地址（可选）",
+                                Some("完整 URL；留空则用 API URL/models。"),
+                                input,
+                                palette,
+                            )
+                        }))
+                        .into_any_element()
+                }))
                 .children({
                     let edit_weak = weak.clone();
                     let reset_weak = weak.clone();
@@ -2243,35 +3170,584 @@ fn render_provider_cards(
                                 .gap(space(2))
                                 .child(
                                     div()
-                                        .text_size(px(11.0))
-                                        .text_color(palette.ink_3)
-                                        .child("Models"),
+                                        .flex()
+                                        .flex_row()
+                                        .items_center()
+                                        .gap(space(2))
+                                        .child(
+                                            div()
+                                                .text_size(px(11.0))
+                                                .text_color(palette.ink_3)
+                                                .child("Models"),
+                                        )
+                                        .child({
+                                            let all_weak = weak.clone();
+                                            let selected_weak = weak.clone();
+                                            div()
+                                                .flex()
+                                                .flex_row()
+                                                .items_center()
+                                                .gap(px(2.0))
+                                                .rounded(px(RADIUS_SMALL))
+                                                .bg(palette.soft)
+                                                .p(px(1.0))
+                                                .child(
+                                                    div()
+                                                        .id(SharedString::from(format!(
+                                                            "settings-catalog-tab-all-{index}"
+                                                        )))
+                                                        .role(Role::Button)
+                                                        .aria_label("供应商列表")
+                                                        .px(space(2))
+                                                        .py(px(2.0))
+                                                        .rounded(px(RADIUS_SMALL))
+                                                        .text_size(px(10.0))
+                                                        .text_color(if draft.catalog_tab
+                                                            == CatalogTab::All
+                                                        {
+                                                            palette.canvas
+                                                        } else {
+                                                            palette.ink_2
+                                                        })
+                                                        .when(
+                                                            draft.catalog_tab == CatalogTab::All,
+                                                            |style| style.bg(palette.accent),
+                                                        )
+                                                        .child("供应商列表")
+                                                        .on_click(move |_, _, cx| {
+                                                            let _ = all_weak.update(cx, |this, cx| {
+                                                                this.set_catalog_tab(
+                                                                    index,
+                                                                    CatalogTab::All,
+                                                                    cx,
+                                                                );
+                                                            });
+                                                        }),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .id(SharedString::from(format!(
+                                                            "settings-catalog-tab-selected-{index}"
+                                                        )))
+                                                        .role(Role::Button)
+                                                        .aria_label("仅所选")
+                                                        .px(space(2))
+                                                        .py(px(2.0))
+                                                        .rounded(px(RADIUS_SMALL))
+                                                        .text_size(px(10.0))
+                                                        .text_color(if draft.catalog_tab
+                                                            == CatalogTab::Selected
+                                                        {
+                                                            palette.canvas
+                                                        } else {
+                                                            palette.ink_2
+                                                        })
+                                                        .when(
+                                                            draft.catalog_tab
+                                                                == CatalogTab::Selected,
+                                                            |style| style.bg(palette.accent),
+                                                        )
+                                                        .child("仅所选")
+                                                        .on_click(move |_, _, cx| {
+                                                            let _ = selected_weak.update(
+                                                                cx,
+                                                                |this, cx| {
+                                                                    this.set_catalog_tab(
+                                                                        index,
+                                                                        CatalogTab::Selected,
+                                                                        cx,
+                                                                    );
+                                                                },
+                                                            );
+                                                        }),
+                                                )
+                                        })
+                                        .child(
+                                            div()
+                                                .text_size(px(10.0))
+                                                .text_color(palette.ink_3)
+                                                .child(catalog_status(draft)),
+                                        ),
                                 )
                                 .child(
                                     div()
+                                        .flex()
+                                        .flex_row()
+                                        .items_center()
+                                        .gap(space(1))
+                                        .child(
+                                            div()
+                                                .id(SharedString::from(format!(
+                                                    "settings-models-settings-{index}"
+                                                )))
+                                                .role(Role::Button)
+                                                .aria_label("模型参数设置")
+                                                .px(space(2))
+                                                .py(px(3.0))
+                                                .rounded(px(RADIUS_SMALL))
+                                                .border_1()
+                                                .border_color(palette.line)
+                                                .text_size(px(11.0))
+                                                .text_color(if draft.models_settings_open {
+                                                    palette.accent
+                                                } else {
+                                                    palette.ink_2
+                                                })
+                                                .child(if draft.models_settings_open {
+                                                    "模型参数 ▴"
+                                                } else {
+                                                    "模型参数 ▾"
+                                                })
+                                                .on_click({
+                                                    let settings_weak = weak.clone();
+                                                    move |_, _, cx| {
+                                                        let _ = settings_weak.update(cx, |this, cx| {
+                                                            this.toggle_models_settings(index, cx);
+                                                        });
+                                                    }
+                                                }),
+                                        )
+                                        .child(
+                                            div()
+                                                .id(SharedString::from(format!(
+                                                    "settings-models-advanced-{index}"
+                                                )))
+                                                .role(Role::Button)
+                                                .aria_label("批量编辑模型配置")
+                                                .px(space(2))
+                                                .py(px(3.0))
+                                                .rounded(px(RADIUS_SMALL))
+                                                .border_1()
+                                                .border_color(palette.line)
+                                                .bg(palette.canvas)
+                                                .text_size(px(11.0))
+                                                .text_color(if draft.models_advanced_open {
+                                                    palette.accent
+                                                } else {
+                                                    palette.ink_2
+                                                })
+                                                .child(if draft.models_advanced_open {
+                                                    "批量编辑 ▴"
+                                                } else {
+                                                    "批量编辑 ▾"
+                                                })
+                                                .on_click({
+                                                    let advanced_weak = weak.clone();
+                                                    move |_, _, cx| {
+                                                        let _ = advanced_weak.update(cx, |this, cx| {
+                                                            this.toggle_models_advanced(index, cx);
+                                                        });
+                                                    }
+                                                }),
+                                        )
+                                        .child(
+                                            div()
+                                                .id(SharedString::from(format!(
+                                                    "settings-model-add-{index}"
+                                                )))
+                                                .role(Role::Button)
+                                                .px(space(2))
+                                                .py(px(3.0))
+                                                .rounded(px(RADIUS_SMALL))
+                                                .border_1()
+                                                .border_color(palette.line)
+                                                .text_size(px(11.0))
+                                                .child("＋ Add Model")
+                                                .on_click({
+                                                    let add_weak = weak.clone();
+                                                    move |_, window, cx| {
+                                                        let _ = add_weak.update(cx, |this, cx| {
+                                                            this.add_model(index, window, cx);
+                                                        });
+                                                    }
+                                                }),
+                                        ),
+                                ),
+                        )
+                        .child({
+                            let add_weak = weak.clone();
+                            let fetch_weak = weak.clone();
+                            div()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap(space(1))
+                                .children(draft.model_id_input.clone().map(|input| {
+                                    div()
+                                        .w(px(320.0))
+                                        .child(Input::new(&input))
+                                        .into_any_element()
+                                }))
+                                .child(
+                                    div()
                                         .id(SharedString::from(format!(
-                                            "settings-model-add-{index}"
+                                            "settings-model-add-id-{index}"
                                         )))
                                         .role(Role::Button)
+                                        .aria_label("添加模型")
                                         .px(space(2))
                                         .py(px(3.0))
                                         .rounded(px(RADIUS_SMALL))
                                         .border_1()
                                         .border_color(palette.line)
                                         .text_size(px(11.0))
-                                        .child("＋ Add Model")
-                                        .on_click({
-                                            let add_weak = weak.clone();
-                                            move |_, window, cx| {
-                                                let _ = add_weak.update(cx, |this, cx| {
-                                                    this.add_model(index, window, cx);
-                                                });
-                                            }
+                                        .child("添加模型")
+                                        .on_click(move |_, window, cx| {
+                                            let _ = add_weak.update(cx, |this, cx| {
+                                                this.add_model_by_id(index, window, cx);
+                                            });
                                         }),
-                                ),
-                        )
+                                )
+                                .child(
+                                    div()
+                                        .id(SharedString::from(format!(
+                                            "settings-model-fetch-{index}"
+                                        )))
+                                        .role(Role::Button)
+                                        .aria_label("获取模型列表")
+                                        .px(space(2))
+                                        .py(px(3.0))
+                                        .rounded(px(RADIUS_SMALL))
+                                        .border_1()
+                                        .border_color(palette.line)
+                                        .text_size(px(11.0))
+                                        .child(if draft.fetching_models {
+                                            "获取中…"
+                                        } else if draft.remote_models.is_empty() {
+                                            "获取模型"
+                                        } else {
+                                            "重新获取"
+                                        })
+                                        .on_click(move |_, _, cx| {
+                                            let _ = fetch_weak.update(cx, |this, cx| {
+                                                this.fetch_models(index, cx);
+                                            });
+                                        }),
+                                )
+                        })
+                        .children(draft.models_advanced_open.then(|| {
+                            div()
+                                .w_full()
+                                .flex()
+                                .flex_col()
+                                .gap(space(1))
+                                .pt(space(1))
+                                .child(
+                                    div()
+                                        .text_size(px(10.0))
+                                        .text_color(palette.ink_3)
+                                        .child("批量编辑：每行一个模型，列之间用 | 分隔"),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(px(10.0))
+                                        .text_color(palette.ink_3)
+                                        .child("格式：模型名 | context | max output | thinking | enabled | tools | images"),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(px(10.0))
+                                        .text_color(palette.ink_3)
+                                        .child("示例：deepseek-flash | 1048576 | 393216 | true | true | true | true"),
+                                )
+                                .child(
+                                    div().w_full().min_w(px(0.0)).child(
+                                        Textarea::new(&models_input).w_full().h(px(120.)),
+                                    ),
+                                )
+                                .into_any_element()
+                        }))
+                        .child({
+                            let all_weak = weak.clone();
+                            let none_weak = weak.clone();
+                            let enabled = draft
+                                .model_params
+                                .iter()
+                                .filter(|model| model.enabled)
+                                .count();
+                            div()
+                                .w_full()
+                                .flex()
+                                .flex_col()
+                                .gap(space(1))
+                                .pt(space(1))
+                                .child(
+                                    div()
+                                        .flex()
+                                        .flex_row()
+                                        .items_center()
+                                        .justify_between()
+                                        .gap(space(1))
+                                        .child(
+                                            div()
+                                                .text_size(px(10.0))
+                                                .text_color(palette.ink_3)
+                                                .child(format!(
+                                                    "{} 个模型 · 已启用 {}，点击标签切换",
+                                                    draft.model_params.len(),
+                                                    enabled
+                                                )),
+                                        )
+                                        .child(
+                                            div()
+                                                .flex()
+                                                .flex_row()
+                                                .gap(space(1))
+                                                .child(
+                                                    div()
+                                                        .id(SharedString::from(format!(
+                                                            "settings-remote-all-{index}"
+                                                        )))
+                                                        .role(Role::Button)
+                                                        .aria_label("全选模型")
+                                                        .px(space(2))
+                                                        .py(px(2.0))
+                                                        .rounded(px(RADIUS_SMALL))
+                                                        .border_1()
+                                                        .border_color(palette.line)
+                                                        .text_size(px(10.0))
+                                                        .text_color(palette.ink_2)
+                                                        .child("全选")
+                                                        .on_click(move |_, window, cx| {
+                                                            let _ = all_weak.update(cx, |this, cx| {
+                                                                this.set_all_models_enabled(
+                                                                    index, true, window, cx,
+                                                                );
+                                                            });
+                                                        }),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .id(SharedString::from(format!(
+                                                            "settings-remote-none-{index}"
+                                                        )))
+                                                        .role(Role::Button)
+                                                        .aria_label("全不选模型")
+                                                        .px(space(2))
+                                                        .py(px(2.0))
+                                                        .rounded(px(RADIUS_SMALL))
+                                                        .border_1()
+                                                        .border_color(palette.line)
+                                                        .text_size(px(10.0))
+                                                        .text_color(palette.ink_2)
+                                                        .child("全不选")
+                                                        .on_click(move |_, window, cx| {
+                                                            let _ = none_weak.update(cx, |this, cx| {
+                                                                this.set_all_models_enabled(
+                                                                    index, false, window, cx,
+                                                                );
+                                                            });
+                                                        }),
+                                                ),
+                                        ),
+                                )
+                                .child(
+                                    div()
+                                        .flex()
+                                        .flex_row()
+                                        .flex_wrap()
+                                        .gap(space(1))
+                                        .children(draft.model_params.iter().map(|model| {
+                                            let id = model.id.clone();
+                                            let enabled = model.enabled;
+                                            let toggle_weak = weak.clone();
+                                            let label = id.clone();
+                                            div()
+                                                .id(SharedString::from(format!(
+                                                    "settings-model-chip-{index}-{id}"
+                                                )))
+                                                .role(Role::Button)
+                                                .aria_label(format!(
+                                                    "{} {label}",
+                                                    if enabled { "停用" } else { "启用" }
+                                                ))
+                                                .px(space(2))
+                                                .py(px(3.0))
+                                                .rounded(px(999.0))
+                                                .border_1()
+                                                .border_color(if enabled {
+                                                    palette.accent
+                                                } else {
+                                                    palette.line
+                                                })
+                                                .text_color(if enabled {
+                                                    palette.accent
+                                                } else {
+                                                    palette.ink_3
+                                                })
+                                                .text_size(px(11.0))
+                                                .child(if enabled {
+                                                    format!("✓ {label}")
+                                                } else {
+                                                    label
+                                                })
+                                                .on_click(move |_, window, cx| {
+                                                    let id = id.clone();
+                                                    let _ = toggle_weak.update(cx, |this, cx| {
+                                                        this.toggle_model_enabled(
+                                                            index, &id, window, cx,
+                                                        );
+                                                    });
+                                                })
+                                        }))
+                                        .children({
+                                            let pending: Vec<_> = draft
+                                                .remote_models
+                                                .iter()
+                                                .filter(|remote| {
+                                                    draft.catalog_tab == CatalogTab::All
+                                                        && !draft.model_params.iter().any(
+                                                            |local| local.id == remote.id,
+                                                        )
+                                                })
+                                                .collect();
+                                            let total = pending.len();
+                                            let limit = 24usize;
+                                            let expanded = draft.catalog_expanded;
+                                            let visible: Vec<_> = if expanded || total <= limit {
+                                                pending
+                                            } else {
+                                                pending.into_iter().take(limit).collect()
+                                            };
+                                            let mut chips: Vec<gpui::AnyElement> = visible
+                                                .into_iter()
+                                                .map(|model| {
+                                                    let id = model.id.clone();
+                                                    let add_weak = weak.clone();
+                                                    let label = model
+                                                        .name
+                                                        .clone()
+                                                        .unwrap_or_else(|| id.clone());
+                                                    div()
+                                                        .id(SharedString::from(format!(
+                                                            "settings-model-pending-{index}-{id}"
+                                                        )))
+                                                        .role(Role::Button)
+                                                        .aria_label(format!("添加 {label}"))
+                                                        .px(space(2))
+                                                        .py(px(3.0))
+                                                        .rounded(px(999.0))
+                                                        .border_1()
+                                                        .border_color(palette.line)
+                                                        .text_color(palette.ink_3)
+                                                        .text_size(px(11.0))
+                                                        .child(label)
+                                                        .on_click(move |_, window, cx| {
+                                                            let id = id.clone();
+                                                            let _ =
+                                                                add_weak.update(cx, |this, cx| {
+                                                                    this.add_remote_model(
+                                                                        index, &id, window, cx,
+                                                                    );
+                                                                });
+                                                        })
+                                                        .into_any_element()
+                                                })
+                                                .collect();
+                                            if total > limit {
+                                                let expand_weak = weak.clone();
+                                                let label = if expanded {
+                                                    "收起".to_string()
+                                                } else {
+                                                    format!("显示其余 {} 个", total - limit)
+                                                };
+                                                chips.push(
+                                                    div()
+                                                        .id(SharedString::from(format!(
+                                                            "settings-model-pending-more-{index}"
+                                                        )))
+                                                        .role(Role::Button)
+                                                        .aria_label(label.clone())
+                                                        .px(space(2))
+                                                        .py(px(3.0))
+                                                        .rounded(px(999.0))
+                                                        .border_1()
+                                                        .border_color(palette.line)
+                                                        .text_size(px(11.0))
+                                                        .text_color(palette.ink_2)
+                                                        .child(label)
+                                                        .on_click(move |_, _, cx| {
+                                                            let _ = expand_weak
+                                                                .update(cx, |this, cx| {
+                                                                    this.set_catalog_expanded(
+                                                                        index, !expanded, cx,
+                                                                    );
+                                                                });
+                                                        })
+                                                        .into_any_element(),
+                                                );
+                                            }
+                                            chips
+                                        }),
+                                )
+                                .into_any_element()
+                        })
+                        .children(draft.fetching_models.then(|| {
+                            div()
+                                .text_size(px(10.0))
+                                .text_color(palette.ink_3)
+                                .child("正在向供应商获取模型列表…")
+                                .into_any_element()
+                        }))
+                        .children(draft.fetch_error.clone().map(|error| {
+                            div()
+                                .text_size(px(10.0))
+                                .text_color(palette.danger)
+                                .child(error)
+                                .into_any_element()
+                        }))
+                        .child({
+                            let settings_weak = weak.clone();
+                            div()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap(space(1))
+                                .child(
+                                    div()
+                                        .text_size(px(10.0))
+                                        .text_color(palette.ink_3)
+                                        .child(format!(
+                                            "模型参数（{} 个）{}",
+                                            draft.model_params.len(),
+                                            if draft.models_settings_open {
+                                                "已展开"
+                                            } else {
+                                                "已收起"
+                                            }
+                                        )),
+                                )
+                                .child(
+                                    div()
+                                        .id(SharedString::from(format!(
+                                            "settings-models-toggle-{index}"
+                                        )))
+                                        .role(Role::Button)
+                                        .aria_label("展开模型参数")
+                                        .px(space(2))
+                                        .py(px(2.0))
+                                        .rounded(px(RADIUS_SMALL))
+                                        .border_1()
+                                        .border_color(palette.line)
+                                        .text_size(px(10.0))
+                                        .text_color(palette.accent)
+                                        .child(if draft.models_settings_open {
+                                            "收起 ▴"
+                                        } else {
+                                            "展开 ▾"
+                                        })
+                                        .on_click(move |_, _, cx| {
+                                            let _ = settings_weak.update(cx, |this, cx| {
+                                                this.toggle_models_settings(index, cx);
+                                            });
+                                        }),
+                                )
+                        })
                         .children(draft.model_fields.iter().enumerate().map(
                             |(model_index, field)| {
+                                if !draft.models_settings_open {
+                                    return div().into_any_element();
+                                }
                                 let enabled = field.enabled;
                                 let thinking = field.thinking;
                                 let supports_tools = field.supports_tools;
@@ -2317,9 +3793,42 @@ fn render_provider_cards(
                                             )
                                             .child(
                                                 div()
-                                                    .text_size(px(12.0))
-                                                    .text_color(palette.ink_2)
-                                                    .child(format!("Model {}", model_index + 1)),
+                                                    .flex()
+                                                    .flex_row()
+                                                    .items_center()
+                                                    .gap(space(1))
+                                                    .child(
+                                                        div()
+                                                            .text_size(px(12.0))
+                                                            .text_color(palette.ink_2)
+                                                            .child(field.model_id.clone()),
+                                                    )
+                                                    .child(
+                                                        div()
+                                                            .text_size(px(10.0))
+                                                            .text_color(palette.ink_3)
+                                                            .child(format!("#{}", model_index + 1)),
+                                                    ),
+                                            )
+                                            .children(
+                                                draft
+                                                    .model_tests
+                                                    .get(&field.model_id)
+                                                    .map(|result| match result {
+                                                        Ok(()) => div()
+                                                            .text_size(px(10.0))
+                                                            .text_color(palette.accent)
+                                                            .child("✓ 可用")
+                                                            .into_any_element(),
+                                                        Err(error) => div()
+                                                            .text_size(px(10.0))
+                                                            .text_color(palette.danger)
+                                                            .child(format!(
+                                                                "✗ {}",
+                                                                provider_validation_message(error)
+                                                            ))
+                                                            .into_any_element(),
+                                                    }),
                                             )
                                             .child(div().flex_1())
                                             .child(
@@ -2406,6 +3915,12 @@ fn render_provider_cards(
                                                     .child("模型会输出推理内容。"),
                                             ),
                                     )
+                                    .child(SettingsWindowView::render_provider_field(
+                                        "Reasoning Efforts",
+                                        Some("逗号分隔的档位，例如 low,high,max；留空表示不声明。"),
+                                        field.efforts_input.clone(),
+                                        palette,
+                                    ))
                                     .children((draft.protocol == ProviderProtocol::AnthropicCompatible && thinking).then(|| {
                                         let mode_weak = weak.clone();
                                         div().flex().flex_col().gap(space(1))
@@ -2504,6 +4019,7 @@ fn render_provider_cards(
                                                     .child("模型支持图片输入。"),
                                             ),
                                     )
+                                    .into_any_element()
                             },
                         ))
                 )
@@ -2513,6 +4029,27 @@ fn render_provider_cards(
                         .flex_row()
                         .items_center()
                         .gap(space(2))
+                        .children(allow_clone.then(|| {
+                            div()
+                                .id(SharedString::from(format!(
+                                    "settings-provider-clone-{index}"
+                                )))
+                                .role(Role::Button)
+                                .aria_label("再添加一个 provider")
+                                .px(space(2))
+                                .py(px(5.0))
+                                .rounded(px(RADIUS_MEDIUM))
+                                .border_1()
+                                .border_color(palette.line)
+                                .text_color(palette.ink_2)
+                                .text_size(px(11.0))
+                                .child("再添加一个")
+                                .on_click(move |_, _, cx| {
+                                    let _ = clone_weak.update(cx, |this, cx| {
+                                        this.clone_provider(index, cx);
+                                    });
+                                })
+                        }))
                         .child(
                             div()
                                 .id(SharedString::from(format!(

@@ -608,11 +608,16 @@ fn model_switch_and_history_open_preserve_contents_and_restore_selection() {
         id: "test".into(),
         name: "Test".into(),
         base_url: "https://example.invalid".into(),
+        anthropic_url: None,
+        responses_url: None,
+        models_url: None,
         models: vec!["m1".into(), "m2".into()],
         model_params: Vec::new(),
         has_key: true,
         builtin: false,
+        enabled: true,
         protocol: cgc_agent_provider::ProviderProtocol::OpenAiCompatible,
+        ..Default::default()
     }]);
     owner.persist();
     let original = owner.frozen.clone();
@@ -685,6 +690,9 @@ fn no_enabled_models_unconfigures_refresh_and_allows_reconfiguration() {
                 id: "test".into(),
                 name: "Test".into(),
                 base_url: "https://example.invalid/v1".into(),
+                anthropic_url: None,
+                responses_url: None,
+                models_url: None,
                 models: if empty_catalog {
                     Vec::new()
                 } else {
@@ -696,7 +704,9 @@ fn no_enabled_models_unconfigures_refresh_and_allows_reconfiguration() {
                 }],
                 has_key: true,
                 builtin: false,
+                enabled: true,
                 protocol: cgc_agent_provider::ProviderProtocol::OpenAiCompatible,
+                ..Default::default()
             }],
             ..AgentPrefs::default()
         };

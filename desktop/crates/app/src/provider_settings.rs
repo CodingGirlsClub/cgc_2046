@@ -2,13 +2,27 @@
 
 use std::fmt;
 
-use cgc_agent_store::{provider_key_account, AgentPrefs, PrefsStore, ProviderPrefs};
+use cgc_agent_provider::probe::RemoteModel;
+use cgc_agent_store::{
+    is_builtin_provider_id, provider_key_account, AgentPrefs, PrefsStore, ProviderPrefs,
+};
 use cgc_platform::paths::AppPaths;
 use cgc_platform::session::KeychainStore;
 
 #[derive(Clone, Debug)]
 pub(crate) enum ProviderPrefsChange {
     SaveProvider(ProviderPrefs),
+    /// 只更新已保存 provider 的模型目录（获取成功后立即落盘）。
+    SaveProviderCatalog {
+        provider_id: String,
+        models: Vec<RemoteModel>,
+        fetched_at: u64,
+    },
+    /// 只更新已保存 provider 的启用状态。
+    SetProviderEnabled {
+        provider_id: String,
+        enabled: bool,
+    },
     SaveKey {
         provider: ProviderPrefs,
         key: String,
@@ -59,9 +73,17 @@ impl ProviderSettings {
             .is_some_and(|key| !key.is_empty())
     }
 
+    /// 读取已保存的 Key：让"获取模型"在用户尚未重新输入 Key 时也能用。
+    pub(crate) fn key(&self, provider_id: &str) -> Option<String> {
+        self.keychain
+            .load_secret(&provider_key_account(provider_id))
+            .filter(|key| !key.is_empty())
+    }
+
     pub(crate) fn apply(&self, change: ProviderPrefsChange) -> Result<(), ProviderSettingsError> {
         match change {
-            ProviderPrefsChange::SaveProvider(provider) => {
+            ProviderPrefsChange::SaveProvider(mut provider) => {
+                provider.builtin |= is_builtin_provider_id(&provider.id);
                 let mut prefs = self.prefs.load();
                 let selected = prefs.selected_provider.as_deref();
                 let should_select = selected.is_none() || selected == Some(provider.id.as_str());
@@ -71,7 +93,42 @@ impl ProviderSettings {
                 }
                 self.save(&mut prefs)
             }
+            ProviderPrefsChange::SaveProviderCatalog {
+                provider_id,
+                models,
+                fetched_at,
+            } => {
+                let mut prefs = self.prefs.load();
+                let Some(provider) = prefs
+                    .providers
+                    .iter_mut()
+                    .find(|provider| provider.id == provider_id)
+                else {
+                    // 草稿 provider 尚未保存：等保存时一起写入。
+                    return Ok(());
+                };
+                provider.available_models = models;
+                provider.models_fetched_at = fetched_at;
+                self.save(&mut prefs)
+            }
+            ProviderPrefsChange::SetProviderEnabled {
+                provider_id,
+                enabled,
+            } => {
+                let mut prefs = self.prefs.load();
+                let Some(provider) = prefs
+                    .providers
+                    .iter_mut()
+                    .find(|provider| provider.id == provider_id)
+                else {
+                    // 草稿 provider 尚未保存：开关只留在草稿里，保存时一起写入。
+                    return Ok(());
+                };
+                provider.enabled = enabled;
+                self.save(&mut prefs)
+            }
             ProviderPrefsChange::SaveKey { mut provider, key } => {
+                provider.builtin |= is_builtin_provider_id(&provider.id);
                 let account = provider_key_account(&provider.id);
                 let previous = self.keychain.load_secret(&account);
                 self.keychain
@@ -166,6 +223,7 @@ impl ProviderSettings {
 mod tests {
     use std::sync::Arc;
 
+    use cgc_agent_provider::probe::RemoteModel;
     use cgc_agent_store::{provider_key_account, PrefsStore, ProviderPrefs};
     use cgc_platform::session::{KeychainStore, SecretBackend};
 
@@ -205,11 +263,16 @@ mod tests {
             id: "test-provider".into(),
             name: "Test".into(),
             base_url: "https://example.test/v1".into(),
+            anthropic_url: None,
+            responses_url: None,
+            models_url: None,
             models: vec!["test-model".into()],
             has_key: false,
             model_params: Vec::new(),
             builtin: false,
+            enabled: true,
             protocol: cgc_agent_provider::ProviderProtocol::OpenAiCompatible,
+            ..Default::default()
         }
     }
 
@@ -224,6 +287,63 @@ mod tests {
         // agent_prefs.json 是目录时 save() 的 rename 必然失败，用来模拟磁盘/权限错误。
         std::fs::create_dir_all(root.join("agent_prefs.json")).expect("failing prefs dir");
         settings(root)
+    }
+
+    #[test]
+    fn saving_a_builtin_provider_keeps_its_catalog_mark() {
+        let root = std::env::temp_dir().join(format!("cgc-builtin-mark-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let settings = settings(&root);
+        let mut builtin = provider();
+        builtin.id = "deepseek".into();
+        builtin.name = "DeepSeek".into();
+        settings
+            .apply(ProviderPrefsChange::SaveProvider(builtin))
+            .expect("save builtin");
+        let saved = settings
+            .load()
+            .provider("deepseek")
+            .cloned()
+            .expect("saved builtin");
+        assert!(saved.builtin);
+    }
+
+    #[test]
+    fn saving_a_custom_provider_stays_custom() {
+        let root = std::env::temp_dir().join(format!("cgc-custom-mark-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let settings = settings(&root);
+        settings
+            .apply(ProviderPrefsChange::SaveProvider(provider()))
+            .expect("save custom");
+        let saved = settings
+            .load()
+            .provider("test-provider")
+            .cloned()
+            .expect("saved custom");
+        assert!(!saved.builtin);
+    }
+
+    #[test]
+    fn saving_a_key_for_a_builtin_provider_keeps_its_catalog_mark() {
+        let root = std::env::temp_dir().join(format!("cgc-builtin-key-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let settings = settings(&root);
+        let mut builtin = provider();
+        builtin.id = "deepseek".into();
+        builtin.name = "DeepSeek".into();
+        settings
+            .apply(ProviderPrefsChange::SaveKey {
+                provider: builtin,
+                key: "secret".into(),
+            })
+            .expect("save key");
+        let saved = settings
+            .load()
+            .provider("deepseek")
+            .cloned()
+            .expect("saved builtin");
+        assert!(saved.builtin);
     }
 
     #[test]
@@ -435,6 +555,86 @@ mod tests {
             settings.keychain.load_secret(&account).as_deref(),
             Some("to-be-kept")
         );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn catalog_updates_only_the_named_provider() {
+        let root = std::env::temp_dir().join(format!("cgc-catalog-save-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let settings = settings(&root);
+        settings
+            .apply(ProviderPrefsChange::SaveProvider(provider()))
+            .expect("save provider");
+        let models = vec![RemoteModel {
+            id: "vendor-model".into(),
+            name: Some("Vendor Model".into()),
+            context_window: Some(128_000),
+            max_output_tokens: Some(8_000),
+            supports_images: Some(false),
+            reasoning_efforts: vec!["low".into(), "high".into()],
+        }];
+        settings
+            .apply(ProviderPrefsChange::SaveProviderCatalog {
+                provider_id: "test-provider".into(),
+                models: models.clone(),
+                fetched_at: 1_700_000_000,
+            })
+            .expect("save catalog");
+        let saved = settings
+            .load()
+            .provider("test-provider")
+            .cloned()
+            .expect("saved");
+        assert_eq!(saved.available_models, models);
+        assert_eq!(saved.models_fetched_at, 1_700_000_000);
+        assert_eq!(saved.models, vec!["test-model".to_string()]);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn catalog_update_for_unsaved_provider_is_ignored() {
+        let root = std::env::temp_dir().join(format!("cgc-catalog-unsaved-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let settings = settings(&root);
+        settings
+            .apply(ProviderPrefsChange::SaveProviderCatalog {
+                provider_id: "missing".into(),
+                models: Vec::new(),
+                fetched_at: 1,
+            })
+            .expect("no-op");
+        assert!(settings.load().provider("missing").is_none());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn enabling_only_updates_the_flag() {
+        let root = std::env::temp_dir().join(format!("cgc-enable-only-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let settings = settings(&root);
+        let mut saved = provider();
+        saved.protocol = cgc_agent_provider::ProviderProtocol::AnthropicCompatible;
+        settings
+            .apply(ProviderPrefsChange::SaveProvider(saved))
+            .expect("save provider");
+        settings
+            .apply(ProviderPrefsChange::SetProviderEnabled {
+                provider_id: "test-provider".into(),
+                enabled: false,
+            })
+            .expect("disable");
+        let after = settings
+            .load()
+            .provider("test-provider")
+            .cloned()
+            .expect("provider");
+        assert!(!after.enabled);
+        assert_eq!(
+            after.protocol,
+            cgc_agent_provider::ProviderProtocol::AnthropicCompatible
+        );
+        assert_eq!(after.models, vec!["test-model".to_string()]);
         let _ = std::fs::remove_dir_all(&root);
     }
 }

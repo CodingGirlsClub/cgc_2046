@@ -44,6 +44,16 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "忘记密码页的固定小程序码（scene=pw，直达小程序密码页；匿名可读，生成失败返回 null）"
+    field :password_center_qr, :string do
+      resolve(fn _, _, _ ->
+        case Cgc2046.Integrations.Wechat.WebLoginLaunch.password_center_qr() do
+          {:ok, %{qr_data_url: url}} -> {:ok, url}
+          _ -> {:ok, nil}
+        end
+      end)
+    end
+
     @desc "角色权限矩阵（#66 Rbac）：五角色 × 八能力，对齐前端权限表（需登录；#1 能力接口：abilities 为通用列表）"
     field :permission_matrix, :permission_matrix_payload do
       resolve(fn _, _, %{context: context} ->
