@@ -176,6 +176,79 @@ pub fn list_models(base_url: &str, api_key: &str) -> Result<Vec<RemoteModel>, Pr
     parse_models(&text)
 }
 
+/// 检测单个模型的最小对话请求地址。
+pub fn chat_url(base_url: &str) -> String {
+    format!("{}/chat/completions", base_url.trim_end_matches('/'))
+}
+
+/// 检测用的最小对话请求体：一句话，最多 1 个 token。
+pub fn chat_body(model: &str) -> serde_json::Value {
+    serde_json::json!({
+        "model": model,
+        "messages": [{"role": "user", "content": "ping"}],
+        "max_tokens": 1,
+        "stream": false
+    })
+}
+
+/// 逐个模型发最小对话请求，找出供应商列表里其实不可用的模型。
+/// 每批 4 个并发；结果顺序与输入一致。
+pub fn test_models(
+    base_url: &str,
+    api_key: &str,
+    models: &[String],
+) -> Vec<(String, Result<(), String>)> {
+    if let Some(note) = socks_proxy_note() {
+        return models
+            .iter()
+            .map(|model| (model.clone(), Err(note.clone())))
+            .collect();
+    }
+    let mut results = Vec::with_capacity(models.len());
+    for chunk in models.chunks(4) {
+        let mut batch: Vec<(String, Result<(), String>)> = std::thread::scope(|scope| {
+            let handles: Vec<_> = chunk
+                .iter()
+                .map(|model| {
+                    let model = model.clone();
+                    scope.spawn(move || {
+                        let result =
+                            test_model(base_url, api_key, &model).map_err(|error| error.to_string());
+                        (model, result)
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|handle| handle.join().expect("model probe thread"))
+                .collect()
+        });
+        results.append(&mut batch);
+    }
+    results
+}
+
+fn test_model(base_url: &str, api_key: &str, model: &str) -> Result<(), ProviderError> {
+    let agent = ureq::Agent::new_with_config(
+        ureq::Agent::config_builder()
+            .http_status_as_error(false)
+            .timeout_global(Some(std::time::Duration::from_secs(20)))
+            .build(),
+    );
+    let mut response = agent
+        .post(&chat_url(base_url))
+        .header("authorization", format!("Bearer {api_key}"))
+        .header("content-type", "application/json")
+        .send_json(chat_body(model))
+        .map_err(map_ureq_error)?;
+    let status = response.status();
+    if status.is_success() {
+        return Ok(());
+    }
+    let text = response.body_mut().read_to_string().unwrap_or_default();
+    Err(ProviderError::api(status.as_u16(), truncate(&text, 300)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -246,6 +319,19 @@ mod tests {
     fn not_found_is_an_unsupported_endpoint() {
         assert!(list_unsupported(&ProviderError::api(404, "not found")));
         assert!(!list_unsupported(&ProviderError::api(401, "unauthorized")));
+    }
+
+    #[test]
+    fn chat_probe_targets_completions_with_a_tiny_body() {
+        assert_eq!(
+            chat_url("https://api.deepseek.com/"),
+            "https://api.deepseek.com/chat/completions"
+        );
+        let body = chat_body("deepseek-flash");
+        assert_eq!(body["model"], "deepseek-flash");
+        assert_eq!(body["max_tokens"], 1);
+        assert_eq!(body["stream"], false);
+        assert_eq!(body["messages"][0]["content"], "ping");
     }
 
     #[test]

@@ -46,8 +46,11 @@ pub(crate) struct ProviderDraft {
     pub(crate) remote_picker: Option<Entity<ComboboxState<SearchableVec<String>>>>,
     pub(crate) fetching_models: bool,
     pub(crate) fetch_error: Option<String>,
-    /// 高级模式：按文本批量编辑模型行。
+    /// 批量编辑：按文本编辑模型行。
     pub(crate) models_advanced_open: bool,
+    /// 逐个检测模型的进行中状态与结果（model id → 是否可用）。
+    pub(crate) testing_models: bool,
+    pub(crate) model_tests: std::collections::BTreeMap<String, Result<(), String>>,
 }
 
 pub(crate) use cgc_agent_store::model_lines::{
@@ -94,6 +97,8 @@ impl ProviderDraft {
             fetching_models: false,
             fetch_error: None,
             models_advanced_open: false,
+            testing_models: false,
+            model_tests: std::collections::BTreeMap::new(),
         }
     }
 
@@ -129,6 +134,8 @@ impl ProviderDraft {
             fetching_models: false,
             fetch_error: None,
             models_advanced_open: false,
+            testing_models: false,
+            model_tests: std::collections::BTreeMap::new(),
         }
     }
 

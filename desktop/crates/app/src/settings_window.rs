@@ -9,8 +9,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use cgc_agent_provider::{
-    list_models, list_unsupported, probe::RemoteModel, validate_credentials, ProviderError,
-    ProviderErrorCategory, ProviderProtocol, ThinkingMode,
+    list_models, list_unsupported, probe::RemoteModel, test_models, validate_credentials,
+    ProviderError, ProviderErrorCategory, ProviderProtocol, ThinkingMode,
 };
 use cgc_agent_store::{
     builtin_providers, is_builtin_provider_id, next_provider_id, normalized_provider_name,
@@ -878,6 +878,8 @@ impl SettingsWindowView {
         copy.fetching_models = false;
         copy.fetch_error = None;
         copy.models_advanced_open = false;
+        copy.testing_models = false;
+        copy.model_tests.clear();
         let provider = copy.to_prefs_with(&copy.base_url, &copy.name);
         match self
             .provider_settings
@@ -982,6 +984,78 @@ impl SettingsWindowView {
                     provider_validation_message(&error)
                 ));
             }
+        }
+        cx.notify();
+    }
+
+    /// 对当前启用中的模型各发一次最小对话请求，标出供应商列表里其实不可用的模型。
+    fn test_all_models(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(draft) = self.provider_drafts.get(index).cloned() else {
+            return;
+        };
+        if draft.testing_models {
+            return;
+        }
+        let base_url = draft
+            .base_url_input
+            .as_ref()
+            .map(|input| input.read(cx).value().trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| draft.base_url.clone());
+        let typed = draft
+            .api_key_input
+            .as_ref()
+            .map(|input| input.read(cx).value().trim().to_string())
+            .unwrap_or_default();
+        let key = if typed.is_empty() {
+            self.provider_settings.key(&draft.id).unwrap_or_default()
+        } else {
+            typed
+        };
+        if key.is_empty() {
+            self.error = Some("请先填写或保存 API Key".to_string());
+            cx.notify();
+            return;
+        }
+        let mut models: Vec<String> = draft
+            .model_params
+            .iter()
+            .filter(|model| model.enabled)
+            .map(|model| model.id.clone())
+            .collect();
+        if models.is_empty() {
+            models = parse_model_lines(&draft.models).0;
+        }
+        if models.is_empty() {
+            self.error = Some("没有可检测的模型".to_string());
+            cx.notify();
+            return;
+        }
+        if let Some(slot) = self.provider_drafts.get_mut(index) {
+            slot.testing_models = true;
+            slot.model_tests.clear();
+        }
+        self.error = None;
+        cx.notify();
+        let task = cx
+            .background_executor()
+            .spawn(async move { test_models(&base_url, &key, &models) });
+        cx.spawn(async move |this, cx| {
+            let results = task.await;
+            let _ = this.update(cx, |this, cx| this.finish_test_models(index, results, cx));
+        })
+        .detach();
+    }
+
+    fn finish_test_models(
+        &mut self,
+        index: usize,
+        results: Vec<(String, Result<(), String>)>,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(draft) = self.provider_drafts.get_mut(index) {
+            draft.testing_models = false;
+            draft.model_tests = results.into_iter().collect();
         }
         cx.notify();
     }
@@ -2558,6 +2632,33 @@ fn render_provider_cards(
                                         .child(
                                             div()
                                                 .id(SharedString::from(format!(
+                                                    "settings-models-test-{index}"
+                                                )))
+                                                .role(Role::Button)
+                                                .aria_label("检测模型")
+                                                .px(space(2))
+                                                .py(px(3.0))
+                                                .rounded(px(RADIUS_SMALL))
+                                                .border_1()
+                                                .border_color(palette.line)
+                                                .text_size(px(11.0))
+                                                .child(if draft.testing_models {
+                                                    "检测中…"
+                                                } else {
+                                                    "检测模型"
+                                                })
+                                                .on_click({
+                                                    let test_weak = weak.clone();
+                                                    move |_, _, cx| {
+                                                        let _ = test_weak.update(cx, |this, cx| {
+                                                            this.test_all_models(index, cx);
+                                                        });
+                                                    }
+                                                }),
+                                        )
+                                        .child(
+                                            div()
+                                                .id(SharedString::from(format!(
                                                     "settings-models-advanced-{index}"
                                                 )))
                                                 .role(Role::Button)
@@ -2783,6 +2884,29 @@ fn render_provider_cards(
                                                     .text_size(px(12.0))
                                                     .text_color(palette.ink_2)
                                                     .child(format!("Model {}", model_index + 1)),
+                                            )
+                                            .children(
+                                                draft
+                                                    .model_tests
+                                                    .get(&field.model_id)
+                                                    .map(|result| match result {
+                                                        Ok(()) => div()
+                                                            .text_size(px(10.0))
+                                                            .text_color(palette.accent)
+                                                            .child("✓ 可用")
+                                                            .into_any_element(),
+                                                        Err(error) => div()
+                                                            .text_size(px(10.0))
+                                                            .text_color(palette.danger)
+                                                            .child(format!(
+                                                                "✗ {}",
+                                                                error
+                                                                    .chars()
+                                                                    .take(40)
+                                                                    .collect::<String>()
+                                                            ))
+                                                            .into_any_element(),
+                                                    }),
                                             )
                                             .child(div().flex_1())
                                             .child(
