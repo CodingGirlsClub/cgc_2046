@@ -3,7 +3,9 @@ use crate::agent_ingest;
 use cgc_agent_store::SessionStore;
 use cgc_agent_ui::conversation::{ConversationThread, ThreadCapabilities};
 use cgc_platform::notifications::NotificationsApi as _;
-use cgc_platform::registry::install::{install_entry, uninstall_entry};
+use cgc_platform::registry::install::{
+    install_entry, install_plugin_entry, uninstall_entry, uninstall_plugin_entry,
+};
 use state::SiteTreeSection;
 
 #[cfg(all(test, cgc_ui_tests))]
@@ -1274,17 +1276,28 @@ impl RootView {
                 None
             };
             let launch_options = if dsh_required {
-                let (dsh_home, shared) = crate::dsh_agent::resolve_dsh_home();
-                // 共享模式指向用户自己的 DSH 目录：不创建、不改权限。
-                if !shared {
-                    ensure_dsh_home(&dsh_home).map_err(|error| ChatStartError {
-                        message: format!("cannot prepare DSH_HOME: {error}"),
-                        detected: guidance.clone(),
-                        node_found: node_found.clone(),
-                    })?;
+                if let Some(plugin) = crate::dsh_agent::dsh_plugin() {
+                    // ADR-0030 D1 修订：plugin 形态优先，复用用户 profile 的模型/凭据。
+                    crate::dsh_agent::dsh_plugin_launch_options(
+                        plugin,
+                        crate::dsh_agent::dsh_launch_env(),
+                    )
+                } else {
+                    let (dsh_home, shared) = crate::dsh_agent::resolve_dsh_home();
+                    // 共享模式指向用户自己的 DSH 目录：不创建、不改权限。
+                    if !shared {
+                        ensure_dsh_home(&dsh_home).map_err(|error| ChatStartError {
+                            message: format!("cannot prepare DSH_HOME: {error}"),
+                            detected: guidance.clone(),
+                            node_found: node_found.clone(),
+                        })?;
+                    }
+                    // 决策 A：DSH Desktop 仅检测展示，openma 统一使用自带 bundled dsh。
+                    crate::dsh_agent::dsh_launch_options(
+                        dsh_home,
+                        crate::dsh_agent::dsh_launch_env(),
+                    )
                 }
-                // 决策 A：DSH Desktop 仅检测展示，openma 统一使用自带 bundled dsh。
-                crate::dsh_agent::dsh_launch_options(dsh_home, crate::dsh_agent::dsh_launch_env())
             } else {
                 LaunchOptions::default()
             };
@@ -3228,6 +3241,13 @@ impl RootView {
             cgc_platform::registry::manifest::Distribution::Npx { .. }
         );
         let task = cx.background_executor().spawn(async move {
+            // ADR-0030 D1 修订：DSH 条目优先写进用户 `profiles/acp`。
+            if entry.uses_dsh_runtime() {
+                if let Some(plugin) = crate::dsh_agent::dsh_plugin() {
+                    return install_plugin_entry(&entry, &plugin)
+                        .map_err(|error| error.to_string());
+                }
+            }
             let manager = NodeRuntimeManager::default_manager();
             let mut node = manager.installed_runtime();
             if node.is_none() && is_npx {
@@ -3295,9 +3315,15 @@ impl RootView {
         self.agent_install_error = None;
         let uninstalled_id = id.to_string();
         let task = cx.background_executor().spawn(async move {
+            // plugin 形态只从 profile 移除依赖，用户 DSH 数据目录不动。
+            if entry.uses_dsh_runtime() {
+                if let Some(plugin) = crate::dsh_agent::dsh_plugin() {
+                    return uninstall_plugin_entry(&entry, &plugin)
+                        .map_err(|error| error.to_string());
+                }
+            }
             let manager = NodeRuntimeManager::default_manager();
             let node = manager.installed_runtime();
-            // 共享模式：DSH_HOME 属于用户自己的 DSH 数据，卸载只删 CGC 安装包。
             let (dsh_home, shared) = crate::dsh_agent::resolve_dsh_home();
             let remove_home = (!shared).then_some(dsh_home);
             uninstall_entry(&entry, node.as_ref(), remove_home.as_deref())

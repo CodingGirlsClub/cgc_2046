@@ -272,6 +272,94 @@ pub fn uninstall_entry(
     })
 }
 
+/// plugin 形态安装（ADR-0030 D1 修订）：通过 DSH CLI 把 adapter 写进用户
+/// `profiles/acp`，adapter 由用户 DSH 的 runtime 加载，从而复用其 providers。
+///
+/// 只增删 profile 里的 npm 依赖，**不触碰** `$DSH_HOME` 的会话/凭据/设置。
+pub fn install_plugin_entry(
+    entry: &AgentEntry,
+    plugin: &crate::agent::dsh_plugin::DshPlugin,
+) -> Result<InstallResult, InstallError> {
+    let Distribution::Npx {
+        package, version, ..
+    } = &entry.distribution
+    else {
+        return Err(failed(
+            "dsh plugin",
+            "plugin install only supports npx entries",
+        ));
+    };
+    if !plugin.dsh.is_file() {
+        return Err(failed(
+            "dsh plugin",
+            format!("dsh CLI not found at {}", plugin.dsh.display()),
+        ));
+    }
+    let profile = crate::agent::dsh_plugin::profile_dir(&plugin.home);
+    std::fs::create_dir_all(&profile).map_err(|error| failed("dsh plugin", error))?;
+    let plan = LaunchPlan {
+        program: plugin.dsh.clone(),
+        args: vec![
+            "plugin".to_string(),
+            "--profile".to_string(),
+            crate::agent::dsh_plugin::DSH_PLUGIN_PROFILE.to_string(),
+            "add".to_string(),
+            format!("{package}@{version}"),
+        ],
+        env: crate::agent::launch::inherited_environment(|key| std::env::var(key).ok()),
+        cwd: profile,
+    };
+    run_output(&plan, INSTALL_TIMEOUT).map_err(|error| failed("dsh plugin", error))?;
+    let installed = crate::agent::dsh_plugin::read_profile_version(&plugin.home, package);
+    if installed.as_deref() != Some(version.as_str()) {
+        return Err(failed(
+            "dsh plugin",
+            format!("expected {package}@{version}, got {installed:?}"),
+        ));
+    }
+    Ok(InstallResult {
+        id: entry.id.clone(),
+        version: Some(version.clone()),
+        detail: format!("{package}@{version} installed via dsh profile acp"),
+    })
+}
+
+/// plugin 形态卸载：只从 profile 移除依赖，用户 DSH 数据目录原样保留。
+pub fn uninstall_plugin_entry(
+    entry: &AgentEntry,
+    plugin: &crate::agent::dsh_plugin::DshPlugin,
+) -> Result<UninstallResult, UninstallError> {
+    let Distribution::Npx { package, .. } = &entry.distribution else {
+        return Err(UninstallError::NativeUninstallUnsupported {
+            command: entry.id.clone(),
+        });
+    };
+    let profile = crate::agent::dsh_plugin::profile_dir(&plugin.home);
+    let plan = LaunchPlan {
+        program: plugin.dsh.clone(),
+        args: vec![
+            "plugin".to_string(),
+            "--profile".to_string(),
+            crate::agent::dsh_plugin::DSH_PLUGIN_PROFILE.to_string(),
+            "remove".to_string(),
+            package.clone(),
+        ],
+        env: crate::agent::launch::inherited_environment(|key| std::env::var(key).ok()),
+        cwd: profile,
+    };
+    run_output(&plan, INSTALL_TIMEOUT)
+        .map_err(|error| failed("dsh plugin", error))
+        .map_err(|error| UninstallError::RemoveFailed {
+            path: plugin.home.clone(),
+            message: error.to_string(),
+        })?;
+    Ok(UninstallResult {
+        id: entry.id.clone(),
+        removed_package: true,
+        removed_dsh_home: false,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -325,6 +413,92 @@ mod tests {
         let again = uninstall_entry(&dsh_entry, Some(&runtime), Some(&dsh_home)).unwrap();
         assert!(!again.removed_package);
         assert!(!again.removed_dsh_home);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn plugin_install_writes_profile_without_touching_home_data() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!(
+            "cgc-plugin-install-{}-{}",
+            std::process::id(),
+            NEXT_INSTALL.fetch_add(1, Ordering::Relaxed)
+        ));
+        let dsh = root.join("dsh");
+        std::fs::create_dir_all(&root).expect("root");
+        std::fs::write(
+            &dsh,
+            b"#!/bin/sh\nprintf '{\"dependencies\":{\"@openma/deepseek-harness-acp\":\"%s\"}}' \"${5##*@}\" > package.json\n",
+        )
+        .unwrap();
+        let mut perms = std::fs::metadata(&dsh).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&dsh, perms).unwrap();
+        let home = root.join("dsh-home");
+        std::fs::create_dir_all(crate::agent::dsh_plugin::profile_dir(&home)).unwrap();
+        std::fs::write(home.join("settings.yaml"), b"keep").unwrap();
+        let plugin = crate::agent::dsh_plugin::DshPlugin {
+            dsh,
+            home: home.clone(),
+            version: "0.4.41".to_string(),
+        };
+        let mut dsh_entry = entry("dsh-test", "@openma/deepseek-harness-acp", true);
+        if let Distribution::Npx { version, .. } = &mut dsh_entry.distribution {
+            *version = "0.4.41".to_string();
+        }
+
+        let result = install_plugin_entry(&dsh_entry, &plugin).expect("plugin install");
+        assert_eq!(result.version.as_deref(), Some("0.4.41"));
+        assert_eq!(
+            crate::agent::dsh_plugin::read_profile_version(&home, "@openma/deepseek-harness-acp")
+                .as_deref(),
+            Some("0.4.41")
+        );
+        assert_eq!(
+            std::fs::read(home.join("settings.yaml")).unwrap(),
+            b"keep",
+            "plugin install must not touch user DSH data"
+        );
+
+        let removed = uninstall_plugin_entry(&dsh_entry, &plugin).expect("plugin uninstall");
+        assert!(removed.removed_package);
+        assert!(!removed.removed_dsh_home);
+        assert!(home.exists(), "plugin uninstall must keep DSH_HOME");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn plugin_install_rejects_version_mismatch() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!(
+            "cgc-plugin-mismatch-{}-{}",
+            std::process::id(),
+            NEXT_INSTALL.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&root).expect("root");
+        let dsh = root.join("dsh");
+        std::fs::write(
+            &dsh,
+            b"#!/bin/sh\nprintf '{\"dependencies\":{\"@openma/deepseek-harness-acp\":\"0.0.0\"}}' > package.json\n",
+        )
+        .unwrap();
+        let mut perms = std::fs::metadata(&dsh).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&dsh, perms).unwrap();
+        let home = root.join("dsh-home");
+        let plugin = crate::agent::dsh_plugin::DshPlugin {
+            dsh,
+            home,
+            version: "0.4.41".to_string(),
+        };
+        let mut dsh_entry = entry("dsh-test", "@openma/deepseek-harness-acp", true);
+        if let Distribution::Npx { version, .. } = &mut dsh_entry.distribution {
+            *version = "0.4.41".to_string();
+        }
+        let error = install_plugin_entry(&dsh_entry, &plugin).expect_err("mismatch must fail");
+        assert!(error.to_string().contains("expected"), "got {error}");
         let _ = std::fs::remove_dir_all(&root);
     }
 

@@ -19,11 +19,16 @@ date: 2026-11-12
 
 ## 决策（Decision）
 
-### D1 运行时统一 bundled；DSH Desktop 仅检测展示
+### D1 运行时：有 DSH Desktop 时优先 plugin 形态，standalone 回退
 
-openma standalone adapter 统一使用包内 `vendor/dsh-runtime.tgz` 解出的私有 dsh 运行时（本 ADR 写作时捆绑 dsh `0.2.1-rc.5`）。客户端不再把外部 dsh 路径传给 `--dsh-path`，避免把 DSH Desktop 的 `Contents/Resources/runtime/cli/bin/dsh` 包装脚本交给 adapter：openma 无法从 Electron `app.asar` 加载 dsh，实测会报 `could not find a usable runtime`。
+两种启动形态：
 
-客户端仍做运行时探测，但**结果只用于 UI 展示**：探测顺序保留显式配置 → DSH Desktop 安装路径 → PATH，产出 `RuntimeProbe { found, version, source }`（`source` 取值 `explicit | dsh-desktop | path | bundled | missing`）；`launch_arg()` 统一返回 `bundled`。DSH Desktop 版本较高时仅在 UI 展示版本/来源，不改变启动路径，也不产生额外失败重试。
+- **plugin 形态（优先）**：检测到 `dsh` CLI（`DSH_CLI` > PATH > `~/.local/bin/dsh`）且 `$DSH_HOME/profiles/acp/package.json` 已声明 `@openma/deepseek-harness-acp` 时，客户端启动 `dsh --profile acp`。adapter 作为用户 DSH profile 的插件运行，复用其 providers（magpie / GLM / Kimi 等）、凭据 seam、技能与 MCP；模型目录直接来自 DSH composition（实测 85 个模型，默认 `magpie::auto/deepseek-v4.1-flash`）。
+- **standalone 回退**：没有 DSH Desktop 或 profile 未安装 adapter 时，使用 adapter 包内 `vendor/dsh-runtime.tgz`（`--dsh-path bundled`），模型选项由 `--models` 决定，默认只有内置 DeepSeek 两家（4 个选项）。
+
+不再把 DSH Desktop 的 `Contents/Resources/runtime/cli/bin/dsh` 传给 `--dsh-path`：openma 无法从 Electron `app.asar` 加载 dsh，实测报 `could not find a usable runtime`。plugin 形态由 DSH 自己的 CLI 启动，不经过 `--dsh-path`。
+
+`RuntimeProbe.source` 取值 `explicit | dsh-desktop | path | bundled | plugin | missing`。plugin 形态下 UI 显示「使用本地 DSH profile acp（adapter {version}）」，并隐藏 standalone 的共享开关（profile 本身位于 `$DSH_HOME`）。
 
 ### D2 凭据 env-only：keychain 只注入子进程环境，不落明文
 
@@ -41,7 +46,7 @@ CGC 托管的 DeepSeek Key 以本机 keychain 为唯一真源。启动 ACP 子�
 - 目录权限 0700；卸载时删除包与隔离 `DSH_HOME`（P4）。
 - 启动 ACP 子进程时显式设置 `DSH_HOME` 覆盖，禁止依赖用户环境中的同名变量。
 
-**opt-in 共享（个人开发场景）**：Agent Registry 的 DeepSeek 条目提供「与本地 DSH 共享会话」开关（`AgentPrefs.dsh_share_local_home`，默认关闭）。开启后：
+**opt-in 共享（个人开发场景）**：Agent Registry 的 DeepSeek 条目提供「与本地 DSH 共享会话」开关（`AgentPrefs.dsh_share_local_home`，默认关闭）。仅适用于 standalone 回退；plugin 形态本身要求 profile 位于 `$DSH_HOME`，不存在隔离选项。开启后：
 
 - `DSH_HOME` 指向本地 DSH 数据目录（`DSH_HOME` 环境变量 > `~/.dsh`），adapter 的会话日志与 DSH Desktop/Web 共用同一份，CGC 侧栏仍通过 `session/list` 合并展示；
 - 卸载只删 CGC 安装包，**不删除**共享目录；共享目录视为用户数据，由用户自行管理；
@@ -50,9 +55,9 @@ CGC 托管的 DeepSeek Key 以本机 keychain 为唯一真源。启动 ACP 子�
 
 ### D4 DSH Desktop 缺失不阻断安装/启动
 
-DSH Desktop 不是 openma adapter 的运行时前置：`detect` 始终按适配器安装与版本判定 `Ready`，DSH Desktop 缺失只作为信息提示（`detect` 不返回阻断性的运行时状态）。`registry.json` 的 `deepseek` 条目不再声明 blocking 的 `requires`，`download_hint` 只用于 UI 展示可选下载入口。
+DSH Desktop 不是 standalone 回退的运行时前置：`detect` 在 plugin 探测失败后按适配器安装与版本判定 `Ready`，DSH Desktop 缺失只作为信息提示（`detect` 不返回阻断性的运行时状态）。`registry.json` 的 `deepseek` 条目不再声明 blocking 的 `requires`，`download_hint` 只用于 UI 展示可选下载入口。
 
-安装、启动和对话始终使用 adapter 自带 bundled dsh；生产构建不因缺少 DSH Desktop 阻断，开发/自测也不需要额外准备。
+standalone 回退的安装、启动和对话始终使用 adapter 自带 bundled dsh；plugin 形态使用用户 DSH 的 runtime。生产构建不因缺少 DSH Desktop 阻断，开发/自测也不需要额外准备。
 
 ### 适配器版本与许可
 
@@ -69,11 +74,11 @@ DSH Desktop 不是 openma adapter 的运行时前置：`detect` 始终按适配�
 
 ## 后果（Consequences）
 
-**正面**：开箱即用，不依赖用户安装 DSH Desktop；DSH Desktop 版本仅作信息展示；凭据不落盘；学员数据与个人 DSH 数据隔离；开发与 CI 不装 DSH Desktop 也能跑 E2E。
+**正面**：有 DSH Desktop 时完整复用其模型/provider/技能（实测 85 个模型，含 magpie routing group）；没有 DSH Desktop 时 standalone 回退仍开箱即用；凭据不落盘；会话数据可选隔离（standalone）或共享（plugin 天然共享）。
 
-**代价 / 风险**：运行时版本跟随 adapter 发布，安全修复需等适配器发版；DSH Desktop 检测仅展示，不能承诺版本复用；隔离 `DSH_HOME` 会多一份本地数据目录与卸载清理逻辑；适配器 0.4.41 捆绑 dsh 0.2.1-rc.5，跨版本 `session/resume` 仍有风险（P4 需提示版本偏差）。
+**代价 / 风险**：plugin 形态强依赖 DSH Desktop 安装与 `dsh` CLI，且 `dsh 0.2.2-rc.3` 比 adapter 测试上限 `0.2.1-rc.5` 新，只警告不阻断；plugin 启动约 2.8s（加载 profile 插件/MCP），并会加载用户 profile 的全部 MCP/技能，外部依赖失败（如 Rockxy 未运行）只打日志；standalone 的运行时版本跟随 adapter 发布，安全修复需等适配器发版；隔离 `DSH_HOME` 会多一份本地数据目录与卸载清理逻辑。
 
-**回滚**：删除注册表条目并停用该 agent 即可；隔离 `DSH_HOME` 可整体删除，不影响其他 external agent 与 native 轨。
+**回滚**：plugin 形态执行 `dsh plugin --profile acp remove @openma/deepseek-harness-acp` 即退回 standalone；standalone 的隔离 `DSH_HOME` 可整体删除，不影响其他 external agent 与 native 轨。
 
 ## 落地
 

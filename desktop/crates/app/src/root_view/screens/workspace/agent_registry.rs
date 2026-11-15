@@ -215,60 +215,77 @@ pub(in crate::root_view) fn render_agent_registry(
                         language,
                         palette,
                     ))
-                    .children(entry.uses_dsh_runtime().then(|| {
-                        let root = cx.entity().downgrade();
-                        div()
-                            .id(SharedString::from(format!("agent-dsh-share-{}", entry.id)))
-                            .flex()
-                            .flex_col()
-                            .gap(px(3.0))
-                            .child(
+                    .children(
+                        (entry.uses_dsh_runtime()
+                            && row.runtime.source
+                                != cgc_platform::agent::dsh_runtime::RuntimeSource::Plugin)
+                            .then(|| {
+                                let root = cx.entity().downgrade();
                                 div()
+                                    .id(SharedString::from(format!("agent-dsh-share-{}", entry.id)))
                                     .flex()
-                                    .flex_row()
-                                    .items_center()
-                                    .gap(space(1))
+                                    .flex_col()
+                                    .gap(px(3.0))
                                     .child(
-                                        Checkbox::new("agent-dsh-share-local")
-                                            .checked(dsh_share_local)
-                                            .on_click(move |_, _, cx| {
-                                                let _ = root.update(cx, |this, cx| {
-                                                    this.toggle_dsh_share_local_home(cx);
-                                                });
-                                            }),
+                                        div()
+                                            .flex()
+                                            .flex_row()
+                                            .items_center()
+                                            .gap(space(1))
+                                            .child(
+                                                Checkbox::new("agent-dsh-share-local")
+                                                    .checked(dsh_share_local)
+                                                    .on_click(move |_, _, cx| {
+                                                        let _ = root.update(cx, |this, cx| {
+                                                            this.toggle_dsh_share_local_home(cx);
+                                                        });
+                                                    }),
+                                            )
+                                            .child(
+                                                div()
+                                                    .text_size(px(11.0))
+                                                    .text_color(palette.ink_2)
+                                                    .child(translate(
+                                                        language,
+                                                        Key::AgentRegistryDshShareLocal,
+                                                    )),
+                                            ),
                                     )
                                     .child(
-                                        div().text_size(px(11.0)).text_color(palette.ink_2).child(
-                                            translate(language, Key::AgentRegistryDshShareLocal),
-                                        ),
-                                    ),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(10.0))
-                                    .text_color(if dsh_share_local {
-                                        palette.warning
-                                    } else {
-                                        palette.ink_3
-                                    })
-                                    .child(translate(
-                                        language,
-                                        if dsh_share_local {
-                                            Key::AgentRegistryDshShareLocalOn
-                                        } else {
-                                            Key::AgentRegistryDshShareLocalHint
+                                        div()
+                                            .text_size(px(10.0))
+                                            .text_color(if dsh_share_local {
+                                                palette.warning
+                                            } else {
+                                                palette.ink_3
+                                            })
+                                            .child(translate(
+                                                language,
+                                                if dsh_share_local {
+                                                    Key::AgentRegistryDshShareLocalOn
+                                                } else {
+                                                    Key::AgentRegistryDshShareLocalHint
+                                                },
+                                            )),
+                                    )
+                                    .children((dsh_share_local && dsh_version_mismatch).then(
+                                        || {
+                                            div()
+                                                .text_size(px(10.0))
+                                                .text_color(palette.warning)
+                                                .child(
+                                                    translate(
+                                                        language,
+                                                        Key::AgentRegistryDshShareVersionWarn,
+                                                    )
+                                                    .replace("{desktop}", &dsh_desktop_version)
+                                                    .replace("{bundled}", &dsh_bundled_version),
+                                                )
                                         },
-                                    )),
-                            )
-                            .children((dsh_share_local && dsh_version_mismatch).then(|| {
-                                div().text_size(px(10.0)).text_color(palette.warning).child(
-                                    translate(language, Key::AgentRegistryDshShareVersionWarn)
-                                        .replace("{desktop}", &dsh_desktop_version)
-                                        .replace("{bundled}", &dsh_bundled_version),
-                                )
-                            }))
-                            .into_any_element()
-                    }))
+                                    ))
+                                    .into_any_element()
+                            }),
+                    )
                     .children(if is_installing {
                         install_stage.clone().map(|stage| {
                             div()
@@ -435,7 +452,10 @@ fn dsh_runtime_info(
     }
     let bundled = runtime.bundled_version.as_deref().unwrap_or("unknown");
     let detected_desktop = runtime.source == RuntimeSource::DshDesktop && runtime.found;
-    let text = if detected_desktop {
+    let text = if runtime.source == RuntimeSource::Plugin {
+        translate(language, Key::AgentRegistryDshPluginDetected)
+            .replace("{version}", runtime.version.as_deref().unwrap_or("unknown"))
+    } else if detected_desktop {
         translate(language, Key::AgentRegistryDshDesktopDetected)
             .replace("{version}", runtime.version.as_deref().unwrap_or("unknown"))
             .replace("{bundled}", bundled)

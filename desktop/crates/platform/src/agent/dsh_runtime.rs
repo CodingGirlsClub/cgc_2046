@@ -27,6 +27,8 @@ pub enum RuntimeSource {
     DshDesktop,
     Path,
     Bundled,
+    /// DSH Desktop 的 `dsh --profile acp` 插件形态（ADR-0030 D1 修订）。
+    Plugin,
     Missing,
 }
 
@@ -37,6 +39,7 @@ impl RuntimeSource {
             Self::DshDesktop => "dsh-desktop",
             Self::Path => "path",
             Self::Bundled => "bundled",
+            Self::Plugin => "plugin",
             Self::Missing => "missing",
         }
     }
@@ -76,11 +79,25 @@ impl RuntimeProbe {
         }
     }
 
-    /// 是否找到了外部安装（显式 / DSH Desktop / PATH）；bundled 不算外部。
+    /// plugin 形态：`version` 是 profile 里 adapter 的版本，`dsh` 是 CLI 路径。
+    pub fn plugin(version: String, dsh: PathBuf) -> Self {
+        Self {
+            found: true,
+            version: Some(version),
+            source: RuntimeSource::Plugin,
+            path: Some(dsh),
+            bundled_version: None,
+        }
+    }
+
+    /// 是否找到了外部安装（显式 / DSH Desktop / PATH / plugin）；bundled 不算外部。
     pub fn external_found(&self) -> bool {
         matches!(
             self.source,
-            RuntimeSource::Explicit | RuntimeSource::DshDesktop | RuntimeSource::Path
+            RuntimeSource::Explicit
+                | RuntimeSource::DshDesktop
+                | RuntimeSource::Path
+                | RuntimeSource::Plugin
         )
     }
 

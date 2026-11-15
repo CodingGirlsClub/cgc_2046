@@ -418,6 +418,7 @@ agent.registry.runtime_download = Download DSH Desktop
 agent.registry.dsh_desktop_detected = DSH Desktop {version} detected; using the bundled runtime {bundled}
 agent.registry.dsh_runtime_detected = dsh {version} detected ({source}); using the bundled runtime {bundled}
 agent.registry.dsh_desktop_missing = DSH Desktop not detected. No impact: the bundled runtime will be used.
+agent.registry.dsh_plugin_detected = Using local DSH profile acp (adapter {version}); models and credentials come from your DSH setup
 agent.registry.dsh_share_local = Share sessions with local DSH
 agent.registry.dsh_share_local_hint = Off: the client keeps its isolated directory. On: conversations also appear in DSH Desktop/Web, and uninstalling never deletes DSH data.
 agent.registry.dsh_share_local_on = Sharing ~/.dsh sessions (applies to the next new conversation)

@@ -25,6 +25,25 @@ pub(crate) fn dsh_launch_options(
     LaunchOptions {
         dsh_path: Some("bundled".to_string()),
         dsh_home: Some(dsh_home),
+        dsh_plugin: None,
+        extra_env,
+    }
+}
+
+/// DSH plugin 形态（ADR-0030 D1 修订）：有 DSH Desktop 时优先走这个入口。
+pub(crate) fn dsh_plugin() -> Option<cgc_platform::agent::dsh_plugin::DshPlugin> {
+    cgc_platform::agent::dsh_plugin::probe()
+}
+
+/// plugin 形态启动参数：`dsh --profile acp` + 用户 DSH 目录。
+pub(crate) fn dsh_plugin_launch_options(
+    plugin: cgc_platform::agent::dsh_plugin::DshPlugin,
+    extra_env: BTreeMap<String, String>,
+) -> LaunchOptions {
+    LaunchOptions {
+        dsh_path: None,
+        dsh_home: Some(plugin.home),
+        dsh_plugin: Some(plugin.dsh),
         extra_env,
     }
 }
@@ -203,6 +222,7 @@ mod tests {
         let options = cgc_platform::agent::launch::LaunchOptions {
             dsh_path: Some("bundled".into()),
             dsh_home: None,
+            dsh_plugin: None,
             extra_env: env,
         };
         let debug = format!("{options:?}");

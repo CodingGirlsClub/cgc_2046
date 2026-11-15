@@ -67,6 +67,9 @@ impl fmt::Debug for LaunchPlan {
 pub struct LaunchOptions {
     pub dsh_path: Option<String>,
     pub dsh_home: Option<PathBuf>,
+    /// DSH plugin 形态：`dsh --profile acp` 的 CLI 路径（ADR-0030 D1 修订）。
+    /// 设置后忽略 `dsh_path`，启动的是用户 DSH profile 里的 adapter 插件。
+    pub dsh_plugin: Option<PathBuf>,
     pub extra_env: BTreeMap<String, String>,
 }
 
@@ -76,6 +79,7 @@ impl fmt::Debug for LaunchOptions {
             .debug_struct("LaunchOptions")
             .field("dsh_path", &self.dsh_path)
             .field("dsh_home", &self.dsh_home)
+            .field("dsh_plugin", &self.dsh_plugin)
             .field("extra_env_keys", &self.extra_env.keys().collect::<Vec<_>>())
             .finish()
     }
@@ -276,6 +280,23 @@ pub fn build_launch_with_env_and_options(
             })
         }
         Distribution::Npx { .. } => {
+            // ADR-0030 D1 修订：有 DSH Desktop 时优先 plugin 形态，adapter 由
+            // `dsh --profile acp` 加载，直接复用用户 profile 的 providers。
+            if let Some(dsh) = &options.dsh_plugin {
+                let mut env = inherited_environment(env_source);
+                let mut args = vec![
+                    "--profile".to_string(),
+                    crate::agent::dsh_plugin::DSH_PLUGIN_PROFILE.to_string(),
+                ];
+                apply_plugin_options(options, &mut env)?;
+                args.extend(entry.launch_args.clone());
+                return Ok(LaunchPlan {
+                    program: dsh.clone(),
+                    args,
+                    env,
+                    cwd: cwd.to_path_buf(),
+                });
+            }
             let runtime = node.ok_or_else(|| LaunchError::NodeRuntimeMissing {
                 expected: PathBuf::from("<managed node runtime>"),
             })?;
@@ -298,6 +319,32 @@ pub fn build_launch_with_env_and_options(
             })
         }
     }
+}
+
+fn apply_plugin_options(
+    options: &LaunchOptions,
+    env: &mut BTreeMap<String, String>,
+) -> Result<(), LaunchError> {
+    if let Some(dsh_home) = &options.dsh_home {
+        if dsh_home.as_os_str().is_empty() {
+            return Err(LaunchError::InvalidEnvironment(
+                "DSH_HOME must not be empty".to_string(),
+            ));
+        }
+        env.insert(
+            "DSH_HOME".to_string(),
+            dsh_home.to_string_lossy().into_owned(),
+        );
+    }
+    for (key, value) in &options.extra_env {
+        if key.trim().is_empty() {
+            return Err(LaunchError::InvalidEnvironment(
+                "environment variable name must not be empty".to_string(),
+            ));
+        }
+        env.insert(key.clone(), value.clone());
+    }
+    Ok(())
 }
 
 fn apply_launch_options(
@@ -350,6 +397,28 @@ mod tests {
             .get(id)
             .expect("entry")
             .clone()
+    }
+
+    #[test]
+    fn plugin_plan_uses_dsh_profile_without_dsh_path() {
+        let options = LaunchOptions {
+            dsh_path: Some("bundled".to_string()),
+            dsh_home: Some(PathBuf::from("/Users/example/.dsh")),
+            dsh_plugin: Some(PathBuf::from("/Users/example/.local/bin/dsh")),
+            extra_env: BTreeMap::new(),
+        };
+        let plan = build_launch_with_options(&entry("deepseek"), None, Path::new("/tmp"), &options)
+            .expect("plugin plan");
+        assert_eq!(plan.program, PathBuf::from("/Users/example/.local/bin/dsh"));
+        assert_eq!(plan.args, vec!["--profile".to_string(), "acp".to_string()]);
+        assert_eq!(
+            plan.env.get("DSH_HOME"),
+            Some(&"/Users/example/.dsh".to_string())
+        );
+        assert!(
+            !plan.args.iter().any(|arg| arg == "--dsh-path"),
+            "plugin form must not pass --dsh-path"
+        );
     }
 
     #[test]
@@ -422,6 +491,7 @@ mod tests {
             // 决策 A：不把 DSH Desktop 的 wrapper 传给 --dsh-path，统一 bundled。
             dsh_path: Some("bundled".to_string()),
             dsh_home: Some(PathBuf::from("/data/dsh-home")),
+            dsh_plugin: None,
             extra_env: BTreeMap::from([
                 ("DEEPSEEK_API_KEY".to_string(), "sk-secret".to_string()),
                 (
@@ -455,6 +525,7 @@ mod tests {
         let options = LaunchOptions {
             dsh_path: Some("/opt/dsh".to_string()),
             dsh_home: Some(PathBuf::from("/data/dsh-home")),
+            dsh_plugin: None,
             extra_env: BTreeMap::from([("DEEPSEEK_API_KEY".to_string(), "sk".to_string())]),
         };
         apply_launch_options(&omp, &options, &mut args, &mut env).expect("options");

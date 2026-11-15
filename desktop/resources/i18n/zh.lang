@@ -418,6 +418,7 @@ agent.registry.runtime_download = 下载 DSH Desktop
 agent.registry.dsh_desktop_detected = 检测到 DSH Desktop {version}；本次使用内置运行时 {bundled}
 agent.registry.dsh_runtime_detected = 检测到 dsh {version}（{source}）；本次使用内置运行时 {bundled}
 agent.registry.dsh_desktop_missing = 未检测到 DSH Desktop；不影响使用，将使用内置运行时
+agent.registry.dsh_plugin_detected = 使用本地 DSH profile acp（adapter {version}）；模型与凭据来自 DSH 配置
 agent.registry.dsh_share_local = 与本地 DSH 共享会话
 agent.registry.dsh_share_local_hint = 关闭时使用客户端隔离目录；开启后对话可在 DSH Desktop/Web 看到，卸载也不会删除 DSH 数据。
 agent.registry.dsh_share_local_on = 已共享 ~/.dsh 会话数据（下次新对话生效）
