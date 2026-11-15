@@ -199,7 +199,7 @@ pub fn anthropic_messages_url(base_url: &str) -> String {
 }
 
 /// Anthropic 端点的判定：参数错误（400/422）说明端点存在；404 说明不是 Anthropic。
-pub fn classify_messages_status(status: u16) -> ProbeState {
+pub fn classify_probe_status(status: u16) -> ProbeState {
     match status {
         400 | 422 => ProbeState::Supported,
         401 | 403 => ProbeState::Unauthorized,
@@ -215,7 +215,7 @@ pub fn classify_status(status: u16) -> ProbeState {
     }
 }
 
-/// 对同一 Base URL 试两种协议，只读探测、不产生对话费用。
+/// 对同一 Base URL 试三种协议，只读探测、不产生对话费用。
 pub fn detect_protocols(
     base_url: &str,
     api_key: &str,
@@ -225,6 +225,10 @@ pub fn detect_protocols(
         (
             ProviderProtocol::OpenAiCompatible,
             probe_openai(base_url, api_key),
+        ),
+        (
+            ProviderProtocol::OpenAiResponses,
+            probe_responses(base_url, api_key),
         ),
         (
             ProviderProtocol::AnthropicCompatible,
@@ -262,10 +266,38 @@ fn probe_anthropic(base_url: &str, api_key: &str) -> ProbeState {
         .header("content-type", "application/json")
         .send("{}")
     {
-        Ok(response) => classify_messages_status(response.status().as_u16()),
-        Err(ureq::Error::StatusCode(status)) => classify_messages_status(status),
+        Ok(response) => classify_probe_status(response.status().as_u16()),
+        Err(ureq::Error::StatusCode(status)) => classify_probe_status(status),
         Err(_) => ProbeState::Missing,
     }
+}
+
+fn probe_responses(base_url: &str, api_key: &str) -> ProbeState {
+    if socks_proxy_note().is_some() {
+        return ProbeState::Missing;
+    }
+    let agent = ureq::Agent::new_with_config(
+        ureq::Agent::config_builder()
+            .http_status_as_error(false)
+            .timeout_global(Some(std::time::Duration::from_secs(10)))
+            .build(),
+    );
+    // 空 body 会得到参数错误（400/422），端点不存在则是 404；不会产生对话费用。
+    match agent
+        .post(&responses_url(base_url))
+        .header("authorization", format!("Bearer {api_key}"))
+        .header("content-type", "application/json")
+        .send("{}")
+    {
+        Ok(response) => classify_probe_status(response.status().as_u16()),
+        Err(ureq::Error::StatusCode(status)) => classify_probe_status(status),
+        Err(_) => ProbeState::Missing,
+    }
+}
+
+/// Responses 的创建地址；与 Chat 一致，Base URL 需包含版本前缀（如 `/v1`）。
+pub fn responses_url(base_url: &str) -> String {
+    format!("{}/responses", base_url.trim_end_matches('/'))
 }
 
 /// 检测单个模型的最小对话请求地址。
@@ -331,6 +363,103 @@ fn test_model(base_url: &str, api_key: &str, model: &str) -> Result<(), Provider
         .header("authorization", format!("Bearer {api_key}"))
         .header("content-type", "application/json")
         .send_json(chat_body(model))
+        .map_err(map_ureq_error)?;
+    let status = response.status();
+    if status.is_success() {
+        return Ok(());
+    }
+    let text = response.body_mut().read_to_string().unwrap_or_default();
+    Err(ProviderError::api(status.as_u16(), truncate(&text, 300)))
+}
+
+/// 按协议检测模型：Chat、Responses、Anthropic 各发一次最小请求。
+pub fn test_models_for(
+    protocol: crate::protocol::ProviderProtocol,
+    base_url: &str,
+    api_key: &str,
+    models: &[String],
+) -> Vec<(String, Result<(), ProviderError>)> {
+    use crate::protocol::ProviderProtocol;
+    if let Some(note) = socks_proxy_note() {
+        return models
+            .iter()
+            .map(|model| (model.clone(), Err(ProviderError::transport(note.clone()))))
+            .collect();
+    }
+    let mut results = Vec::with_capacity(models.len());
+    for chunk in models.chunks(4) {
+        let mut batch: Vec<(String, Result<(), ProviderError>)> = std::thread::scope(|scope| {
+            let handles: Vec<_> = chunk
+                .iter()
+                .map(|model| {
+                    let model = model.clone();
+                    scope.spawn(move || {
+                        let result = match protocol {
+                            ProviderProtocol::OpenAiCompatible => {
+                                test_model(base_url, api_key, &model)
+                            }
+                            ProviderProtocol::OpenAiResponses => {
+                                test_responses_model(base_url, api_key, &model)
+                            }
+                            ProviderProtocol::AnthropicCompatible => {
+                                test_anthropic_model(base_url, api_key, &model)
+                            }
+                        };
+                        (model, result)
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|handle| handle.join().expect("model probe thread"))
+                .collect()
+        });
+        results.append(&mut batch);
+    }
+    results
+}
+
+fn probe_agent() -> ureq::Agent {
+    ureq::Agent::new_with_config(
+        ureq::Agent::config_builder()
+            .http_status_as_error(false)
+            .timeout_global(Some(std::time::Duration::from_secs(20)))
+            .build(),
+    )
+}
+
+fn test_responses_model(base_url: &str, api_key: &str, model: &str) -> Result<(), ProviderError> {
+    let mut response = probe_agent()
+        .post(&responses_url(base_url))
+        .header("authorization", format!("Bearer {api_key}"))
+        .header("content-type", "application/json")
+        .send_json(serde_json::json!({
+            "model": model,
+            "input": "ping",
+            "max_output_tokens": 16,
+            "store": false,
+            "stream": false,
+        }))
+        .map_err(map_ureq_error)?;
+    let status = response.status();
+    if status.is_success() {
+        return Ok(());
+    }
+    let text = response.body_mut().read_to_string().unwrap_or_default();
+    Err(ProviderError::api(status.as_u16(), truncate(&text, 300)))
+}
+
+fn test_anthropic_model(base_url: &str, api_key: &str, model: &str) -> Result<(), ProviderError> {
+    let mut response = probe_agent()
+        .post(&anthropic_messages_url(base_url))
+        .header("x-api-key", api_key)
+        .header("anthropic-version", "2023-06-01")
+        .header("content-type", "application/json")
+        .send_json(serde_json::json!({
+            "model": model,
+            "max_tokens": 1,
+            "messages": [{ "role": "user", "content": "ping" }],
+        }))
         .map_err(map_ureq_error)?;
     let status = response.status();
     if status.is_success() {
@@ -448,11 +577,11 @@ mod tests {
 
     #[test]
     fn messages_statuses_are_classified() {
-        assert_eq!(classify_messages_status(400), ProbeState::Supported);
-        assert_eq!(classify_messages_status(422), ProbeState::Supported);
-        assert_eq!(classify_messages_status(401), ProbeState::Unauthorized);
-        assert_eq!(classify_messages_status(404), ProbeState::Missing);
-        assert_eq!(classify_messages_status(500), ProbeState::Missing);
+        assert_eq!(classify_probe_status(400), ProbeState::Supported);
+        assert_eq!(classify_probe_status(422), ProbeState::Supported);
+        assert_eq!(classify_probe_status(401), ProbeState::Unauthorized);
+        assert_eq!(classify_probe_status(404), ProbeState::Missing);
+        assert_eq!(classify_probe_status(500), ProbeState::Missing);
     }
 
     #[test]

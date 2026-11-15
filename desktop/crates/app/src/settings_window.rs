@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use cgc_agent_provider::{
     detect_protocols, list_models, list_models_at, list_unsupported, probe::RemoteModel,
-    test_models, validate_credentials, ProbeState, ProviderError, ProviderErrorCategory,
+    test_models_for, validate_credentials, ProbeState, ProviderError, ProviderErrorCategory,
     ProviderProtocol, ThinkingMode,
 };
 use cgc_agent_store::{
@@ -1081,9 +1081,10 @@ impl SettingsWindowView {
         }
         self.error = None;
         cx.notify();
+        let protocol = draft.protocol;
         let task = cx
             .background_executor()
-            .spawn(async move { test_models(&base_url, &key, &models) });
+            .spawn(async move { test_models_for(protocol, &base_url, &key, &models) });
         cx.spawn(async move |this, cx| {
             let results = task.await;
             let _ = this.update(cx, |this, cx| this.finish_test_models(index, results, cx));
@@ -2534,6 +2535,7 @@ fn render_provider_cards(
                         .children(
                             [
                                 (ProviderProtocol::OpenAiCompatible, "OpenAI 兼容"),
+                                (ProviderProtocol::OpenAiResponses, "OpenAI Responses"),
                                 (ProviderProtocol::AnthropicCompatible, "Anthropic 兼容"),
                             ]
                             .into_iter()
