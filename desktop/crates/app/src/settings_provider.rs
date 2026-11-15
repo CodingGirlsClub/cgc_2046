@@ -51,6 +51,8 @@ pub(crate) struct ProviderDraft {
     pub(crate) model_id_input: Option<Entity<InputState>>,
     /// 模型区视图：供应商列表 / 仅所选。
     pub(crate) catalog_tab: CatalogTab,
+    /// 供应商列表是否展开显示全部（默认只显示前 N 个）。
+    pub(crate) catalog_expanded: bool,
     pub(crate) fetching_models: bool,
     pub(crate) fetch_error: Option<String>,
     /// 批量编辑：按文本编辑模型行。
@@ -167,6 +169,7 @@ impl ProviderDraft {
             models_fetched_at: provider.models_fetched_at,
             model_id_input: None,
             catalog_tab: CatalogTab::All,
+            catalog_expanded: false,
             fetching_models: false,
             fetch_error: None,
             models_advanced_open: false,
@@ -210,6 +213,7 @@ impl ProviderDraft {
             models_fetched_at: 0,
             model_id_input: None,
             catalog_tab: CatalogTab::All,
+            catalog_expanded: false,
             fetching_models: false,
             fetch_error: None,
             models_advanced_open: false,

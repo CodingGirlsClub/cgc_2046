@@ -1243,6 +1243,13 @@ impl SettingsWindowView {
         self.flush_models_text(index, window, cx);
     }
 
+    fn set_catalog_expanded(&mut self, index: usize, expanded: bool, cx: &mut Context<Self>) {
+        if let Some(slot) = self.provider_drafts.get_mut(index) {
+            slot.catalog_expanded = expanded;
+        }
+        cx.notify();
+    }
+
     fn set_catalog_tab(&mut self, index: usize, tab: CatalogTab, cx: &mut Context<Self>) {
         if let Some(slot) = self.provider_drafts.get_mut(index) {
             slot.catalog_tab = tab;
@@ -3416,16 +3423,27 @@ fn render_provider_cards(
                                                     });
                                                 })
                                         }))
-                                        .children(
-                                            draft
+                                        .children({
+                                            let pending: Vec<_> = draft
                                                 .remote_models
                                                 .iter()
                                                 .filter(|remote| {
                                                     draft.catalog_tab == CatalogTab::All
-                                                        && !draft.model_params.iter().any(|local| {
-                                                            local.id == remote.id
-                                                        })
+                                                        && !draft.model_params.iter().any(
+                                                            |local| local.id == remote.id,
+                                                        )
                                                 })
+                                                .collect();
+                                            let total = pending.len();
+                                            let limit = 24usize;
+                                            let expanded = draft.catalog_expanded;
+                                            let visible: Vec<_> = if expanded || total <= limit {
+                                                pending
+                                            } else {
+                                                pending.into_iter().take(limit).collect()
+                                            };
+                                            let mut chips: Vec<gpui::AnyElement> = visible
+                                                .into_iter()
                                                 .map(|model| {
                                                     let id = model.id.clone();
                                                     let add_weak = weak.clone();
@@ -3449,14 +3467,51 @@ fn render_provider_cards(
                                                         .child(label)
                                                         .on_click(move |_, window, cx| {
                                                             let id = id.clone();
-                                                            let _ = add_weak.update(cx, |this, cx| {
-                                                                this.add_remote_model(
-                                                                    index, &id, window, cx,
-                                                                );
-                                                            });
+                                                            let _ =
+                                                                add_weak.update(cx, |this, cx| {
+                                                                    this.add_remote_model(
+                                                                        index, &id, window, cx,
+                                                                    );
+                                                                });
                                                         })
-                                                }),
-                                        ),
+                                                        .into_any_element()
+                                                })
+                                                .collect();
+                                            if total > limit {
+                                                let expand_weak = weak.clone();
+                                                let label = if expanded {
+                                                    "收起".to_string()
+                                                } else {
+                                                    format!("显示其余 {} 个", total - limit)
+                                                };
+                                                chips.push(
+                                                    div()
+                                                        .id(SharedString::from(format!(
+                                                            "settings-model-pending-more-{index}"
+                                                        )))
+                                                        .role(Role::Button)
+                                                        .aria_label(label.clone())
+                                                        .px(space(2))
+                                                        .py(px(3.0))
+                                                        .rounded(px(999.0))
+                                                        .border_1()
+                                                        .border_color(palette.line)
+                                                        .text_size(px(11.0))
+                                                        .text_color(palette.ink_2)
+                                                        .child(label)
+                                                        .on_click(move |_, _, cx| {
+                                                            let _ = expand_weak
+                                                                .update(cx, |this, cx| {
+                                                                    this.set_catalog_expanded(
+                                                                        index, !expanded, cx,
+                                                                    );
+                                                                });
+                                                        })
+                                                        .into_any_element(),
+                                                );
+                                            }
+                                            chips
+                                        }),
                                 )
                                 .into_any_element()
                         })
