@@ -82,6 +82,30 @@ pub(crate) fn merge_remote_models(
     (models, params)
 }
 
+/// 保存时用最近一次获取结果补空档位：只补已有模型，不新增、不覆盖声明。
+pub(crate) fn fill_missing_efforts(
+    local: &[ModelPrefs],
+    remote: &[RemoteModel],
+) -> Vec<ModelPrefs> {
+    local
+        .iter()
+        .map(|model| {
+            if model.reasoning_efforts.is_empty() {
+                if let Some(found) = remote
+                    .iter()
+                    .find(|entry| entry.id == model.id && !entry.reasoning_efforts.is_empty())
+                {
+                    let mut filled = model.clone();
+                    filled.reasoning_efforts = found.reasoning_efforts.clone();
+                    filled.supports_thinking = true;
+                    return filled;
+                }
+            }
+            model.clone()
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -134,6 +158,33 @@ mod tests {
         let (_, params) =
             merge_remote_models(&fetched, &existing, &chosen(&["deepseek-flash"]), &[]);
         assert_eq!(params[0].context_window, 123_456);
+    }
+
+    #[test]
+    fn saving_fills_empty_efforts_from_the_last_fetch() {
+        let local = vec![ModelPrefs::new("auto/x")];
+        let remote = vec![RemoteModel {
+            reasoning_efforts: vec!["low".into(), "high".into()],
+            ..remote("auto/x")
+        }];
+        let filled = fill_missing_efforts(&local, &remote);
+        assert_eq!(filled.len(), 1);
+        assert_eq!(filled[0].reasoning_efforts, vec!["low", "high"]);
+        assert!(filled[0].supports_thinking);
+    }
+
+    #[test]
+    fn saving_keeps_declared_efforts() {
+        let local = vec![ModelPrefs {
+            reasoning_efforts: vec!["max".into()],
+            ..ModelPrefs::new("auto/x")
+        }];
+        let remote = vec![RemoteModel {
+            reasoning_efforts: vec!["low".into()],
+            ..remote("auto/x")
+        }];
+        let filled = fill_missing_efforts(&local, &remote);
+        assert_eq!(filled[0].reasoning_efforts, vec!["max"]);
     }
 
     #[test]

@@ -14,6 +14,7 @@ pub(crate) struct ModelFieldInputs {
     pub(crate) name_input: Entity<InputState>,
     pub(crate) context_input: Entity<InputState>,
     pub(crate) output_input: Entity<InputState>,
+    pub(crate) efforts_input: Entity<InputState>,
     pub(crate) enabled: bool,
     pub(crate) thinking: bool,
     pub(crate) supports_tools: bool,

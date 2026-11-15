@@ -37,7 +37,7 @@ use crate::build_info;
 use crate::i18n::{translate, Key, Language};
 use crate::native_runtime::{NativeRuntimeError, NativeRuntimeHandle};
 use crate::preferences::{self, CursorBlinkPreference};
-use crate::provider_fetch::merge_remote_models;
+use crate::provider_fetch::{fill_missing_efforts, merge_remote_models};
 use crate::provider_settings::{ProviderPrefsChange, ProviderSettings};
 use crate::root_view::{title_bar_left_inset, TITLEBAR_HEIGHT};
 use crate::settings_provider::{
@@ -240,11 +240,14 @@ impl SettingsWindowView {
                 };
                 let budget_input =
                     cx.new(|cx| InputState::new(window, cx).default_value(budget.to_string()));
+                let efforts = model.reasoning_efforts.join(",");
+                let efforts_input = cx.new(|cx| InputState::new(window, cx).default_value(efforts));
                 fields.push(ModelFieldInputs {
                     model_id: model.id.clone(),
                     name_input,
                     context_input,
                     output_input,
+                    efforts_input,
                     enabled: model.enabled,
                     thinking: model.supports_thinking,
                     supports_tools: model.supports_tools,
@@ -360,13 +363,20 @@ impl SettingsWindowView {
                         }
                     }
                 }
-                let efforts = draft
-                    .model_params
-                    .iter()
-                    .find(|model| model.id == field.model_id)
-                    .map(|model| model.reasoning_efforts.clone())
-                    .filter(|efforts| !efforts.is_empty())
-                    .unwrap_or_else(|| efforts_in_text(&source_text, &field.model_id));
+                let efforts: Vec<String> = field
+                    .efforts_input
+                    .read(cx)
+                    .value()
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|effort| !effort.is_empty())
+                    .map(str::to_string)
+                    .collect();
+                let efforts = if efforts.is_empty() {
+                    efforts_in_text(&source_text, &field.model_id)
+                } else {
+                    efforts
+                };
                 append_reasoning_efforts(&mut line, &efforts);
                 line
             })
@@ -765,6 +775,8 @@ impl SettingsWindowView {
             .unwrap_or_else(|| draft.name.clone());
         let models_text = models_input.read(cx).value().to_string();
         let (models, model_params) = parse_model_lines(&models_text);
+        // 只获取过模型、没点「加入选中模型」：保存时用远程元数据补空档位。
+        let model_params = fill_missing_efforts(&model_params, &draft.remote_models);
         if base_url.is_empty() || models.is_empty() || name.is_empty() {
             self.error = Some("Provider Name、Base URL 与至少一个 Model 不能为空".to_string());
             cx.notify();
@@ -3318,6 +3330,12 @@ fn render_provider_cards(
                                                     .child("模型会输出推理内容。"),
                                             ),
                                     )
+                                    .child(SettingsWindowView::render_provider_field(
+                                        "Reasoning Efforts",
+                                        Some("逗号分隔的档位，例如 low,high,max；留空表示不声明。"),
+                                        field.efforts_input.clone(),
+                                        palette,
+                                    ))
                                     .children((draft.protocol == ProviderProtocol::AnthropicCompatible && thinking).then(|| {
                                         let mode_weak = weak.clone();
                                         div().flex().flex_col().gap(space(1))
