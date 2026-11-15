@@ -198,6 +198,19 @@ export default function ProfilePage() {
               <Text className={styles.openclackyArrow}>→</Text>
             </View>
 
+            <Text className={styles.sectionTitle}>账号与安全</Text>
+            <View
+              className={styles.openclacky}
+              data-testid='profile-account-password'
+              onClick={() => void Taro.navigateTo({ url: '/pages/account-password/index' })}
+            >
+              <View>
+                <Text className={styles.openclackyTitle}>登录密码</Text>
+                <Text className={styles.openclackyText}>设置后可在电脑用手机号 + 密码登录。</Text>
+              </View>
+              <Text className={styles.openclackyArrow}>→</Text>
+            </View>
+
             <Text className={styles.sectionTitle}>继续学习</Text>
             <View className={styles.openclacky} onClick={() => Taro.navigateTo({ url: '/pages/openclacky/index' })}>
               <View>

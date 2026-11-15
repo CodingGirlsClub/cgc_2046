@@ -5028,6 +5028,8 @@ export type RootMutationType = {
   revokeToken?: Maybe<Scalars['Boolean']['output']>;
   /** Speaker 保存分享材料（落 WorkflowRun.facts[materials]；Speaker 本人自助或 Owner/Admin 兜底；materials 为 JSON 字符串） */
   saveSpeakerMaterials?: Maybe<SpeakerInvitationActionPayload>;
+  /** 登录态设置/重设密码（小程序密码中心）：免旧密码；成功后当前会话换发新 token，其他端全部失效 */
+  setPassword?: Maybe<SetPasswordResult>;
   /** 设置当前用户在某工作台的 UI 主题偏好（ADR-0004 per-workspace） */
   setWorkspaceTheme?: Maybe<WorkspaceProfile>;
   /** 账号密码登录（plan 002 U2：login 含 @ 走邮箱，否则手机号归一化；token 经 httpOnly cookie 交付） */
@@ -5817,6 +5819,11 @@ export type RootMutationTypeRevokeMcpTokenArgs = {
 export type RootMutationTypeSaveSpeakerMaterialsArgs = {
   invitationId: Scalars['ID']['input'];
   materials: Scalars['JsonString']['input'];
+};
+
+
+export type RootMutationTypeSetPasswordArgs = {
+  password: Scalars['String']['input'];
 };
 
 
@@ -6788,6 +6795,11 @@ export type RootQueryTypeWorkspaceProfileArgs = {
   workspaceId: Scalars['ID']['input'];
 };
 
+/** 登录态设置/重设密码结果（成功后当前会话已换发新 token） */
+export type SetPasswordResult = {
+  ok: Scalars['Boolean']['output'];
+};
+
 export type SetWorkspaceThemeInput = {
   /** setWorkspaceTheme 输入：uiThemePreference 必填，仅 dark | light */
   uiThemePreference: Scalars['String']['input'];
@@ -6807,6 +6819,7 @@ export type SignInWithPhoneCodeResult = {
 
 export type SignInWithPlatformResult = {
   email?: Maybe<Scalars['String']['output']>;
+  hasPassword: Scalars['Boolean']['output'];
   id: Scalars['ID']['output'];
   isPlatformAdmin: Scalars['Boolean']['output'];
 };

@@ -2,6 +2,7 @@ defmodule Cgc2046.Integrations.Wechat.WebLoginLaunch do
   @moduledoc "Login launch artifacts, using the existing SDK token lifecycle without request logging or retries."
   alias Cgc2046.Integrations.Wechat.SdkClient
   @page "pages/web-login/index"
+  @password_page "pages/account-password/index"
 
   def generate(mode, public_code) when mode in [:qr, :link] do
     with {:ok, client} <- SdkClient.fetch(),
@@ -9,6 +10,42 @@ defmodule Cgc2046.Integrations.Wechat.WebLoginLaunch do
       parse(mode, public_code, response)
     else
       _ -> {:error, :mini_web_login_unavailable}
+    end
+  end
+
+  @doc """
+  忘记密码页的固定小程序码：scene=pw，直达小程序密码页。
+
+  码本身不含任何凭证（进页面仍需微信登录），因此进程内缓存一次即可。
+  `check_path: true` 要求密码页已发布；未发布或接口失败返回错误，
+  由调用方降级为文字引导。
+  """
+  def password_center_qr do
+    key = {__MODULE__, :password_center_qr}
+
+    case :persistent_term.get(key, nil) do
+      nil ->
+        with {:ok, client} <- SdkClient.fetch(),
+             {:ok, response} <-
+               post(
+                 "getwxacodeunlimit",
+                 %{
+                   page: @password_page,
+                   scene: "pw",
+                   check_path: true,
+                   env_version: "release"
+                 },
+                 client.get_access_token()
+               ),
+             {:ok, %{qr_data_url: url}} <- parse(:qr, nil, response) do
+          :persistent_term.put(key, url)
+          {:ok, %{qr_data_url: url}}
+        else
+          _ -> {:error, :mini_web_login_unavailable}
+        end
+
+      url ->
+        {:ok, %{qr_data_url: url}}
     end
   end
 
@@ -27,6 +64,10 @@ defmodule Cgc2046.Integrations.Wechat.WebLoginLaunch do
            %{path: @page, query: "cq=wl_" <> code, expire_type: 1, expire_interval: 1}}
       end
 
+    post(path, body, token)
+  end
+
+  defp post(path, body, token) do
     opts = [
       url: "https://api.weixin.qq.com/wxa/" <> path,
       params: [access_token: token],

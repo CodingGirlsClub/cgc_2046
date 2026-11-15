@@ -5,6 +5,7 @@ import { api } from '@/api'
 import type { PlatformPhonePayload } from '@/domain/models'
 import { TT_TAB_PATHS, FULL_TAB_PATHS, XHS_TAB_PATHS, isTabPath } from '@/domain/tab-routes'
 import { safeReturnUrl } from '@/domain/platform-pages'
+import { shouldPromptPasswordSetup } from '@/domain/password-center'
 import { currentPlatform, platformLoginCode, preparePlatformLogin, stagePlatformLoginCode } from '@/platform'
 import styles from './index.module.css'
 import flameLogo from '@/assets/brand/cgc-flame.png'
@@ -79,14 +80,30 @@ export default function LoginPage() {
     }
   }
 
+  // R4：新账号（hasPassword=false）落地后给一次可跳过的设密提示。
+  // 裁剪端不注册密码页，只在微信全量端提示。
+  const promptPasswordSetup = async (session: { hasPassword?: boolean }) => {
+    if (env !== 'weapp' || !shouldPromptPasswordSetup(session)) return
+    const { confirm } = await Taro.showModal({
+      title: '设置登录密码？',
+      content: '设置后可在电脑或桌面客户端用手机号 + 密码登录。也可以稍后在「我的」里设置。',
+      confirmText: '去设置',
+      cancelText: '以后再说'
+    })
+    if (confirm) {
+      await Taro.navigateTo({ url: '/pages/account-password/index' })
+    }
+  }
+
   const login = async (payload: PlatformPhonePayload = {}) => {
     if (submitting) return
     setSubmitting(true)
     setError('')
     try {
       const prepared = await preparePlatformLogin(payload)
-      await api.signIn(prepared)
+      const session = await api.signIn(prepared)
       await finish()
+      await promptPasswordSetup(session)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '登录失败，请重试')
     } finally {

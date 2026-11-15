@@ -257,6 +257,7 @@ export const SignInWithPlatformIdentityMutationDocument = /* GraphQL */ `
       id
       email
       isPlatformAdmin
+      hasPassword
     }
   }
 `
@@ -279,6 +280,7 @@ export const SignInWithPlatformMutationDocument = /* GraphQL */ `
       id
       email
       isPlatformAdmin
+      hasPassword
     }
   }
 `
@@ -286,6 +288,23 @@ export const SignInWithPlatformMutationDocument = /* GraphQL */ `
 export const SignOutMutationDocument = /* GraphQL */ `
   mutation SignOut {
     signOut
+  }
+`
+
+// 密码中心：登录态设置/重设密码（免旧密码）。成功后后端吊销该用户全部已存
+// token 并换发当前会话 token——captureAuthCookie 负责接住新 cookie。
+export const SetPasswordMutationDocument = /* GraphQL */ `
+  mutation SetPassword($password: String!) {
+    setPassword(password: $password) {
+      ok
+    }
+  }
+`
+
+// 密码中心：当前账号掩码手机号（用户在 Web/Desktop 登录时要输的标识）。
+export const MyPhoneQueryDocument = /* GraphQL */ `
+  query MyPhone {
+    myPhone
   }
 `
 

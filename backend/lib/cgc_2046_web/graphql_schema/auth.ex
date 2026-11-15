@@ -426,6 +426,61 @@ defmodule Cgc2046Web.GraphqlSchema.Auth do
       end)
     end
 
+    @desc "登录态设置/重设密码（小程序密码中心）：免旧密码；成功后当前会话换发新 token，其他端全部失效"
+    field :set_password, :set_password_result do
+      arg(:password, non_null(:string))
+
+      # 密码绝不进限流 key（会落 ETS/日志）：只按 IP 桶计数。
+      middleware(Cgc2046Web.Plugs.RateLimit,
+        ip_bucket: "set-password",
+        ip_context_key: :mini_web_ip,
+        limit: :sign_in_ip,
+        window_seconds: 900
+      )
+
+      resolve(fn _, %{password: password}, %{context: context} ->
+        Cgc2046Web.GraphqlSchema.Helpers.with_actor(context, fn actor ->
+          case Ash.update(actor, %{password: password},
+                 action: :set_password,
+                 actor: actor
+               ) do
+            {:ok, user} ->
+              # 动作内已吊销该用户全部已存 token（含本次请求的旧 token）；
+              # 这里补发当前会话，用户无感，其他端下次请求即失效。
+              case Cgc2046.Accounts.SignInFlow.generate_token(user, nil, context) do
+                {:ok, signed} ->
+                  {:ok, %{ok: true, __token__: signed.__metadata__[:token]}}
+
+                {:error, reason} ->
+                  Logger.error("[set_password] session refresh failed: #{inspect(reason)}")
+
+                  {:error,
+                   message: "Password updated but session could not be refreshed",
+                   code: "session_refresh_failed"}
+              end
+
+            {:error, error} ->
+              {:error,
+               Cgc2046Web.GraphqlSchema.Helpers.to_ash_graphql_errors(
+                 error,
+                 context,
+                 :set_password
+               )}
+          end
+        end)
+      end)
+
+      middleware(fn res, _ ->
+        case res.value do
+          %{__token__: token} when is_binary(token) ->
+            %{res | context: Map.put(res.context, :cgc_auth_token, token)}
+
+          _ ->
+            res
+        end
+      end)
+    end
+
     @desc "小程序平台一键登录（N1，Phase 1）：code2session + 平台手机号锚定统一身份，token 经 httpOnly cookie 交付"
     field :sign_in_with_platform, :sign_in_with_platform_result do
       arg(:platform, non_null(:string))
@@ -459,6 +514,9 @@ defmodule Cgc2046Web.GraphqlSchema.Auth do
                  id: user.id,
                  email: user.email,
                  is_platform_admin: user.is_platform_admin,
+                 # R4：登录后据此提示「可跳过的设密步骤」。只透出布尔，
+                 # 不改变 hashed_password 的 sensitive 属性。
+                 has_password: not is_nil(user.hashed_password),
                  # token 仅用于 middleware 传递到 before_send，不暴露在响应中
                  __token__: user.__metadata__[:token]
                }}
@@ -507,6 +565,9 @@ defmodule Cgc2046Web.GraphqlSchema.Auth do
                  id: user.id,
                  email: user.email,
                  is_platform_admin: user.is_platform_admin,
+                 # R4：登录后据此提示「可跳过的设密步骤」。只透出布尔，
+                 # 不改变 hashed_password 的 sensitive 属性。
+                 has_password: not is_nil(user.hashed_password),
                  # token 仅用于 middleware 传递到 before_send，不暴露在响应中
                  __token__: user.__metadata__[:token]
                }}

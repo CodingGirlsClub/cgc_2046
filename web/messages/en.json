@@ -223,6 +223,11 @@
     },
     "forgot": {
       "title": "Reset password",
+      "mpHint": "Scan with WeChat and open the mini program: Me → Account & Security → Login password. No email needed.",
+      "mpQrAlt": "Mini program login password QR code",
+      "mpUnavailable": "The QR code is unavailable right now. Open the CGC 2046 mini program in WeChat and go to Me → Account & Security → Login password.",
+      "emailToggle": "Registered with an email before? Reset by email",
+      "emailFallbackHint": "Only works when the account has an email bound.",
       "fieldEmail": "Registered email",
       "hint": "We will send a one-time password reset link to your email.",
       "submit": "Send reset email",

@@ -207,6 +207,36 @@ defmodule Cgc2046.Accounts.User do
       accept([:phone])
     end
 
+    update :set_password do
+      description("登录态设置/重设密码（小程序密码中心；免旧密码，成功后吊销该用户全部已存 token，由调用方补发当前会话 token）")
+
+      # 与 update_phone 同：after_action 吊销使 update 无法原子校验
+      require_atomic?(false)
+
+      argument(:password, :string,
+        allow_nil?: false,
+        sensitive?: true,
+        constraints: [min_length: 8]
+      )
+
+      change({AshAuthentication.Strategy.Password.HashPasswordChange, strategy_name: :password})
+
+      # 与密码重置同源的 KTD5 语义：改密必须吊销既有会话（fail-closed）。
+      # 这里吊销全部而非排除当前 jti——当前会话由 resolver 在成功后补发新 token，
+      # 因此用户无感，且不依赖从请求里解析 jti。
+      change(fn changeset, _context ->
+        Ash.Changeset.after_action(changeset, fn _changeset, record ->
+          case Cgc2046.Accounts.SignInFlow.revoke_stored_tokens(record, nil) do
+            :ok ->
+              {:ok, record}
+
+            {:error, reason} ->
+              {:error, Cgc2046.Accounts.PasswordResetRevocationError.exception(reason: reason)}
+          end
+        end)
+      end)
+    end
+
     update :update_locale do
       description("更新当前用户界面语言偏好（i18n Phase 1；zh-CN | en，仅本人）")
 

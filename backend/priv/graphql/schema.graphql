@@ -5308,6 +5308,9 @@ type RootQueryType {
   "Placeholder query until the first resource is added"
   ping: String
 
+  "忘记密码页的固定小程序码（scene=pw，直达小程序密码页；匿名可读，生成失败返回 null）"
+  passwordCenterQr: String
+
   "角色权限矩阵（#66 Rbac）：五角色 × 八能力，对齐前端权限表（需登录；#1 能力接口：abilities 为通用列表）"
   permissionMatrix: PermissionMatrixPayload
 
@@ -6041,6 +6044,9 @@ type RootMutationType {
 
   "使用一次性密码重置 token 设置新密码"
   resetPassword(resetToken: String!, password: String!): ResetPasswordResult
+
+  "登录态设置\/重设密码（小程序密码中心）：免旧密码；成功后当前会话换发新 token，其他端全部失效"
+  setPassword(password: String!): SetPasswordResult
 
   "小程序平台一键登录（N1，Phase 1）：code2session + 平台手机号锚定统一身份，token 经 httpOnly cookie 交付"
   signInWithPlatform(platform: String!, code: String!, phoneCode: String, encryptedData: String, iv: String): SignInWithPlatformResult
@@ -7936,6 +7942,11 @@ type ResetPasswordResult {
   ok: Boolean!
 }
 
+"登录态设置\/重设密码结果（成功后当前会话已换发新 token）"
+type SetPasswordResult {
+  ok: Boolean!
+}
+
 "第一方客户端登录结果：JWT 直接经响应体交付（不写 cookie）"
 type DesktopSignInResult {
   token: String!
@@ -7948,6 +7959,7 @@ type SignInWithPlatformResult {
   id: ID!
   email: String
   isPlatformAdmin: Boolean!
+  hasPassword: Boolean!
 }
 
 type RequestPhoneCodeResult {

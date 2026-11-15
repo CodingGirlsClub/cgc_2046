@@ -873,7 +873,7 @@ export type SignInWithPlatformIdentityMutationVariables = Exact<{
 }>;
 
 
-export type SignInWithPlatformIdentityMutation = { signInWithPlatformIdentity: { id: string, email: string | null, isPlatformAdmin: boolean } | null };
+export type SignInWithPlatformIdentityMutation = { signInWithPlatformIdentity: { id: string, email: string | null, isPlatformAdmin: boolean, hasPassword: boolean } | null };
 
 export type SignInWithPlatformMutationVariables = Exact<{
   platform: string;
@@ -884,12 +884,24 @@ export type SignInWithPlatformMutationVariables = Exact<{
 }>;
 
 
-export type SignInWithPlatformMutation = { signInWithPlatform: { id: string, email: string | null, isPlatformAdmin: boolean } | null };
+export type SignInWithPlatformMutation = { signInWithPlatform: { id: string, email: string | null, isPlatformAdmin: boolean, hasPassword: boolean } | null };
 
 export type SignOutMutationVariables = Exact<{ [key: string]: never; }>;
 
 
 export type SignOutMutation = { signOut: string | null };
+
+export type SetPasswordMutationVariables = Exact<{
+  password: string;
+}>;
+
+
+export type SetPasswordMutation = { setPassword: { ok: boolean } | null };
+
+export type MyPhoneQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type MyPhoneQuery = { myPhone: string | null };
 
 export type CreateEnrollmentMutationVariables = Exact<{
   input: CreateEnrollmentInput;
