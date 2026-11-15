@@ -154,6 +154,28 @@ pub(crate) fn build_body(model: &Model, request: &Request, allow_plain_reasoning
                         }
                     }
                 }
+                // Responses 要求保留 output-item 顺序：reasoning → message → function_call。
+                if assistant {
+                    for part in &message.content {
+                        if let Content::Thinking { text, signature } = part {
+                            // sealed（OpenAI）：原样回放加密内容；
+                            // 明文（DeepSeek 等）：回放 reasoning_text，仅限非 OpenAI host。
+                            if let Ok(meta) = serde_json::from_str::<ReasoningMeta>(signature) {
+                                input.push(json!({
+                                    "type": "reasoning",
+                                    "id": meta.id,
+                                    "encrypted_content": meta.encrypted_content,
+                                    "summary": [],
+                                }));
+                            } else if allow_plain_reasoning && !text.trim().is_empty() {
+                                input.push(json!({
+                                    "type": "reasoning",
+                                    "content": [{ "type": "reasoning_text", "text": text }],
+                                }));
+                            }
+                        }
+                    }
+                }
                 if !content.is_empty() {
                     input.push(json!({
                         "type": "message",
@@ -163,31 +185,13 @@ pub(crate) fn build_body(model: &Model, request: &Request, allow_plain_reasoning
                 }
                 if assistant {
                     for part in &message.content {
-                        match part {
-                            Content::ToolUse(tool_use) => input.push(json!({
+                        if let Content::ToolUse(tool_use) = part {
+                            input.push(json!({
                                 "type": "function_call",
                                 "call_id": tool_use.id,
                                 "name": tool_use.name,
                                 "arguments": tool_use.args.to_string(),
-                            })),
-                            Content::Thinking { text, signature } => {
-                                // sealed（OpenAI）：原样回放加密内容；
-                                // 明文（DeepSeek 等）：回放 reasoning_text，仅限非 OpenAI host。
-                                if let Ok(meta) = serde_json::from_str::<ReasoningMeta>(signature) {
-                                    input.push(json!({
-                                        "type": "reasoning",
-                                        "id": meta.id,
-                                        "encrypted_content": meta.encrypted_content,
-                                        "summary": [],
-                                    }));
-                                } else if allow_plain_reasoning && !text.trim().is_empty() {
-                                    input.push(json!({
-                                        "type": "reasoning",
-                                        "content": [{ "type": "reasoning_text", "text": text }],
-                                    }));
-                                }
-                            }
-                            _ => {}
+                            }));
                         }
                     }
                 }
@@ -406,6 +410,13 @@ impl StreamState {
                     events.push(CompletionEvent::Text(delta.to_string()));
                 }
             }
+            "response.refusal.delta" => {
+                // 拒答文本走 refusal 事件，同样要作为 assistant 文本呈现并进入回放。
+                if let Some(delta) = text_field(&value, "delta") {
+                    self.text.push_str(delta);
+                    events.push(CompletionEvent::Text(delta.to_string()));
+                }
+            }
             "response.reasoning_summary_text.delta" | "response.reasoning_text.delta" => {
                 if let Some(delta) = text_field(&value, "delta") {
                     self.thinking_text.push_str(delta);
@@ -454,6 +465,29 @@ impl StreamState {
                     }
                     if let Some(event) = self.emit_call(index)? {
                         events.push(event);
+                    }
+                }
+                Some("message") => {
+                    // 拒答或纯文本消息可能只出现在完成项里；delta 缺失时补一次。
+                    if self.text.is_empty() {
+                        let text = value
+                            .pointer("/item/content")
+                            .and_then(Value::as_array)
+                            .map(|parts| {
+                                parts
+                                    .iter()
+                                    .filter_map(|part| {
+                                        part.get("text")
+                                            .and_then(Value::as_str)
+                                            .or_else(|| part.get("refusal").and_then(Value::as_str))
+                                    })
+                                    .collect::<String>()
+                            })
+                            .unwrap_or_default();
+                        if !text.trim().is_empty() {
+                            self.text.push_str(&text);
+                            events.push(CompletionEvent::Text(text));
+                        }
                     }
                 }
                 Some("reasoning") => {
@@ -845,6 +879,45 @@ mod tests {
             Content::ToolUse(tool) => assert_eq!(tool.id, "call_1"),
             other => panic!("unexpected last block: {other:?}"),
         }
+    }
+
+    #[test]
+    fn body_keeps_reasoning_before_text() {
+        let request = Request {
+            messages: vec![Message::new(
+                Role::Assistant,
+                vec![
+                    Content::Thinking {
+                        text: "why".to_string(),
+                        signature: r#"{"id":"rs_1","encrypted_content":"cipher"}"#.to_string(),
+                    },
+                    Content::Text("answer".to_string()),
+                ],
+            )],
+            ..Request::default()
+        };
+        let body = build_body(&model(), &request, false);
+        let input = body["input"].as_array().expect("input");
+        assert_eq!(input[0]["type"], "reasoning");
+        assert_eq!(input[1]["type"], "message");
+    }
+
+    #[test]
+    fn refusal_delta_becomes_assistant_text() {
+        let mut state = StreamState::default();
+        let events = state
+            .on_event(json!({"type": "response.refusal.delta", "delta": "I cannot"}))
+            .unwrap();
+        assert!(events
+            .iter()
+            .any(|event| matches!(event, CompletionEvent::Text(text) if text == "I cannot")));
+        let events = state
+            .on_event(json!({"type": "response.completed", "response": {}}))
+            .unwrap();
+        assert!(events.iter().any(|event| matches!(
+            event,
+            CompletionEvent::ContentBlock(Content::Text(text)) if text == "I cannot"
+        )));
     }
 
     #[test]
