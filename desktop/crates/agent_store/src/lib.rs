@@ -17,8 +17,8 @@ pub use conversations::{
 };
 pub use model_lines::{format_model_lines, normalized_provider_name, parse_model_lines};
 pub use prefs::{
-    builtin_providers, provider_key_account, AgentPrefs, ModelPrefs, PrefsError, PrefsStore,
-    ProviderPrefs,
+    builtin_providers, is_builtin_provider_id, next_provider_id, provider_key_account, AgentPrefs,
+    ModelPrefs, PrefsError, PrefsStore, ProviderPrefs,
 };
 pub use sessions::{CheckpointRecord, SessionError, SessionStore, ThreadSummary};
 pub use snapshot::{SavedConversation, SnapshotSource};

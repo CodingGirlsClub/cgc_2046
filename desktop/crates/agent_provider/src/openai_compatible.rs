@@ -16,6 +16,7 @@ use crate::{
     provider::{CompletionStream, Provider},
     request::{Content, Message, Request, Role},
     sse::{SseDecoder, SseEvent},
+    transport::{map_ureq_error, send_blocking, truncate},
 };
 
 /// OpenAI Chat Completions 兼容 Provider 的配置。
@@ -300,28 +301,6 @@ fn process_sse_event(
         }
     }
     Ok(false)
-}
-
-/// 阻塞式送入；返回 `false` 表示消费者已放弃，worker 应尽快退出。
-fn send_blocking(
-    sender: &mut mpsc::Sender<Result<CompletionEvent, ProviderError>>,
-    event: Result<CompletionEvent, ProviderError>,
-) -> bool {
-    use futures::SinkExt as _;
-    futures::executor::block_on(sender.send(event)).is_ok()
-}
-
-fn map_ureq_error(error: ureq::Error) -> ProviderError {
-    match error {
-        ureq::Error::StatusCode(status) => ProviderError::api(status, "http status error"),
-        ureq::Error::Timeout(_) => ProviderError::transport("request timed out"),
-        ureq::Error::Io(error) => ProviderError::transport(error.to_string()),
-        other => ProviderError::transport(other.to_string()),
-    }
-}
-
-fn truncate(text: &str, max_chars: usize) -> String {
-    text.chars().take(max_chars).collect()
 }
 
 #[derive(Default)]
