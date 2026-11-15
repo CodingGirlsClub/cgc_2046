@@ -201,23 +201,22 @@ pub fn test_models(
     base_url: &str,
     api_key: &str,
     models: &[String],
-) -> Vec<(String, Result<(), String>)> {
+) -> Vec<(String, Result<(), ProviderError>)> {
     if let Some(note) = socks_proxy_note() {
         return models
             .iter()
-            .map(|model| (model.clone(), Err(note.clone())))
+            .map(|model| (model.clone(), Err(ProviderError::transport(note.clone()))))
             .collect();
     }
     let mut results = Vec::with_capacity(models.len());
     for chunk in models.chunks(4) {
-        let mut batch: Vec<(String, Result<(), String>)> = std::thread::scope(|scope| {
+        let mut batch: Vec<(String, Result<(), ProviderError>)> = std::thread::scope(|scope| {
             let handles: Vec<_> = chunk
                 .iter()
                 .map(|model| {
                     let model = model.clone();
                     scope.spawn(move || {
-                        let result =
-                            test_model(base_url, api_key, &model).map_err(|error| error.to_string());
+                        let result = test_model(base_url, api_key, &model);
                         (model, result)
                     })
                 })

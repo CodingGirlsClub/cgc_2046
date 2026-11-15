@@ -1,7 +1,7 @@
 //! Provider 表单的草稿数据与模型行解析（从 settings_window 拆出）。
 
 use cgc_agent_provider::probe::RemoteModel;
-use cgc_agent_provider::{ProviderProtocol, ThinkingMode};
+use cgc_agent_provider::{ProviderError, ProviderProtocol, ThinkingMode};
 use cgc_agent_store::{ModelPrefs, ProviderPrefs};
 use gpui_kit::component::combobox::ComboboxState;
 use gpui_kit::component::input::{InputState, TextareaState};
@@ -53,7 +53,7 @@ pub(crate) struct ProviderDraft {
     pub(crate) models_advanced_open: bool,
     /// 逐个检测模型的进行中状态与结果（model id → 是否可用）。
     pub(crate) testing_models: bool,
-    pub(crate) model_tests: std::collections::BTreeMap<String, Result<(), String>>,
+    pub(crate) model_tests: std::collections::BTreeMap<String, Result<(), ProviderError>>,
     /// 更多端点：Anthropic / Responses / 模型列表地址的输入框与展开状态。
     pub(crate) anthropic_url_input: Option<Entity<InputState>>,
     pub(crate) responses_url_input: Option<Entity<InputState>>,

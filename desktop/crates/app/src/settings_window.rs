@@ -492,10 +492,7 @@ impl SettingsWindowView {
             });
             match restored {
                 Some(provider) => {
-                    if let Some(slot) = self
-                        .provider_drafts
-                        .iter_mut()
-                        .find(|draft| draft.id == id)
+                    if let Some(slot) = self.provider_drafts.iter_mut().find(|draft| draft.id == id)
                     {
                         *slot = ProviderDraft::from_prefs(&provider);
                     }
@@ -1089,7 +1086,7 @@ impl SettingsWindowView {
     fn finish_test_models(
         &mut self,
         index: usize,
-        results: Vec<(String, Result<(), String>)>,
+        results: Vec<(String, Result<(), ProviderError>)>,
         cx: &mut Context<Self>,
     ) {
         if let Some(draft) = self.provider_drafts.get_mut(index) {
@@ -1118,12 +1115,8 @@ impl SettingsWindowView {
             .into_iter()
             .flat_map(|provider| provider.model_params)
             .collect();
-        let (models, params) = merge_remote_models(
-            &draft.remote_models,
-            &draft.model_params,
-            &chosen,
-            &catalog,
-        );
+        let (models, params) =
+            merge_remote_models(&draft.remote_models, &draft.model_params, &chosen, &catalog);
         let text = format_model_lines(&ProviderPrefs {
             models: models.clone(),
             model_params: params.clone(),
@@ -3097,10 +3090,7 @@ fn render_provider_cards(
                                                             .text_color(palette.danger)
                                                             .child(format!(
                                                                 "✗ {}",
-                                                                error
-                                                                    .chars()
-                                                                    .take(40)
-                                                                    .collect::<String>()
+                                                                provider_validation_message(error)
                                                             ))
                                                             .into_any_element(),
                                                     }),

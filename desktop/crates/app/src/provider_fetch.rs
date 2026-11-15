@@ -9,10 +9,7 @@ use cgc_agent_store::ModelPrefs;
 
 /// 目录里已有的同 id 模型（内置目录），用它补齐供应商没说明的字段。
 fn from_catalog(remote: &RemoteModel, catalog: &[ModelPrefs]) -> Option<ModelPrefs> {
-    catalog
-        .iter()
-        .find(|known| known.id == remote.id)
-        .cloned()
+    catalog.iter().find(|known| known.id == remote.id).cloned()
 }
 
 /// 供应商给的字段优先，缺的用目录补，再缺用保守默认。
@@ -107,7 +104,8 @@ mod tests {
             supports_images: Some(true),
             reasoning_efforts: vec!["low".into(), "high".into()],
         }];
-        let (models, params) = merge_remote_models(&fetched, &[], &chosen(&["deepseek-flash"]), &[]);
+        let (models, params) =
+            merge_remote_models(&fetched, &[], &chosen(&["deepseek-flash"]), &[]);
         assert_eq!(models, vec!["deepseek-flash"]);
         assert_eq!(params[0].context_window, 1_048_576);
         assert_eq!(params[0].max_output_tokens, 393_216);
@@ -185,12 +183,8 @@ mod tests {
             ..ModelPrefs::new("deepseek-flash")
         }];
         let fetched = vec![remote("deepseek-flash")];
-        let (_, params) = merge_remote_models(
-            &fetched,
-            &existing,
-            &chosen(&["deepseek-flash"]),
-            &catalog,
-        );
+        let (_, params) =
+            merge_remote_models(&fetched, &existing, &chosen(&["deepseek-flash"]), &catalog);
         assert_eq!(params[0].context_window, 8_192);
     }
 
