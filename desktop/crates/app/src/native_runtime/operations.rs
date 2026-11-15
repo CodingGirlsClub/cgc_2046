@@ -367,7 +367,14 @@ impl Owner {
             .as_mut()
             .ok_or_else(|| NativeRuntimeError::Configuration("runtime 未配置模型目录".into()))?;
         let prefs = PrefsStore::new(production.data_root.join("agent_prefs.json")).load();
-        production.providers = Arc::new(prefs.providers.clone());
+        production.providers = Arc::new(
+            prefs
+                .providers
+                .iter()
+                .filter(|provider| provider.enabled)
+                .cloned()
+                .collect(),
+        );
         self.providers = Arc::new(prefs.providers.clone());
         let active = prefs.active_provider();
         let model_id = active.and_then(|active| {

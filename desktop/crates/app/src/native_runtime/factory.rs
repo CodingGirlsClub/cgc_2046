@@ -246,6 +246,9 @@ pub(super) fn prepare_model(
         .iter()
         .find(|provider| provider.id == provider_id)
         .ok_or_else(|| NativeRuntimeError::Configuration("Provider 不在当前配置中".into()))?;
+    if !configured.enabled {
+        return Err(NativeRuntimeError::Configuration("Provider 已停用".into()));
+    }
     let model = configured_model(configured, model_id)
         .ok_or_else(|| NativeRuntimeError::Configuration("模型不可用或已禁用".into()))?;
     let key = production
@@ -299,6 +302,9 @@ pub(super) fn summary_title_model(
     let store = PrefsStore::new(production.data_root.join("agent_prefs.json"));
     let prefs = store.load();
     let configured = prefs.provider(selection.provider.as_str())?;
+    if !configured.enabled {
+        return None;
+    }
     let model = configured_model(configured, selection.model.as_str())?;
     if !configured.has_key {
         return None;

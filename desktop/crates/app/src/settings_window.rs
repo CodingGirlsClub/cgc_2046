@@ -587,9 +587,17 @@ impl SettingsWindowView {
         cx.notify();
         let task_provider = provider.clone();
         let task_key = key.clone();
-        let task = cx
-            .background_executor()
-            .spawn(async move { validate_credentials(&task_provider.base_url, &task_key) });
+        let task_models_url = task_provider
+            .models_url
+            .clone()
+            .filter(|url| !url.trim().is_empty());
+        let task = cx.background_executor().spawn(async move {
+            validate_credentials(
+                &task_provider.base_url,
+                task_models_url.as_deref(),
+                &task_key,
+            )
+        });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
@@ -1078,6 +1086,7 @@ impl SettingsWindowView {
 
     /// 对当前启用中的模型各发一次最小对话请求，标出供应商列表里其实不可用的模型。
     fn test_all_models(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.sync_endpoint_inputs(index, cx);
         let Some(draft) = self.provider_drafts.get(index).cloned() else {
             return;
         };
@@ -1090,6 +1099,12 @@ impl SettingsWindowView {
             .map(|input| input.read(cx).value().trim().to_string())
             .filter(|value| !value.is_empty())
             .unwrap_or_else(|| draft.base_url.clone());
+        // Anthropic 的独立端点优先，与 native runtime 的 endpoint_url 保持一致。
+        let endpoint = if draft.protocol == ProviderProtocol::AnthropicCompatible {
+            optional(&draft.anthropic_url).unwrap_or_else(|| base_url.clone())
+        } else {
+            base_url
+        };
         let typed = draft
             .api_key_input
             .as_ref()
@@ -1126,7 +1141,7 @@ impl SettingsWindowView {
         let provider_id = draft.id.clone();
         let task = cx
             .background_executor()
-            .spawn(async move { test_models_for(protocol, &base_url, &key, &models) });
+            .spawn(async move { test_models_for(protocol, &endpoint, &key, &models) });
         cx.spawn(async move |this, cx| {
             let results = task.await;
             let _ = this.update(cx, |this, cx| {
