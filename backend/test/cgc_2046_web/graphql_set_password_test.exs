@@ -16,9 +16,13 @@ defmodule Cgc2046Web.GraphqlSetPasswordTest do
 
   # 小程序建号用户：phone 有、email 与密码哈希都为空
   defp create_phone_user do
+    # 生产路径（SignInPreparation）存的是 "+区号号码"；夹具必须同形，
+    # 否则后续 signIn 归一化后查不到刚建的用户。
+    {:ok, phone} = Cgc2046.Accounts.PhoneNumber.normalize(@phone)
+
     {:ok, user} =
       User
-      |> Ash.Changeset.for_create(:register_with_miniprogram, %{phone: @phone})
+      |> Ash.Changeset.for_create(:register_with_miniprogram, %{phone: phone})
       |> Ash.create(authorize?: false)
 
     user
@@ -57,6 +61,10 @@ defmodule Cgc2046Web.GraphqlSetPasswordTest do
         |> graphql_response()
 
       refute get_in(stale, ["data", "me", "id"]) == user.id
+
+      # 密码确实写入（否则后面的登录失败会指向错误的位置）
+      {:ok, reloaded} = Ash.get(User, user.id, authorize?: false)
+      assert is_binary(reloaded.hashed_password)
 
       # 手机号 + 新密码可登录（Web/Desktop 的消费路径）
       sign_in =

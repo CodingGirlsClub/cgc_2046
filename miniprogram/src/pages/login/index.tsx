@@ -103,7 +103,8 @@ export default function LoginPage() {
       const prepared = await preparePlatformLogin(payload)
       const session = await api.signIn(prepared)
       await finish()
-      await promptPasswordSetup(session)
+      // 设密提示是登录后的附加动作：它失败不能被 catch 回写成「登录失败」。
+      void promptPasswordSetup(session).catch(() => undefined)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '登录失败，请重试')
     } finally {

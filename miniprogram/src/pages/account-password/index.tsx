@@ -24,6 +24,8 @@ export default function AccountPasswordPage() {
   const [done, setDone] = useState(false)
   const [busy, setBusy] = useState(false)
   const [mode, setMode] = useState<'set' | 'reset'>('set')
+  // Taro Input 非受控：靠 key 重建来清空成功后的旧值
+  const [formKey, setFormKey] = useState(0)
 
   const load = async () => {
     try {
@@ -58,6 +60,7 @@ export default function AccountPasswordPage() {
       await api.setPassword(password)
       setPassword('')
       setConfirmation('')
+      setFormKey((key) => key + 1)
       setDone(true)
       await Taro.showToast({ title: '密码已更新', icon: 'success' })
     } catch (reason) {
@@ -79,6 +82,7 @@ export default function AccountPasswordPage() {
         <View className={styles.field}>
           <Text className={styles.label}>新密码（至少 8 位）</Text>
           <Input
+            key={`password-${formKey}`}
             className={styles.input}
             password
             placeholder='输入新密码'
@@ -89,6 +93,7 @@ export default function AccountPasswordPage() {
         <View className={styles.field}>
           <Text className={styles.label}>再次输入</Text>
           <Input
+            key={`confirm-${formKey}`}
             className={styles.input}
             password
             placeholder='再输一次'

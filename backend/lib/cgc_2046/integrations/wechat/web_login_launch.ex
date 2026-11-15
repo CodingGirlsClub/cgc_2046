@@ -20,32 +20,50 @@ defmodule Cgc2046.Integrations.Wechat.WebLoginLaunch do
   `check_path: true` 要求密码页已发布；未发布或接口失败返回错误，
   由调用方降级为文字引导。
   """
+  @qr_cache_seconds 60
+
   def password_center_qr do
     key = {__MODULE__, :password_center_qr}
+    now = System.monotonic_time(:second)
 
     case :persistent_term.get(key, nil) do
-      nil ->
-        with {:ok, client} <- SdkClient.fetch(),
-             {:ok, response} <-
-               post(
-                 "getwxacodeunlimit",
-                 %{
-                   page: @password_page,
-                   scene: "pw",
-                   check_path: true,
-                   env_version: "release"
-                 },
-                 client.get_access_token()
-               ),
-             {:ok, %{qr_data_url: url}} <- parse(:qr, nil, response) do
-          :persistent_term.put(key, url)
-          {:ok, %{qr_data_url: url}}
-        else
-          _ -> {:error, :mini_web_login_unavailable}
-        end
-
-      url ->
+      %{url: url} ->
         {:ok, %{qr_data_url: url}}
+
+      %{error_until: until} when until > now ->
+        {:error, :mini_web_login_unavailable}
+
+      _ ->
+        case fetch_password_center_qr() do
+          {:ok, %{qr_data_url: url}} = ok ->
+            :persistent_term.put(key, %{url: url})
+            ok
+
+          {:error, _} = error ->
+            # 短负缓存：密码页未发布期间，避免每个访客都触发一次微信接口。
+            :persistent_term.put(key, %{error_until: now + @qr_cache_seconds})
+            error
+        end
+    end
+  end
+
+  defp fetch_password_center_qr do
+    with {:ok, client} <- SdkClient.fetch(),
+         {:ok, response} <-
+           post(
+             "getwxacodeunlimit",
+             %{
+               page: @password_page,
+               scene: "pw",
+               check_path: true,
+               env_version: "release"
+             },
+             client.get_access_token()
+           ),
+         {:ok, %{qr_data_url: _} = payload} <- parse(:qr, nil, response) do
+      {:ok, payload}
+    else
+      _ -> {:error, :mini_web_login_unavailable}
     end
   end
 

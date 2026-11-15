@@ -213,6 +213,10 @@ defmodule Cgc2046.Accounts.User do
       # 与 update_phone 同：after_action 吊销使 update 无法原子校验
       require_atomic?(false)
 
+      # 只接受密码 argument：默认 accept 会放行所有 public writable 属性
+      # （email/phone/display_name/locale），本动作不该成为身份字段的后门。
+      accept([])
+
       argument(:password, :string,
         allow_nil?: false,
         sensitive?: true,
@@ -528,6 +532,11 @@ defmodule Cgc2046.Accounts.User do
 
     # 绑定/换绑手机号：仅本人（验证码校验在 GraphQL resolver 完成）
     policy action(:update_phone) do
+      authorize_if(Cgc2046.Accounts.Policies.OwnUser)
+    end
+
+    # 登录态设置/重设密码：仅本人（免旧密码的凭证是当前会话，见 range 裁决）
+    policy action(:set_password) do
       authorize_if(Cgc2046.Accounts.Policies.OwnUser)
     end
 
