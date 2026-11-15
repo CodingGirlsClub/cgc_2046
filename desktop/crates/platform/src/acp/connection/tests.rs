@@ -7,10 +7,12 @@ use agent_client_protocol::schema::v1::SessionUpdate;
 #[test]
 fn turn_timeout_only_counts_silence_not_user_or_tool_waiting() {
     // 期间没有新事件：空闲预算确实耗尽，应判超时。
-    assert!(idle_expired(7, 7));
+    assert!(idle_expired(7, 7, false));
     // 期间有进度（审批回传、工具更新、增量）：重新计时，不判超时。
-    assert!(!idle_expired(7, 8));
-    assert!(!idle_expired(0, 1));
+    assert!(!idle_expired(7, 8, false));
+    assert!(!idle_expired(0, 1, false));
+    // 等待用户审批：即使没有 session/update，也不能判超时。
+    assert!(!idle_expired(7, 7, true));
 }
 
 #[test]

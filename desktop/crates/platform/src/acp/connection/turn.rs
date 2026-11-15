@@ -19,6 +19,7 @@ pub(super) async fn run_turn(
     session_id: SessionId,
     text: String,
     activity: Arc<AtomicU64>,
+    pending_permissions: PendingPermissions,
 ) -> ControlFlow<()> {
     let prompt = connection
         .send_request(PromptRequest::new(
@@ -123,9 +124,13 @@ pub(super) async fn run_turn(
                 | Some(HostCommand::SetConfig { .. }) => {}
             },
             futures::future::Either::Right(_) => {
+                let permissions_pending = pending_permissions
+                    .lock()
+                    .map(|pending| !pending.is_empty())
+                    .unwrap_or(false);
                 let current = activity.load(Ordering::Relaxed);
-                if !idle_expired(seen_activity, current) {
-                    // 期间有真实进展：重新计一轮空闲预算，而不是把整轮判死。
+                if !idle_expired(seen_activity, current, permissions_pending) {
+                    // 期间有真实进展，或正在等用户审批：重新计一轮空闲预算。
                     seen_activity = current;
                     last_activity_at = std::time::Instant::now();
                     continue;

@@ -301,6 +301,7 @@ async fn run_connection(
                                 session_id.clone(),
                                 text,
                                 Arc::clone(&activity),
+                                Arc::clone(&pending_permissions),
                             )
                             .await
                             .is_break()
@@ -377,9 +378,14 @@ where
     }
 }
 
-/// 空闲预算是否真的耗尽：期间只要有过新活动，就应重新计时而不是判超时。
+/// 空闲预算是否真的耗尽：期间只要有过新活动，或正在等用户审批，就应重新计时。
 ///
-/// 审批等待与长工具执行都会产生更新事件；把它们算进“模型沉默”会把正常流程误杀。
-pub(super) fn idle_expired(seen_activity: u64, current_activity: u64) -> bool {
-    current_activity == seen_activity
+/// 审批等待不产生 session/update，但用户可能思考很久；把它算进“模型沉默”
+/// 会把正常审批流程误杀（真实复现：60s 后报 `turn timeout`）。
+pub(super) fn idle_expired(
+    seen_activity: u64,
+    current_activity: u64,
+    permissions_pending: bool,
+) -> bool {
+    current_activity == seen_activity && !permissions_pending
 }
