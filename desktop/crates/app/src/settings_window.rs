@@ -19,10 +19,8 @@ use cgc_agent_store::{
 };
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::checkbox::Checkbox;
-use gpui_kit::component::combobox::{Combobox, ComboboxState};
 use gpui_kit::component::group_box::GroupBoxVariant;
 use gpui_kit::component::input::{Input, InputState, Textarea, TextareaState};
-use gpui_kit::component::searchable_list::SearchableVec;
 use gpui_kit::component::setting::{
     NumberFieldOptions, SelectIndex, SettingField, SettingGroup, SettingItem, SettingPage, Settings,
 };
@@ -298,22 +296,6 @@ impl SettingsWindowView {
                     .default_value(value)
             });
             self.provider_drafts[index].models_url_input = Some(input);
-        }
-        if !draft.remote_models.is_empty() && draft.remote_picker.is_none() {
-            let items: Vec<String> = draft
-                .remote_models
-                .iter()
-                .map(|model| model.id.clone())
-                .collect();
-            let selected: Vec<gpui_kit::component::IndexPath> = (0..items.len())
-                .map(gpui_kit::component::IndexPath::new)
-                .collect();
-            let picker = cx.new(|cx| {
-                ComboboxState::new(SearchableVec::new(items), selected, window, cx)
-                    .multiple(true)
-                    .searchable(true)
-            });
-            self.provider_drafts[index].remote_picker = Some(picker);
         }
     }
 
@@ -937,7 +919,7 @@ impl SettingsWindowView {
         copy.api_key_input = None;
         copy.model_fields.clear();
         copy.remote_models.clear();
-        copy.remote_picker = None;
+        copy.remote_selected.clear();
         copy.fetching_models = false;
         copy.fetch_error = None;
         copy.models_advanced_open = false;
@@ -1034,23 +1016,26 @@ impl SettingsWindowView {
             return;
         };
         draft.fetching_models = false;
-        draft.remote_picker = None;
         match result {
             Ok(models) if models.is_empty() => {
                 draft.remote_models.clear();
+                draft.remote_selected.clear();
                 draft.fetch_error =
                     Some("供应商返回了空列表：请检查 URL，或用批量编辑手填模型".to_string());
             }
             Ok(models) => {
+                draft.remote_selected = models.iter().map(|model| model.id.clone()).collect();
                 draft.remote_models = models;
                 draft.fetch_error = None;
             }
             Err(error) if list_unsupported(&error) => {
                 draft.remote_models.clear();
+                draft.remote_selected.clear();
                 draft.fetch_error = Some("该服务不提供模型列表，请用批量编辑手填".to_string());
             }
             Err(error) => {
                 draft.remote_models.clear();
+                draft.remote_selected.clear();
                 let detail: String = error.to_string().chars().take(140).collect();
                 draft.fetch_error = Some(format!(
                     "获取失败：{}（{detail}）",
@@ -1139,11 +1124,7 @@ impl SettingsWindowView {
         let Some(draft) = self.provider_drafts.get(index).cloned() else {
             return;
         };
-        let Some(picker) = draft.remote_picker.clone() else {
-            return;
-        };
-        let chosen: std::collections::BTreeSet<String> =
-            picker.read(cx).selected_values().into_iter().collect();
+        let chosen = draft.remote_selected.clone();
         if chosen.is_empty() {
             self.error = Some("请至少选择一个模型".to_string());
             cx.notify();
@@ -1165,7 +1146,7 @@ impl SettingsWindowView {
             slot.model_params = params;
             slot.model_fields.clear();
             slot.remote_models.clear();
-            slot.remote_picker = None;
+            slot.remote_selected.clear();
             slot.fetch_error = None;
         }
         self.error = None;
@@ -1176,9 +1157,34 @@ impl SettingsWindowView {
     fn dismiss_fetched_models(&mut self, index: usize, cx: &mut Context<Self>) {
         if let Some(slot) = self.provider_drafts.get_mut(index) {
             slot.remote_models.clear();
-            slot.remote_picker = None;
+            slot.remote_selected.clear();
             slot.fetch_error = None;
         }
+        cx.notify();
+    }
+
+    fn toggle_remote_selection(&mut self, index: usize, id: &str, cx: &mut Context<Self>) {
+        let Some(slot) = self.provider_drafts.get_mut(index) else {
+            return;
+        };
+        if !slot.remote_selected.remove(id) {
+            slot.remote_selected.insert(id.to_string());
+        }
+        cx.notify();
+    }
+
+    fn set_all_remote_selection(&mut self, index: usize, selected: bool, cx: &mut Context<Self>) {
+        let Some(slot) = self.provider_drafts.get_mut(index) else {
+            return;
+        };
+        slot.remote_selected = if selected {
+            slot.remote_models
+                .iter()
+                .map(|model| model.id.clone())
+                .collect()
+        } else {
+            std::collections::BTreeSet::new()
+        };
         cx.notify();
     }
 
@@ -3085,9 +3091,11 @@ fn render_provider_cards(
                                 )
                                 .into_any_element()
                         }))
-                        .children(draft.remote_picker.clone().map(|picker| {
+                        .children((!draft.remote_models.is_empty()).then(|| {
                             let apply_weak = weak.clone();
                             let dismiss_weak = weak.clone();
+                            let all_weak = weak.clone();
+                            let none_weak = weak.clone();
                             div()
                                 .flex()
                                 .flex_col()
@@ -3098,20 +3106,124 @@ fn render_provider_cards(
                                 .border_color(palette.line)
                                 .child(
                                     div()
-                                        .text_size(px(10.0))
-                                        .text_color(palette.ink_3)
-                                        .child(format!(
-                                            "已获取 {} 个模型，默认全选；取消不需要的再点加入",
-                                            draft.remote_models.len()
-                                        )),
+                                        .flex()
+                                        .flex_row()
+                                        .items_center()
+                                        .justify_between()
+                                        .gap(space(1))
+                                        .child(
+                                            div()
+                                                .text_size(px(10.0))
+                                                .text_color(palette.ink_3)
+                                                .child(format!(
+                                                    "已获取 {} 个模型，已选 {}；点标签切换",
+                                                    draft.remote_models.len(),
+                                                    draft.remote_selected.len()
+                                                )),
+                                        )
+                                        .child(
+                                            div()
+                                                .flex()
+                                                .flex_row()
+                                                .gap(space(1))
+                                                .child(
+                                                    div()
+                                                        .id(SharedString::from(format!(
+                                                            "settings-remote-all-{index}"
+                                                        )))
+                                                        .role(Role::Button)
+                                                        .aria_label("全选模型")
+                                                        .px(space(2))
+                                                        .py(px(2.0))
+                                                        .rounded(px(RADIUS_SMALL))
+                                                        .border_1()
+                                                        .border_color(palette.line)
+                                                        .text_size(px(10.0))
+                                                        .text_color(palette.ink_2)
+                                                        .child("全选")
+                                                        .on_click(move |_, _, cx| {
+                                                            let _ = all_weak.update(cx, |this, cx| {
+                                                                this.set_all_remote_selection(
+                                                                    index, true, cx,
+                                                                );
+                                                            });
+                                                        }),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .id(SharedString::from(format!(
+                                                            "settings-remote-none-{index}"
+                                                        )))
+                                                        .role(Role::Button)
+                                                        .aria_label("全不选模型")
+                                                        .px(space(2))
+                                                        .py(px(2.0))
+                                                        .rounded(px(RADIUS_SMALL))
+                                                        .border_1()
+                                                        .border_color(palette.line)
+                                                        .text_size(px(10.0))
+                                                        .text_color(palette.ink_2)
+                                                        .child("全不选")
+                                                        .on_click(move |_, _, cx| {
+                                                            let _ = none_weak.update(cx, |this, cx| {
+                                                                this.set_all_remote_selection(
+                                                                    index, false, cx,
+                                                                );
+                                                            });
+                                                        }),
+                                                ),
+                                        ),
                                 )
-                                .child(div().w(px(420.0)).child(
-                                    Combobox::new(&picker)
-                                        .placeholder("选择模型")
-                                        .search_placeholder("搜索模型…")
-                                        .menu_width(px(360.0))
-                                        .cleanable(true),
-                                ))
+                                .child(
+                                    div()
+                                        .flex()
+                                        .flex_row()
+                                        .flex_wrap()
+                                        .gap(space(1))
+                                        .children(draft.remote_models.iter().map(|model| {
+                                            let id = model.id.clone();
+                                            let selected = draft.remote_selected.contains(&id);
+                                            let toggle_weak = weak.clone();
+                                            let label =
+                                                model.name.clone().unwrap_or_else(|| id.clone());
+                                            div()
+                                                .id(SharedString::from(format!(
+                                                    "settings-remote-{index}-{id}"
+                                                )))
+                                                .role(Role::Button)
+                                                .aria_label(format!(
+                                                    "{} {}",
+                                                    if selected { "取消" } else { "选择" },
+                                                    label
+                                                ))
+                                                .px(space(2))
+                                                .py(px(3.0))
+                                                .rounded(px(999.0))
+                                                .border_1()
+                                                .border_color(if selected {
+                                                    palette.accent
+                                                } else {
+                                                    palette.line
+                                                })
+                                                .text_color(if selected {
+                                                    palette.accent
+                                                } else {
+                                                    palette.ink_2
+                                                })
+                                                .text_size(px(11.0))
+                                                .child(if selected {
+                                                    format!("✓ {label}")
+                                                } else {
+                                                    label
+                                                })
+                                                .on_click(move |_, _, cx| {
+                                                    let id = id.clone();
+                                                    let _ = toggle_weak.update(cx, |this, cx| {
+                                                        this.toggle_remote_selection(index, &id, cx);
+                                                    });
+                                                })
+                                        })),
+                                )
                                 .child(
                                     div()
                                         .flex()
