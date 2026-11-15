@@ -29,7 +29,8 @@ pub use fake::FakeProvider;
 pub use model::{Model, ModelCapabilities, ModelId, ModelLimits, ProviderId};
 pub use openai_compatible::{OpenAiCompatibleConfig, OpenAiCompatibleProvider};
 pub use probe::{
-    list_models, list_models_at, list_unsupported, parse_models, test_models, RemoteModel,
+    detect_protocols, list_models, list_models_at, list_unsupported, parse_models, test_models,
+    ProbeState, RemoteModel,
 };
 pub use protocol::{ProviderProtocol, ThinkingMode};
 pub use provider::{CompletionStream, Provider};

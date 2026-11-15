@@ -59,6 +59,9 @@ pub(crate) struct ProviderDraft {
     pub(crate) responses_url_input: Option<Entity<InputState>>,
     pub(crate) models_url_input: Option<Entity<InputState>>,
     pub(crate) endpoints_open: bool,
+    /// 协议探测结果与进行中状态。
+    pub(crate) protocol_probes: Vec<(ProviderProtocol, cgc_agent_provider::ProbeState)>,
+    pub(crate) probing_protocols: bool,
 }
 
 /// 空串视为未设置，避免把空白地址写进 prefs。
@@ -120,6 +123,8 @@ impl ProviderDraft {
             responses_url_input: None,
             models_url_input: None,
             endpoints_open: false,
+            protocol_probes: Vec::new(),
+            probing_protocols: false,
         }
     }
 
@@ -164,6 +169,8 @@ impl ProviderDraft {
             responses_url_input: None,
             models_url_input: None,
             endpoints_open: false,
+            protocol_probes: Vec::new(),
+            probing_protocols: false,
         }
     }
 

@@ -9,8 +9,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use cgc_agent_provider::{
-    list_models, list_models_at, list_unsupported, probe::RemoteModel, test_models,
-    validate_credentials, ProviderError, ProviderErrorCategory, ProviderProtocol, ThinkingMode,
+    detect_protocols, list_models, list_models_at, list_unsupported, probe::RemoteModel,
+    test_models, validate_credentials, ProbeState, ProviderError, ProviderErrorCategory,
+    ProviderProtocol, ThinkingMode,
 };
 use cgc_agent_store::{
     builtin_providers, is_builtin_provider_id, next_provider_id, normalized_provider_name,
@@ -912,6 +913,8 @@ impl SettingsWindowView {
         copy.responses_url_input = None;
         copy.models_url_input = None;
         copy.endpoints_open = false;
+        copy.protocol_probes.clear();
+        copy.probing_protocols = false;
         let provider = copy.to_prefs_with(&copy.base_url, &copy.name);
         match self
             .provider_settings
@@ -1180,6 +1183,80 @@ impl SettingsWindowView {
     ) {
         if let Some(slot) = self.provider_drafts.get_mut(index) {
             slot.protocol = protocol;
+        }
+        cx.notify();
+    }
+
+    /// 对当前 Base URL 只读探测两种协议；只有一种可用时自动选中它。
+    fn detect_provider_protocols(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(draft) = self.provider_drafts.get(index).cloned() else {
+            return;
+        };
+        if draft.probing_protocols {
+            return;
+        }
+        let base_url = draft
+            .base_url_input
+            .as_ref()
+            .map(|input| input.read(cx).value().trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| draft.base_url.clone());
+        let typed = draft
+            .api_key_input
+            .as_ref()
+            .map(|input| input.read(cx).value().trim().to_string())
+            .unwrap_or_default();
+        let key = if typed.is_empty() {
+            self.provider_settings.key(&draft.id).unwrap_or_default()
+        } else {
+            typed
+        };
+        if base_url.is_empty() {
+            self.error = Some("请先填写 API URL".to_string());
+            cx.notify();
+            return;
+        }
+        if key.is_empty() {
+            self.error = Some("检测协议需要 API Key".to_string());
+            cx.notify();
+            return;
+        }
+        if let Some(slot) = self.provider_drafts.get_mut(index) {
+            slot.probing_protocols = true;
+            slot.protocol_probes.clear();
+        }
+        self.error = None;
+        cx.notify();
+        let task = cx
+            .background_executor()
+            .spawn(async move { detect_protocols(&base_url, &key) });
+        cx.spawn(async move |this, cx| {
+            let results = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.finish_detect_protocols(index, results, cx)
+            });
+        })
+        .detach();
+    }
+
+    fn finish_detect_protocols(
+        &mut self,
+        index: usize,
+        results: Vec<(ProviderProtocol, ProbeState)>,
+        cx: &mut Context<Self>,
+    ) {
+        let supported: Vec<ProviderProtocol> = results
+            .iter()
+            .filter(|(_, state)| *state == ProbeState::Supported)
+            .map(|(protocol, _)| *protocol)
+            .collect();
+        if let Some(slot) = self.provider_drafts.get_mut(index) {
+            slot.probing_protocols = false;
+            slot.protocol = match supported.as_slice() {
+                [only] => *only,
+                _ => slot.protocol,
+            };
+            slot.protocol_probes = results;
         }
         cx.notify();
     }
@@ -2494,7 +2571,19 @@ fn render_provider_cards(
                                     } else {
                                         palette.ink_2
                                     })
-                                    .child(label)
+                                    .child({
+                                        let mark = draft
+                                            .protocol_probes
+                                            .iter()
+                                            .find(|(probed, _)| *probed == protocol)
+                                            .map(|(_, state)| match state {
+                                                ProbeState::Supported => " · 可用",
+                                                ProbeState::Unauthorized => " · 需鉴权",
+                                                ProbeState::Missing => " · 不可用",
+                                            })
+                                            .unwrap_or("");
+                                        format!("{label}{mark}")
+                                    })
                                     .on_click(move |_, _, cx| {
                                         let _ = protocol_weak.update(cx, |this, cx| {
                                             this.set_provider_protocol(index, protocol, cx);
@@ -2503,6 +2592,34 @@ fn render_provider_cards(
                             }),
                         )
                         .child(div().flex_1())
+                        .child(
+                            div()
+                                .id(SharedString::from(format!(
+                                    "settings-provider-detect-protocols-{index}"
+                                )))
+                                .role(Role::Button)
+                                .aria_label("检测协议")
+                                .px(space(2))
+                                .py(px(3.0))
+                                .rounded(px(RADIUS_SMALL))
+                                .border_1()
+                                .border_color(palette.line)
+                                .text_size(px(11.0))
+                                .text_color(palette.ink_2)
+                                .child(if draft.probing_protocols {
+                                    "检测中…"
+                                } else {
+                                    "检测协议"
+                                })
+                                .on_click({
+                                    let probe_weak = weak.clone();
+                                    move |_, _, cx| {
+                                        let _ = probe_weak.update(cx, |this, cx| {
+                                            this.detect_provider_protocols(index, cx);
+                                        });
+                                    }
+                                }),
+                        )
                         .child(
                             div()
                                 .id(SharedString::from(format!(

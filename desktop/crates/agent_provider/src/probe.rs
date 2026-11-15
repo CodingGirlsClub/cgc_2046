@@ -180,6 +180,94 @@ pub fn list_models_at(url: &str, api_key: &str) -> Result<Vec<RemoteModel>, Prov
     parse_models(&text)
 }
 
+/// 探测结果：端点可用 / 端点存在但 Key 被拒 / 该协议端点不存在。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProbeState {
+    Supported,
+    Unauthorized,
+    Missing,
+}
+
+/// Anthropic 的消息端点：根 base 补 `/v1`，已带 `/v1` 则只补 `/messages`。
+pub fn anthropic_messages_url(base_url: &str) -> String {
+    let base = base_url.trim_end_matches('/');
+    if base.ends_with("/v1") {
+        format!("{base}/messages")
+    } else {
+        format!("{base}/v1/messages")
+    }
+}
+
+/// Anthropic 端点的判定：参数错误（400/422）说明端点存在；404 说明不是 Anthropic。
+pub fn classify_messages_status(status: u16) -> ProbeState {
+    match status {
+        400 | 422 => ProbeState::Supported,
+        401 | 403 => ProbeState::Unauthorized,
+        _ => ProbeState::Missing,
+    }
+}
+
+pub fn classify_status(status: u16) -> ProbeState {
+    match status {
+        200..=299 => ProbeState::Supported,
+        401 | 403 => ProbeState::Unauthorized,
+        _ => ProbeState::Missing,
+    }
+}
+
+/// 对同一 Base URL 试两种协议，只读探测、不产生对话费用。
+pub fn detect_protocols(
+    base_url: &str,
+    api_key: &str,
+) -> Vec<(crate::protocol::ProviderProtocol, ProbeState)> {
+    use crate::protocol::ProviderProtocol;
+    vec![
+        (
+            ProviderProtocol::OpenAiCompatible,
+            probe_openai(base_url, api_key),
+        ),
+        (
+            ProviderProtocol::AnthropicCompatible,
+            probe_anthropic(base_url, api_key),
+        ),
+    ]
+}
+
+fn probe_openai(base_url: &str, api_key: &str) -> ProbeState {
+    match list_models(base_url, api_key) {
+        Ok(_) => ProbeState::Supported,
+        Err(ProviderError::Api {
+            status: Some(status),
+            ..
+        }) => classify_status(status),
+        Err(_) => ProbeState::Missing,
+    }
+}
+
+fn probe_anthropic(base_url: &str, api_key: &str) -> ProbeState {
+    if socks_proxy_note().is_some() {
+        return ProbeState::Missing;
+    }
+    let agent = ureq::Agent::new_with_config(
+        ureq::Agent::config_builder()
+            .http_status_as_error(false)
+            .timeout_global(Some(std::time::Duration::from_secs(10)))
+            .build(),
+    );
+    // 空 body 会得到参数错误（400/422），端点不存在则是 404；不会产生对话费用。
+    match agent
+        .post(&anthropic_messages_url(base_url))
+        .header("x-api-key", api_key)
+        .header("anthropic-version", "2023-06-01")
+        .header("content-type", "application/json")
+        .send("{}")
+    {
+        Ok(response) => classify_messages_status(response.status().as_u16()),
+        Err(ureq::Error::StatusCode(status)) => classify_messages_status(status),
+        Err(_) => ProbeState::Missing,
+    }
+}
+
 /// 检测单个模型的最小对话请求地址。
 pub fn chat_url(base_url: &str) -> String {
     format!("{}/chat/completions", base_url.trim_end_matches('/'))
@@ -344,6 +432,36 @@ mod tests {
         assert!(is_socks_url(" socks4a://x "));
         assert!(!is_socks_url("http://127.0.0.1:8080"));
         assert!(!is_socks_url(""));
+    }
+
+    #[test]
+    fn anthropic_messages_url_follows_the_base_shape() {
+        assert_eq!(
+            anthropic_messages_url("https://api.anthropic.com"),
+            "https://api.anthropic.com/v1/messages"
+        );
+        assert_eq!(
+            anthropic_messages_url("https://gateway.example/v1/"),
+            "https://gateway.example/v1/messages"
+        );
+    }
+
+    #[test]
+    fn messages_statuses_are_classified() {
+        assert_eq!(classify_messages_status(400), ProbeState::Supported);
+        assert_eq!(classify_messages_status(422), ProbeState::Supported);
+        assert_eq!(classify_messages_status(401), ProbeState::Unauthorized);
+        assert_eq!(classify_messages_status(404), ProbeState::Missing);
+        assert_eq!(classify_messages_status(500), ProbeState::Missing);
+    }
+
+    #[test]
+    fn protocol_statuses_are_classified() {
+        assert_eq!(classify_status(200), ProbeState::Supported);
+        assert_eq!(classify_status(401), ProbeState::Unauthorized);
+        assert_eq!(classify_status(403), ProbeState::Unauthorized);
+        assert_eq!(classify_status(404), ProbeState::Missing);
+        assert_eq!(classify_status(500), ProbeState::Missing);
     }
 
     #[test]
