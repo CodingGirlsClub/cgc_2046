@@ -10,7 +10,10 @@ use crate::agent::launch::{build_launch, LaunchPlan, NodeRuntime};
 use crate::registry::manifest::{AgentEntry, Distribution};
 use crate::registry::package::{executable_in, install_dir};
 
-const INSTALL_TIMEOUT: Duration = Duration::from_secs(180);
+/// npm 安装超时。DSH adapter 首次安装要下载约 176 MB（`vendor/dsh-runtime.tgz`），
+/// 冷缓存 + 慢网络下 180s 必然超时（真实用户已复现 `command timed out`），
+/// 因此给足 15 分钟；成功后立即返回，不影响其它 agent。
+const INSTALL_TIMEOUT: Duration = Duration::from_secs(900);
 static NEXT_INSTALL: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
