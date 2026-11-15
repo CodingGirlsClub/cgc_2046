@@ -1141,6 +1141,7 @@ impl SettingsWindowView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.sync_model_fields(index, window, cx);
         {
             let Some(slot) = self.provider_drafts.get_mut(index) else {
                 return;
@@ -1160,6 +1161,7 @@ impl SettingsWindowView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.sync_model_fields(index, window, cx);
         {
             let Some(slot) = self.provider_drafts.get_mut(index) else {
                 return;
@@ -1179,6 +1181,7 @@ impl SettingsWindowView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.sync_model_fields(index, window, cx);
         let Some(draft) = self.provider_drafts.get(index).cloned() else {
             return;
         };
@@ -1198,8 +1201,6 @@ impl SettingsWindowView {
 
     /// chips 改动后把模型参数写回文本与文本区。
     fn flush_models_text(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
-        // 先把卡片输入框里的未保存编辑并入参数，避免 chips 操作把它们覆盖掉。
-        self.sync_model_fields(index, window, cx);
         let Some(draft) = self.provider_drafts.get_mut(index) else {
             return;
         };
@@ -1222,6 +1223,7 @@ impl SettingsWindowView {
 
     /// 「添加模型 ID」：输入框里的 id 直接加入；远程目录有元数据就一并带上。
     fn add_model_by_id(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.sync_model_fields(index, window, cx);
         let Some(draft) = self.provider_drafts.get(index).cloned() else {
             return;
         };
