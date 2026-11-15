@@ -68,6 +68,93 @@ pub fn probe() -> Option<DshPlugin> {
     probe_with(|key| std::env::var_os(key).map(PathBuf::from))
 }
 
+/// ACP bundle 默认禁用 LLM 标题；安装后追加启用 patch。
+/// 已有显式条目时原样保留；解析错误不能含源文片段（profile 可能含凭据）。
+pub fn ensure_title_plugin_enabled(plugin: &DshPlugin) -> Result<bool, String> {
+    use serde_saphyr::granit_parser::{Event, Parser, StructureStyle};
+    use std::io::Write;
+
+    let path = profile_dir(&plugin.home).join("cordis.patch.yml");
+    let mut existing = match std::fs::read_to_string(&path) {
+        Ok(existing) => existing,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err(format!("cannot read {}: {error}", path.display())),
+    };
+    let invalid = || format!("invalid DSH ACP profile patch at {}", path.display());
+    let patches: Option<Vec<Value>> = serde_saphyr::from_str(&existing).map_err(|_| invalid())?;
+    if patches.as_ref().is_some_and(|patches| {
+        patches
+            .iter()
+            .any(|patch| patch.get("id").and_then(Value::as_str) == Some("session-title-llm"))
+    }) {
+        return Ok(false);
+    }
+    // DSH 默认模板是 []；按序列边界插入，保留注释、格式与其它配置原文。
+    let (mut offset, mut end) = (existing.len(), existing.len());
+    let (mut depth, mut indent, mut value_end) = (0, 0, 0);
+    let mut flow = false;
+    for parsed in Parser::new_from_str(&existing) {
+        let (event, span) = parsed.map_err(|_| invalid())?;
+        match event {
+            Event::SequenceStart(style, ..) => {
+                if depth == 0 {
+                    flow = style == StructureStyle::Flow;
+                    indent = span.start.col();
+                }
+                depth += 1;
+            }
+            Event::SequenceEnd => {
+                depth -= 1;
+                if depth == 0 {
+                    offset = span.start.byte_offset().ok_or_else(invalid)?;
+                    end = offset;
+                    break;
+                }
+            }
+            Event::Scalar(..) if depth == 0 => {
+                offset = span.start.byte_offset().ok_or_else(invalid)?;
+                end = span.end.byte_offset().ok_or_else(invalid)?;
+                break;
+            }
+            _ => {}
+        }
+        if !matches!(event, Event::Comment(..)) {
+            value_end = span.end.byte_offset().ok_or_else(invalid)?;
+        }
+    }
+    let patch = if flow {
+        let comma = patches.as_ref().is_some_and(|patches| !patches.is_empty())
+            && !existing[value_end..offset].trim_start().starts_with(',');
+        format!(
+            "{}{{ id: session-title-llm, disabled: false }}",
+            if comma { ", " } else { "" }
+        )
+    } else {
+        format!(
+            "\n{0}- id: session-title-llm\n{0}  disabled: false\n",
+            " ".repeat(indent)
+        )
+    };
+    existing.replace_range(offset..end, &patch);
+    let mut file = tempfile::NamedTempFile::new_in(profile_dir(&plugin.home))
+        .map_err(|error| format!("cannot stage {}: {error}", path.display()))?;
+    if let Ok(metadata) = std::fs::metadata(&path) {
+        file.as_file()
+            .set_permissions(metadata.permissions())
+            .map_err(|error| {
+                format!(
+                    "cannot preserve permissions for {}: {error}",
+                    path.display()
+                )
+            })?;
+    }
+    file.write_all(existing.as_bytes())
+        .map_err(|error| format!("cannot write {}: {error}", path.display()))?;
+    file.persist(&path)
+        .map_err(|error| format!("cannot replace {}: {error}", path.display()))?;
+    Ok(true)
+}
+
 /// plugin 形态下 adapter 的凭据 gate 按 `<PROVIDER>_API_KEY` 推导名字，
 /// 而 DSH 自定义 provider 使用 `apiKeyEnv`（例如 `MAGPIE_GATEWAY_KEY`）。
 /// 这里从 `$DSH_HOME/.credentials.yaml` 的 `refs` 读取一次并映射成 adapter
@@ -137,171 +224,4 @@ fn parse_credential_refs(text: &str) -> Option<std::collections::BTreeMap<String
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::collections::HashMap;
-
-    fn temp_dir(tag: &str) -> PathBuf {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
-        let dir = std::env::temp_dir().join(format!(
-            "cgc-dsh-plugin-{}-{tag}-{}",
-            std::process::id(),
-            COUNTER.fetch_add(1, Ordering::Relaxed)
-        ));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).expect("temp dir");
-        dir
-    }
-
-    fn write_profile(home: &Path, version: &str) {
-        let profile = profile_dir(home);
-        std::fs::create_dir_all(&profile).expect("profile dir");
-        std::fs::write(
-            profile.join("package.json"),
-            format!(
-                r#"{{"name":"dsh-profile-acp","dependencies":{{"{DSH_PLUGIN_PACKAGE}":"{version}"}}}}"#
-            ),
-        )
-        .expect("package.json");
-    }
-
-    fn env_with(pairs: &[(&str, PathBuf)]) -> HashMap<String, PathBuf> {
-        pairs
-            .iter()
-            .map(|(key, value)| (key.to_string(), value.clone()))
-            .collect()
-    }
-
-    #[test]
-    fn probe_requires_dsh_cli_and_installed_profile() {
-        let root = temp_dir("probe");
-        let home = root.join("dsh-home");
-        let dsh = root.join("bin").join("dsh");
-        std::fs::create_dir_all(dsh.parent().unwrap()).unwrap();
-        std::fs::write(&dsh, b"#!/bin/sh\n").unwrap();
-        let env = env_with(&[("DSH_HOME", home.clone()), ("DSH_CLI", dsh.clone())]);
-
-        let read = |key: &str| env.get(key).cloned();
-        assert_eq!(probe_with(read), None, "profile 未安装时不能算 plugin 可用");
-
-        write_profile(&home, "0.4.41");
-        assert_eq!(
-            probe_with(read),
-            Some(DshPlugin {
-                dsh,
-                home,
-                version: "0.4.41".to_string(),
-            })
-        );
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn probe_falls_back_to_local_bin_and_home_dot_dsh() {
-        let root = temp_dir("fallback");
-        let home = root.join("user");
-        let dsh = home.join(".local").join("bin").join("dsh");
-        std::fs::create_dir_all(dsh.parent().unwrap()).unwrap();
-        std::fs::write(&dsh, b"#!/bin/sh\n").unwrap();
-        write_profile(&home.join(".dsh"), "0.4.41");
-        let env = env_with(&[("HOME", home.clone())]);
-        let read = |key: &str| env.get(key).cloned();
-
-        let plugin = probe_with(read).expect("plugin via ~/.local/bin/dsh");
-        assert_eq!(plugin.dsh, dsh);
-        assert_eq!(plugin.home, home.join(".dsh"));
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn credential_env_maps_magpie_key_for_adapter_gate() {
-        use std::os::unix::fs::PermissionsExt;
-        let root = temp_dir("cred-env");
-        let home = root.join("dsh-home");
-        write_profile(&home, "0.4.41");
-        let credentials = home.join(".credentials.yaml");
-        std::fs::write(
-            &credentials,
-            "version: 1\nrefs:\n  MAGPIE_GATEWAY_KEY: sk-magpie\n  DEEPSEEK_API_KEY: sk-test\nrecords:\n  x/y:\n    kind: api-key\n",
-        )
-        .expect("credentials");
-        let mut perms = std::fs::metadata(&credentials).unwrap().permissions();
-        perms.set_mode(0o600);
-        std::fs::set_permissions(&credentials, perms).unwrap();
-        let plugin = DshPlugin {
-            dsh: root.join("dsh"),
-            home: home.clone(),
-            version: "0.4.41".to_string(),
-        };
-
-        let env = credential_env(&plugin);
-        assert_eq!(
-            env.get("MAGPIE_API_KEY").map(String::as_str),
-            Some("sk-magpie")
-        );
-        assert_eq!(
-            env.get("MAGPIE_RESPONSES_API_KEY").map(String::as_str),
-            Some("sk-magpie")
-        );
-        assert_eq!(
-            env.get("MAGPIE_ANTHROPIC_API_KEY").map(String::as_str),
-            Some("sk-magpie")
-        );
-        assert_eq!(env.len(), 3);
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn credential_env_fails_closed_on_loose_permissions() {
-        use std::os::unix::fs::PermissionsExt;
-        let root = temp_dir("cred-loose");
-        let home = root.join("dsh-home");
-        write_profile(&home, "0.4.41");
-        let credentials = home.join(".credentials.yaml");
-        std::fs::write(
-            &credentials,
-            "version: 1\nrefs:\n  MAGPIE_GATEWAY_KEY: sk-magpie\n",
-        )
-        .unwrap();
-        let mut perms = std::fs::metadata(&credentials).unwrap().permissions();
-        perms.set_mode(0o644);
-        std::fs::set_permissions(&credentials, perms).unwrap();
-        let plugin = DshPlugin {
-            dsh: root.join("dsh"),
-            home,
-            version: "0.4.41".to_string(),
-        };
-        assert!(credential_env(&plugin).is_empty());
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn parse_credential_refs_stops_at_records() {
-        let refs = parse_credential_refs(
-            "version: 1\nrefs:\n  MAGPIE_GATEWAY_KEY: \"sk-quoted\"\nrecords:\n  MAGPIE_OTHER: nope\n",
-        )
-        .expect("refs");
-        assert_eq!(
-            refs.get("MAGPIE_GATEWAY_KEY").map(String::as_str),
-            Some("sk-quoted")
-        );
-        assert!(!refs.contains_key("MAGPIE_OTHER"));
-    }
-
-    #[test]
-    fn malformed_profile_fails_closed() {
-        let root = temp_dir("malformed");
-        let home = root.join("dsh-home");
-        let dsh = root.join("dsh");
-        std::fs::write(&dsh, b"#!/bin/sh\n").unwrap();
-        std::fs::create_dir_all(profile_dir(&home)).unwrap();
-        std::fs::write(profile_dir(&home).join("package.json"), "{not json").unwrap();
-        let env = env_with(&[("DSH_HOME", home), ("DSH_CLI", dsh)]);
-        let read = |key: &str| env.get(key).cloned();
-        assert_eq!(probe_with(read), None);
-        let _ = std::fs::remove_dir_all(&root);
-    }
-}
+mod tests;

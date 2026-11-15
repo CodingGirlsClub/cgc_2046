@@ -60,6 +60,21 @@ DSH Desktop 不是 standalone 回退的运行时前置：`detect` 在 plugin 探
 
 standalone 回退的安装、启动和对话始终使用 adapter 自带 bundled dsh；plugin 形态使用用户 DSH 的 runtime。生产构建不因缺少 DSH Desktop 阻断，开发/自测也不需要额外准备。
 
+### D5 对话标题由 DSH agent 生成
+
+DSH 通过 `session/title` 产生标题，adapter 转为 ACP `session_info_update`，客户端沿用 `TitleUpdated` 消费链路。用户手动重命名的 `title_override` 优先于 agent 标题，首条消息截断作为标题生成前及失败时的显示。
+
+DSH 的 ACP bundle 默认将 `session-title-llm` 设为 `disabled: true`。CGC 在 plugin 形态安装或升级 adapter、确认版本成功后，为 `$DSH_HOME/profiles/acp/cordis.patch.yml` 追加启用 patch：
+
+```yaml
+- id: session-title-llm
+  disabled: false
+```
+
+已有 `id: session-title-llm` 的显式条目时原样保留，包括用户主动关闭的配置；重复安装不追加。安装子进程显式传入目标 `DSH_HOME`，保证依赖安装与 patch 写入指向同一 profile。读取或解析失败时停止并报告路径，错误不附带配置原文。
+
+启用后由 DSH 根据首条用户消息额外请求标题模型，消耗用户在 DSH 中配置的模型额度。适配器内置运行时的默认上限为 `maxOutputTokens: 4096`、`timeoutMs: 60000`，plugin 形态以本地 DSH 的配置为准。CGC 不另行调用模型生成 DSH 标题，也不回写 `set_title`。standalone 形态保持适配器默认行为。回滚时可移除追加的条目，或显式设置 `disabled: true`；卸载 adapter 保留该用户 profile。
+
 ### 适配器版本与许可
 
 - 锁定 `@openma/deepseek-harness-acp@0.4.41`；Node 24 由客户端托管，不依赖系统 Node。

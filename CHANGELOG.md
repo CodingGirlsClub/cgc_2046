@@ -18,6 +18,10 @@ develop→main 发布时把该段改名为 `## [发布日期]` 并重新立一�
 commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `miniprogram`）。
 ## [Unreleased]
 
+### Changed
+
+- [Desktop] DeepSeek Harness 以 plugin 形态安装或升级时默认启用自动对话标题，保留用户显式关闭的设置。
+
 ## [2026-11-12]
 
 ### Added
