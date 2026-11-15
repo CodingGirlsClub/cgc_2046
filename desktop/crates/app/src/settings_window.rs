@@ -349,6 +349,12 @@ impl SettingsWindowView {
                         }
                     }
                 }
+                let declared: Vec<String> = draft
+                    .model_params
+                    .iter()
+                    .find(|model| model.id == field.model_id)
+                    .map(|model| model.reasoning_efforts.clone())
+                    .unwrap_or_default();
                 let efforts: Vec<String> = field
                     .efforts_input
                     .read(cx)
@@ -358,7 +364,8 @@ impl SettingsWindowView {
                     .filter(|effort| !effort.is_empty())
                     .map(str::to_string)
                     .collect();
-                let efforts = if efforts.is_empty() {
+                // 仅"本来未声明"时回退文本；已声明却被清空是用户显式删除。
+                let efforts = if efforts.is_empty() && declared.is_empty() {
                     efforts_in_text(&source_text, &field.model_id)
                 } else {
                     efforts
