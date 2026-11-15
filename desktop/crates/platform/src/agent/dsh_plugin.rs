@@ -68,6 +68,74 @@ pub fn probe() -> Option<DshPlugin> {
     probe_with(|key| std::env::var_os(key).map(PathBuf::from))
 }
 
+/// plugin 形态下 adapter 的凭据 gate 按 `<PROVIDER>_API_KEY` 推导名字，
+/// 而 DSH 自定义 provider 使用 `apiKeyEnv`（例如 `MAGPIE_GATEWAY_KEY`）。
+/// 这里从 `$DSH_HOME/.credentials.yaml` 的 `refs` 读取一次并映射成 adapter
+/// 期望的名字，只注入子进程环境；不写盘、不记录值。
+pub fn credential_env(plugin: &DshPlugin) -> std::collections::BTreeMap<String, String> {
+    let path = plugin.home.join(".credentials.yaml");
+    let Some(refs) = read_credential_refs(&path) else {
+        return std::collections::BTreeMap::new();
+    };
+    let value = refs
+        .get("MAGPIE_API_KEY")
+        .or_else(|| refs.get("MAGPIE_GATEWAY_KEY"))
+        .cloned();
+    let Some(value) = value else {
+        return std::collections::BTreeMap::new();
+    };
+    [
+        "MAGPIE_API_KEY",
+        "MAGPIE_RESPONSES_API_KEY",
+        "MAGPIE_ANTHROPIC_API_KEY",
+    ]
+    .into_iter()
+    .map(|name| (name.to_string(), value.clone()))
+    .collect()
+}
+
+/// 只接受 owner-only 可读的凭据文件（mode 600/400），并只解析 `refs` 段。
+pub fn read_credential_refs(path: &Path) -> Option<std::collections::BTreeMap<String, String>> {
+    let metadata = std::fs::metadata(path).ok()?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.permissions().mode() & 0o077 != 0 {
+            return None;
+        }
+    }
+    let text = std::fs::read_to_string(path).ok()?;
+    parse_credential_refs(&text)
+}
+
+fn parse_credential_refs(text: &str) -> Option<std::collections::BTreeMap<String, String>> {
+    let mut refs = std::collections::BTreeMap::new();
+    let mut in_refs = false;
+    for line in text.lines() {
+        if !(line.starts_with(' ') || line.starts_with('\t')) {
+            in_refs = line.trim_end() == "refs:";
+            continue;
+        }
+        if !in_refs {
+            continue;
+        }
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let Some((key, value)) = trimmed.split_once(':') else {
+            continue;
+        };
+        let key = key.trim();
+        let value = value.trim().trim_matches(|ch| ch == '"' || ch == '\'');
+        if key.is_empty() || value.is_empty() {
+            continue;
+        }
+        refs.insert(key.to_string(), value.to_string());
+    }
+    (!refs.is_empty()).then_some(refs)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -144,6 +212,83 @@ mod tests {
         assert_eq!(plugin.dsh, dsh);
         assert_eq!(plugin.home, home.join(".dsh"));
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn credential_env_maps_magpie_key_for_adapter_gate() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = temp_dir("cred-env");
+        let home = root.join("dsh-home");
+        write_profile(&home, "0.4.41");
+        let credentials = home.join(".credentials.yaml");
+        std::fs::write(
+            &credentials,
+            "version: 1\nrefs:\n  MAGPIE_GATEWAY_KEY: sk-magpie\n  DEEPSEEK_API_KEY: sk-test\nrecords:\n  x/y:\n    kind: api-key\n",
+        )
+        .expect("credentials");
+        let mut perms = std::fs::metadata(&credentials).unwrap().permissions();
+        perms.set_mode(0o600);
+        std::fs::set_permissions(&credentials, perms).unwrap();
+        let plugin = DshPlugin {
+            dsh: root.join("dsh"),
+            home: home.clone(),
+            version: "0.4.41".to_string(),
+        };
+
+        let env = credential_env(&plugin);
+        assert_eq!(
+            env.get("MAGPIE_API_KEY").map(String::as_str),
+            Some("sk-magpie")
+        );
+        assert_eq!(
+            env.get("MAGPIE_RESPONSES_API_KEY").map(String::as_str),
+            Some("sk-magpie")
+        );
+        assert_eq!(
+            env.get("MAGPIE_ANTHROPIC_API_KEY").map(String::as_str),
+            Some("sk-magpie")
+        );
+        assert_eq!(env.len(), 3);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn credential_env_fails_closed_on_loose_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = temp_dir("cred-loose");
+        let home = root.join("dsh-home");
+        write_profile(&home, "0.4.41");
+        let credentials = home.join(".credentials.yaml");
+        std::fs::write(
+            &credentials,
+            "version: 1\nrefs:\n  MAGPIE_GATEWAY_KEY: sk-magpie\n",
+        )
+        .unwrap();
+        let mut perms = std::fs::metadata(&credentials).unwrap().permissions();
+        perms.set_mode(0o644);
+        std::fs::set_permissions(&credentials, perms).unwrap();
+        let plugin = DshPlugin {
+            dsh: root.join("dsh"),
+            home,
+            version: "0.4.41".to_string(),
+        };
+        assert!(credential_env(&plugin).is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn parse_credential_refs_stops_at_records() {
+        let refs = parse_credential_refs(
+            "version: 1\nrefs:\n  MAGPIE_GATEWAY_KEY: \"sk-quoted\"\nrecords:\n  MAGPIE_OTHER: nope\n",
+        )
+        .expect("refs");
+        assert_eq!(
+            refs.get("MAGPIE_GATEWAY_KEY").map(String::as_str),
+            Some("sk-quoted")
+        );
+        assert!(!refs.contains_key("MAGPIE_OTHER"));
     }
 
     #[test]

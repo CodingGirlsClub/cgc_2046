@@ -37,6 +37,7 @@ CGC 托管的 DeepSeek Key 以本机 keychain 为唯一真源。启动 ACP 子�
 - **不写 `$DSH_HOME/.credentials.yaml`**：适配器的 `authenticate`（`api-key` / `gateway`）会调用 `saveCredential` 把明文持久化到该文件；默认不调用这条路径。P3 的客户端流程是：UI 检测到 `-32000 auth_required` 后引导用户在当前 Provider 设置里保存 Key（只进 OS keychain），再重启 adapter；下一次启动从 keychain 读取并注入 `DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL`，不经过 ACP `authenticate`，因此不会产生 `.credentials.yaml`。
 - 密钥不进入 settings、日志、遥测、崩溃报告与对话内容；日志沿用现有 `telemetry::redact_sensitive` 脱敏。
 - keychain 读取失败或无凭据时不启动带空 key 的进程：按 `-32000 auth_required` 走「登录」入口（P3）。
+- **plugin 形态的凭据名映射**：adapter 0.4.41 的 credential gate 按 `<PROVIDER>_API_KEY` 推导名字（例如 `MAGPIE_API_KEY`），与 DSH 自定义 provider 的 `apiKeyEnv`（例如 `MAGPIE_GATEWAY_KEY`）不一致。客户端在 plugin 启动时读取 `$DSH_HOME/.credentials.yaml` 的 `refs`（仅接受 owner-only 可读的文件），把 magpie 的引用值映射成 `MAGPIE_API_KEY` / `MAGPIE_RESPONSES_API_KEY` / `MAGPIE_ANTHROPIC_API_KEY` 注入子进程环境；只在内存中处理，不写盘、不记录值，CGC keychain 已注入的同名值优先。
 
 ### D3 会话隔离：默认独立 `DSH_HOME`，可显式共享本地 DSH
 

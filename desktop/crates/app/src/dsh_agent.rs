@@ -38,8 +38,13 @@ pub(crate) fn dsh_plugin() -> Option<cgc_platform::agent::dsh_plugin::DshPlugin>
 /// plugin 形态启动参数：`dsh --profile acp` + 用户 DSH 目录。
 pub(crate) fn dsh_plugin_launch_options(
     plugin: cgc_platform::agent::dsh_plugin::DshPlugin,
-    extra_env: BTreeMap<String, String>,
+    mut extra_env: BTreeMap<String, String>,
 ) -> LaunchOptions {
+    // adapter 的 credential gate 只认 `<PROVIDER>_API_KEY`；把本地 DSH 的
+    // `apiKeyEnv` 引用映射成这些名字（CGC keychain 已注入的同名值优先）。
+    for (key, value) in cgc_platform::agent::dsh_plugin::credential_env(&plugin) {
+        extra_env.entry(key).or_insert(value);
+    }
     LaunchOptions {
         dsh_path: None,
         dsh_home: Some(plugin.home),
