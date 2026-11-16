@@ -25,6 +25,7 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 ### Changed
 
 - [Desktop] DeepSeek Harness 以 plugin 形态安装或升级时默认启用自动对话标题，保留用户显式关闭的设置。
+- [Desktop] `gpui-kit` 升到 0.9.1，同步 `AGENTS.md` 的版本约束；顺带修复 `rustls-webpki` CVE。
 
 ### Fixed
 
