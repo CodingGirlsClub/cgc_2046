@@ -25,10 +25,22 @@ impl RootView {
             && (keystroke.modifiers.platform || keystroke.modifiers.control)
     }
 
+    /// ⌥⌘] / ⌥⌘[（Windows/Linux 为 Alt+Win 同键）循环终端实例。
+    pub(in crate::root_view) fn terminal_cycle_direction(keystroke: &Keystroke) -> Option<bool> {
+        if !keystroke.modifiers.alt || keystroke.modifiers.shift || !keystroke.modifiers.platform {
+            return None;
+        }
+        match keystroke.key.as_str() {
+            "]" => Some(true),
+            "[" => Some(false),
+            _ => None,
+        }
+    }
+
     pub(in crate::root_view) fn handle_shell_key(
         &mut self,
         event: &KeyDownEvent,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if event.keystroke.key == "escape" && self.chat.session.is_busy() {
@@ -45,6 +57,10 @@ impl RootView {
         }
         if Self::is_agent_panel_shortcut(&event.keystroke) {
             self.toggle_agent_panel(cx);
+            return;
+        }
+        if let Some(forward) = Self::terminal_cycle_direction(&event.keystroke) {
+            self.cycle_terminal(forward, window, cx);
             return;
         }
         if (event.keystroke.modifiers.platform || event.keystroke.modifiers.control)
@@ -146,5 +162,28 @@ impl RootView {
             self.navigate_to_learning(&course_id, workspace_id.as_deref(), cx);
             cx.notify();
         }
+    }
+}
+
+#[cfg(test)]
+mod terminal_cycle_tests {
+    use super::RootView;
+
+    fn direction(keys: &'static str) -> Option<bool> {
+        RootView::terminal_cycle_direction(&gpui_kit::Keystroke::parse(keys).expect("keystroke"))
+    }
+
+    #[test]
+    fn terminal_cycle_shortcut_matches_brackets() {
+        assert_eq!(direction("alt-cmd-]"), Some(true));
+        assert_eq!(direction("alt-cmd-["), Some(false));
+        assert_eq!(
+            direction("alt-ctrl-]"),
+            None,
+            "只认 platform：Ctrl+Alt 在部分键盘上是 AltGr"
+        );
+        assert_eq!(direction("cmd-]"), None, "缺少 alt 不触发");
+        assert_eq!(direction("alt-cmd-shift-]"), None, "shift 不触发");
+        assert_eq!(direction("alt-cmd-x"), None);
     }
 }

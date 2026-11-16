@@ -50,6 +50,10 @@ impl<V> TerminalPanel<V> {
         self.terminals.contains_key(id)
     }
 
+    pub fn get(&self, id: &str) -> Option<&AgentTerminal<V>> {
+        self.terminals.get(id)
+    }
+
     pub fn get_mut(&mut self, id: &str) -> Option<&mut AgentTerminal<V>> {
         self.terminals.get_mut(id)
     }
@@ -113,6 +117,26 @@ impl<V> TerminalPanel<V> {
                     .is_some_and(|cwd| cwd == directory)
             })
             .count()
+    }
+
+    /// 循环切换 active 实例；`forward=false` 反向。少于 2 个时无操作。
+    pub fn cycle(&mut self, forward: bool) -> bool {
+        let ids: Vec<&String> = self.terminals.keys().collect();
+        if ids.len() < 2 {
+            return false;
+        }
+        let current = self
+            .active
+            .as_ref()
+            .and_then(|active| ids.iter().position(|id| *id == active));
+        let next = match current {
+            None if forward => 0,
+            None => ids.len() - 1,
+            Some(index) if forward => (index + 1) % ids.len(),
+            Some(index) => (index + ids.len() - 1) % ids.len(),
+        };
+        let id = ids[next].clone();
+        self.activate(&id)
     }
 
     pub fn last_cwd(&self) -> Option<&Path> {
@@ -188,6 +212,44 @@ mod tests {
         let mut panel: TerminalPanel<()> = TerminalPanel::default();
         assert!(!panel.activate("missing"));
         assert_eq!(panel.active_id(), None);
+    }
+
+    #[test]
+    fn cycling_visits_all_instances_and_wraps() {
+        let mut panel: TerminalPanel<()> = TerminalPanel::default();
+        panel.insert(terminal("a", Some("/tmp/a")));
+        panel.insert(terminal("b", Some("/tmp/b")));
+        panel.insert(terminal("c", Some("/tmp/c")));
+        assert!(panel.activate("a"));
+        assert!(panel.cycle(true));
+        assert_eq!(panel.active_id(), Some("b"));
+        assert!(panel.cycle(true));
+        assert_eq!(panel.active_id(), Some("c"));
+        assert!(panel.cycle(true));
+        assert_eq!(panel.active_id(), Some("a"), "循环回头");
+        assert!(panel.cycle(false));
+        assert_eq!(panel.active_id(), Some("c"), "反向循环");
+    }
+
+    #[test]
+    fn cycling_with_one_instance_is_a_noop() {
+        let mut panel: TerminalPanel<()> = TerminalPanel::default();
+        panel.insert(terminal("a", Some("/tmp/a")));
+        assert!(!panel.cycle(true));
+        assert_eq!(panel.active_id(), Some("a"));
+    }
+
+    #[test]
+    fn cycling_from_hidden_starts_at_an_end() {
+        let mut panel: TerminalPanel<()> = TerminalPanel::default();
+        panel.insert(terminal("a", Some("/tmp/a")));
+        panel.insert(terminal("b", Some("/tmp/b")));
+        panel.hide();
+        assert!(panel.cycle(true));
+        assert_eq!(panel.active_id(), Some("a"), "正向从第一个开始");
+        panel.hide();
+        assert!(panel.cycle(false));
+        assert_eq!(panel.active_id(), Some("b"), "反向从最后一个开始");
     }
 
     #[test]

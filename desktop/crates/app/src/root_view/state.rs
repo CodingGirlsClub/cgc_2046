@@ -20,6 +20,14 @@ pub(in crate::root_view) enum NotesFilter {
     Retro,
 }
 
+/// 标题编辑开始时锁定的提交目标：之后切换/关闭实例，Blur 仍写回原目标。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::root_view) enum TitleEditTarget {
+    Terminal(String),
+    Native,
+    External,
+}
+
 /// 媒体（课程图片）的加载状态；只在内存缓存，不落盘。
 pub(in crate::root_view) enum MediaState {
     Loading,
@@ -305,6 +313,8 @@ pub struct ShellState {
     /// native 面板事件订阅：标题生成中/失败/完成时重绘 header。
     pub(in crate::root_view) native_agent_view_subscription: Option<Subscription>,
     pub(in crate::root_view) agent_panel_editing_title: bool,
+    /// 编辑开始时的提交目标：防止切换实例后 Blur 把标题写到新实例。
+    pub(in crate::root_view) agent_panel_title_edit_target: Option<TitleEditTarget>,
     pub(in crate::root_view) history_sidebar:
         Option<crate::root_view::history_sidebar::HistorySidebar>,
     pub(in crate::root_view) history_dirty_seen: u64,
@@ -553,6 +563,7 @@ impl ShellState {
             agent_panel_title_subscription: None,
             native_agent_view_subscription: None,
             agent_panel_editing_title: false,
+            agent_panel_title_edit_target: None,
             history_sidebar: None,
             history_dirty_seen: 0,
             history_cleared_seen: 0,
