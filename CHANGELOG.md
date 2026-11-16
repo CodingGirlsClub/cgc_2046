@@ -36,6 +36,17 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 - [Desktop] DeepSeek 已就绪时提供重新安装入口，旧版 profile adapter 标记为待升级；本地 DSH 尚未安装 adapter 时也能初始化 profile 与自动标题配置，安装和卸载互斥。
 - [Desktop] DSH 会话恢复测试失败时不再在诊断日志打印会话标识符。
 
+## [2026-11-16]
+
+### Added
+
+- [Backend] 登录态设置登录密码：`setPassword` 写哈希、吊销该用户全部既有 token 并补发当前会话；平台登录与 Identity 返回 `hasPassword`，供客户端决定是否提示设密。设密动作限 `OwnUser` policy，并以 `accept([])` 收窄属性面，避免被当作身份字段后门。
+- [Web] 忘记密码页改为小程序优先：固定 scene 的小程序码直达小程序「登录密码」页，邮箱重置折叠为「以前用邮箱注册过？」。
+
+### Fixed
+
+- [Web] pnpm overrides 迁回 `package.json`，修复 pnpm 10 下 overrides 静默失效、依赖覆盖未实际生效的问题。
+
 ## [微信 v0.2.7] - 2026-11-15
 
 - [Miniprogram] 新增「登录密码」页面（`pages/account-password`）：学员可在小程序内修改登录密码；入口在登录页与「我的」页。密码规则判据下沉 `src/domain/password-center.ts`，由 `tests/password-center.test.ts` 钉住。
