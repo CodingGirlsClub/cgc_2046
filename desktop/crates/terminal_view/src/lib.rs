@@ -193,6 +193,12 @@ impl TerminalView {
             return;
         }
 
+        // 其余 Cmd/Win 组合是应用级快捷键（⌥⌘] / ⌥⌘[、⌘N…）：
+        // 不写入 PTY，也不拦截，冒泡给 RootView，否则终端聚焦时全局快捷键失效。
+        if app_shortcut_bubbles(&keystroke.modifiers) {
+            return;
+        }
+
         // 普通按键表示放弃那次待确认的粘贴。
         if self.pending_paste.is_some() {
             self.pending_paste = None;
@@ -1612,6 +1618,11 @@ fn search_nav_button(
         .into_any_element()
 }
 
+/// 应用级快捷键（Cmd/Win 组合）由 RootView 处理，终端只放行、不拦截。
+fn app_shortcut_bubbles(modifiers: &Modifiers) -> bool {
+    modifiers.platform
+}
+
 /// 这次按键是否算「用户已经看到响铃」——纯修饰键不清除。
 fn clears_bell(key: &str) -> bool {
     !matches!(
@@ -1669,11 +1680,24 @@ mod tests {
     // 只做显式导入：父模块的 `use gpui_kit::*` 会引入 gpui 的 test 宏，
     // 遮蔽 std 的 `#[test]` 并触发递归展开。
     use super::{
-        alternate_scroll_key, clears_bell, cursor_rect, is_highlighted, is_safe_link,
-        needs_highlight_refresh, search_status_text, thumb_geometry,
+        alternate_scroll_key, app_shortcut_bubbles, clears_bell, cursor_rect, is_highlighted,
+        is_safe_link, needs_highlight_refresh, search_status_text, thumb_geometry,
     };
     use cgc_terminal::Key;
     use gpui_kit::{px, Point};
+
+    #[test]
+    fn platform_shortcuts_bubble_to_the_app() {
+        let mut modifiers = gpui_kit::Modifiers::none();
+        assert!(!app_shortcut_bubbles(&modifiers));
+        modifiers.platform = true;
+        assert!(
+            app_shortcut_bubbles(&modifiers),
+            "Cmd/Win 组合交给 RootView"
+        );
+        modifiers.alt = true;
+        assert!(app_shortcut_bubbles(&modifiers), "⌥⌘] 也必须冒泡");
+    }
 
     #[test]
     fn ime_candidate_bounds_follow_the_cursor() {

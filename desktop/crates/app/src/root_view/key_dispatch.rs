@@ -25,12 +25,9 @@ impl RootView {
             && (keystroke.modifiers.platform || keystroke.modifiers.control)
     }
 
-    /// ⌥⌘] / ⌥⌘[（或 Ctrl+Alt 同键）循环终端实例。
+    /// ⌥⌘] / ⌥⌘[（Windows/Linux 为 Alt+Win 同键）循环终端实例。
     pub(in crate::root_view) fn terminal_cycle_direction(keystroke: &Keystroke) -> Option<bool> {
-        if !keystroke.modifiers.alt
-            || keystroke.modifiers.shift
-            || !(keystroke.modifiers.platform || keystroke.modifiers.control)
-        {
+        if !keystroke.modifiers.alt || keystroke.modifiers.shift || !keystroke.modifiers.platform {
             return None;
         }
         match keystroke.key.as_str() {
@@ -180,7 +177,11 @@ mod terminal_cycle_tests {
     fn terminal_cycle_shortcut_matches_brackets() {
         assert_eq!(direction("alt-cmd-]"), Some(true));
         assert_eq!(direction("alt-cmd-["), Some(false));
-        assert_eq!(direction("alt-ctrl-]"), Some(true), "非 macOS 的 Ctrl 同键");
+        assert_eq!(
+            direction("alt-ctrl-]"),
+            None,
+            "只认 platform：Ctrl+Alt 在部分键盘上是 AltGr"
+        );
         assert_eq!(direction("cmd-]"), None, "缺少 alt 不触发");
         assert_eq!(direction("alt-cmd-shift-]"), None, "shift 不触发");
         assert_eq!(direction("alt-cmd-x"), None);
