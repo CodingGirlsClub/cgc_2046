@@ -2652,6 +2652,8 @@ impl RootView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // 折叠态切终端：先展开面板，否则焦点落进不渲染的视图，输入全部丢失。
+        self.agent_panel_open = true;
         self.agent_panel_editing_title = false;
         if self.terminal_panel.activate(terminal_id) {
             if let Some(view) = self
@@ -2925,6 +2927,8 @@ impl RootView {
         if !self.terminal_panel.cycle(forward) {
             return;
         }
+        // 折叠态循环：先展开面板，否则焦点落进不渲染的终端视图，输入丢失。
+        self.agent_panel_open = true;
         if let Some(view) = self
             .terminal_panel
             .active()
