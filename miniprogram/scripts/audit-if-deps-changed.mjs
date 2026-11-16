@@ -7,8 +7,9 @@
 //
 // 语义（fail-closed：宁可多跑，不可漏检）：
 // - PR 事件（GITHUB_REF + GH_TOKEN 在场）：经 compare API 判定本 PR
-//   是否变更依赖解析指纹（pnpm-lock.yaml / pnpm-workspace.yaml——overrides
-//   真源）。lock 是依赖树的完备指纹：任何依赖变更必改 lock（CI
+//   是否变更依赖解析指纹（pnpm-lock.yaml 是依赖树的完备指纹，含
+//   package.json 的 overrides 回执；pnpm-workspace.yaml 带
+//   patchedDependencies/auditConfig 等设置）。任何依赖变更必改 lock（CI
 //   --frozen-lockfile 强制同步）；改 package.json 而不改 lock = scripts/
 //   metadata 改动，audit 结果不变。未变更 → skip（exit 0）。
 // - push 事件 / 本地开发（无上述 env）→ 恒跑 audit（无 API 可窄化）。
