@@ -2898,6 +2898,8 @@ impl RootView {
                 .active()
                 .map(|terminal| terminal.view.clone())
             {
+                // 侧栏在面板折叠时仍可关闭 active：先展开再聚焦，避免焦点进隐藏视图。
+                self.agent_panel_open = true;
                 view.update(cx, |view, cx| view.focus(window, cx));
             }
         }
