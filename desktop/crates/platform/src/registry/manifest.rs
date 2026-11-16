@@ -10,7 +10,7 @@ use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use serde_json::Value;
 
 /// 内置清单公钥（Ed25519，base64；dev key，release 前由 epic-6 轮换）。
-pub const BUILTIN_PUBLIC_KEY: &str = "untHOijv9YBjBbTNolki+4z+kmwYhi173W8CX+aaE9U=";
+pub const BUILTIN_PUBLIC_KEY: &str = "o6ESpeuhzdJiAUQE7L4mZksVc1Q6r/X+EUgpvkzU7bg=";
 pub const BUILTIN_MANIFEST: &str = include_str!("../../resources/registry.json");
 pub const BUILTIN_SIGNATURE: &str = include_str!("../../resources/registry.sig");
 
@@ -37,6 +37,25 @@ pub struct AgentEntry {
     pub minimum_version: String,
     pub mcp_server_name: String,
     pub login_hint: String,
+    /// 运行时前置条件（可选，如 `["dsh-runtime"]`）；空表示无前置。
+    pub requires: Vec<String>,
+    /// 前置运行时缺失时的下载入口（可选 URL）。
+    pub download_hint: Option<String>,
+}
+
+impl AgentEntry {
+    /// 是否声明了某个运行时前置条件。
+    pub fn requires(&self, runtime: &str) -> bool {
+        self.requires.iter().any(|item| item == runtime)
+    }
+
+    /// 是否为 openma DeepSeek Harness ACP 适配器（统一使用其内置 dsh 运行时）。
+    pub fn uses_dsh_runtime(&self) -> bool {
+        matches!(
+            &self.distribution,
+            Distribution::Npx { package, .. } if package == "@openma/deepseek-harness-acp"
+        ) || self.requires("dsh-runtime")
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -208,6 +227,24 @@ fn parse_agent(value: &Value) -> Result<AgentEntry, RegistryError> {
                 .collect()
         })
         .unwrap_or_default();
+    let requires = match value.get("requires") {
+        None => Vec::new(),
+        Some(Value::Array(items)) => items
+            .iter()
+            .map(|item| {
+                item.as_str()
+                    .filter(|item| !item.trim().is_empty())
+                    .map(str::to_string)
+                    .ok_or_else(|| RegistryError::InvalidEntry(format!("{id}.requires")))
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+        Some(_) => return Err(RegistryError::InvalidEntry(format!("{id}.requires"))),
+    };
+    let download_hint = match value.get("download_hint") {
+        None => None,
+        Some(Value::String(url)) if !url.trim().is_empty() => Some(url.clone()),
+        Some(_) => return Err(RegistryError::InvalidEntry(format!("{id}.download_hint"))),
+    };
     Ok(AgentEntry {
         id: id.clone(),
         display_name,
@@ -217,6 +254,8 @@ fn parse_agent(value: &Value) -> Result<AgentEntry, RegistryError> {
         minimum_version: required_str(value, "minimum_version", &id)?,
         mcp_server_name: required_str(value, "mcp_server_name", &id)?,
         login_hint: required_str(value, "login_hint", &id)?,
+        requires,
+        download_hint,
     })
 }
 
@@ -264,12 +303,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn builtin_registry_verifies_and_has_three_agents() {
+    fn builtin_registry_verifies_and_has_four_agents() {
         let registry = Registry::builtin().expect("builtin verifies");
-        assert_eq!(registry.agents.len(), 3);
+        assert_eq!(registry.agents.len(), 4);
         assert!(registry.find("omp").is_some());
         assert!(registry.find("codex").is_some());
         assert!(registry.find("claude_code").is_some());
+        assert!(registry.find("deepseek").is_some());
         assert_eq!(registry.node_required, "24.0.0");
         assert_eq!(
             registry.get("omp").expect("omp").distribution,
@@ -286,6 +326,21 @@ mod tests {
             }
             other => panic!("unexpected codex distribution: {other:?}"),
         }
+        let dsh = registry.get("deepseek").expect("dsh adapter");
+        assert_eq!(
+            dsh.distribution,
+            Distribution::Npx {
+                package: "@openma/deepseek-harness-acp".to_string(),
+                version: "0.4.41".to_string(),
+                node: "24".to_string(),
+            }
+        );
+        assert_eq!(dsh.minimum_version, "0.4.41");
+        assert_eq!(dsh.mcp_server_name, "cgc-2046-learning");
+        assert!(dsh.requires.is_empty());
+        assert_eq!(dsh.download_hint.as_deref(), Some("https://dshsuite.dev/"));
+        assert!(dsh.uses_dsh_runtime());
+        assert!(!dsh.requires("dsh-runtime"));
     }
 
     #[test]
@@ -310,7 +365,7 @@ mod tests {
         );
         // 走 builtin() 同一条路径（builtin_from）应通过——归一化被删掉这里就红。
         let registry = Registry::builtin_from(&crlf).expect("CRLF manifest verifies");
-        assert_eq!(registry.agents.len(), 3);
+        assert_eq!(registry.agents.len(), 4);
     }
 
     #[test]
@@ -342,6 +397,53 @@ mod tests {
             Registry::parse(payload).unwrap_err(),
             RegistryError::UnsupportedSchema(2)
         );
+    }
+
+    #[test]
+    fn optional_requires_and_download_hint_are_parsed() {
+        let payload = r#"{
+            "schema_version": 1,
+            "node_runtime": {"required": "24.0.0"},
+            "agents": [{
+                "id": "dsh",
+                "display_name": "DSH",
+                "distribution": {"kind": "npx", "package": "pkg", "version": "1.0.0", "node": "24"},
+                "launch": {"args": []},
+                "minimum_version": "1.0.0",
+                "mcp_server_name": "cgc-2046-learning",
+                "login_hint": "登录",
+                "requires": ["dsh-runtime"],
+                "download_hint": "https://example.test/dsh"
+            }]
+        }"#;
+        let registry = Registry::parse(payload.as_bytes()).expect("parse optional fields");
+        let entry = registry.get("dsh").expect("dsh");
+        assert_eq!(entry.requires, vec!["dsh-runtime".to_string()]);
+        assert_eq!(
+            entry.download_hint.as_deref(),
+            Some("https://example.test/dsh")
+        );
+    }
+
+    #[test]
+    fn malformed_requires_or_download_hint_fail_closed() {
+        for extra in [
+            r#""requires": ["dsh-runtime", 1]"#,
+            r#""requires": "dsh-runtime""#,
+            r#""download_hint": 42"#,
+            r#""download_hint": "  ""#,
+        ] {
+            let payload = format!(
+                r#"{{"schema_version":1,"node_runtime":{{"required":"24.0.0"}},"agents":[{{"id":"x","display_name":"X","distribution":{{"kind":"npx","package":"pkg","version":"1.0.0","node":"24"}},"launch":{{"args":[]}},"minimum_version":"1.0.0","mcp_server_name":"m","login_hint":"l",{extra}}}]}}"#
+            );
+            assert!(
+                matches!(
+                    Registry::parse(payload.as_bytes()),
+                    Err(RegistryError::InvalidEntry(_))
+                ),
+                "expected invalid entry for {extra}"
+            );
+        }
     }
 
     #[test]

@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
-"""Rust 依赖许可门禁与 SBOM（story 1.6）。
+"""依赖许可门禁与 SBOM（story 1.6 / ADR-0031）。
 
 规则来源 docs/开源合规/依赖引入规则.md：白名单（宽松 + 弱 copyleft）与黑名单兜底；
 SPDX OR/AND 语义：OR 任一允许分支即放行，AND 需全部允许。缺失 license 字段 fail-closed。
+
+两段扫描：
+  1. Cargo 依赖图（cargo metadata，含 test-support 特性）；
+  2. 运行时 npm 包清单 `scripts/npm_licenses.json`——客户端通过 npm 安装的外部 ACP agent
+     及其传递依赖不进入 Cargo 依赖图，必须单独登记（ADR-0031：openma DeepSeek Harness ACP）。
 
 用法：
   python3 scripts/check_licenses.py              # 扫描 + 写 target/sbom.cdx.json
@@ -26,6 +31,9 @@ ALLOWED = {
 }
 ALLOWED_EXCEPTIONS = {"LLVM-exception", "Unicode-3.0"}
 BLACKLIST = ["gpl-2-0", "sspl", "busl", "elastic", "proprietary", "commercial"]
+
+# 运行时 npm 包清单（见文件头说明）：与 Cargo 扫描共用同一套白名单。
+NPM_MANIFEST_NAME = "npm_licenses.json"
 
 
 def normalize(value):
@@ -121,6 +129,84 @@ def scan(packages):
     return violations
 
 
+def npm_manifest_path():
+    return pathlib.Path(__file__).resolve().with_name(NPM_MANIFEST_NAME)
+
+
+def load_npm_manifest(path=None):
+    """读取运行时 npm 包清单；缺失或非法 JSON 由调用方按违规处理（fail-closed）。"""
+    manifest_path = pathlib.Path(path) if path else npm_manifest_path()
+    with open(manifest_path, encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def scan_external_npm(manifest):
+    """校验运行时 npm 包清单：schema、根包登记、字段完整、无重复、许可白名单。"""
+    violations = []
+    if not isinstance(manifest, dict):
+        return [("<npm manifest>", "?", "MALFORMED-MANIFEST")]
+    if manifest.get("schema_version") != 1:
+        violations.append(("<npm manifest>", "?", "UNSUPPORTED-SCHEMA"))
+    packages = manifest.get("packages")
+    if not isinstance(packages, list) or not packages:
+        return violations + [("<npm manifest>", "?", "EMPTY-MANIFEST")]
+
+    rows = {}
+    for package in packages:
+        if not isinstance(package, dict):
+            violations.append(("<npm manifest>", "?", "MALFORMED-ENTRY"))
+            continue
+        name = package.get("name")
+        version = package.get("version")
+        if not isinstance(name, str) or not name or not isinstance(version, str) or not version:
+            violations.append((str(name or "<unknown>"), str(version or "?"), "MALFORMED-ENTRY"))
+            continue
+        key = (name, version)
+        if key in rows:
+            violations.append((name, version, "DUPLICATE-ENTRY"))
+            continue
+        rows[key] = package
+        license_expr = package.get("license")
+        if not isinstance(license_expr, str) or not license_expr:
+            violations.append((name, version, "NO-SPDX-ID"))
+        elif not license_allowed(license_expr):
+            violations.append((name, version, license_expr))
+
+    roots = manifest.get("roots")
+    if not isinstance(roots, list) or not roots:
+        violations.append(("<npm manifest>", "?", "MISSING-ROOTS"))
+    else:
+        for root in roots:
+            if (
+                not isinstance(root, dict)
+                or not isinstance(root.get("name"), str)
+                or not isinstance(root.get("version"), str)
+                or not root.get("name")
+                or not root.get("version")
+            ):
+                violations.append(("<npm manifest>", "?", "MALFORMED-ROOT"))
+            elif (root["name"], root["version"]) not in rows:
+                violations.append((root["name"], root["version"], "ROOT-NOT-REGISTERED"))
+
+    bundled = manifest.get("bundled_runtime")
+    if bundled is not None:
+        if (
+            not isinstance(bundled, dict)
+            or not isinstance(bundled.get("name"), str)
+            or not isinstance(bundled.get("version"), str)
+            or not bundled.get("name")
+            or not bundled.get("version")
+        ):
+            violations.append(("<npm manifest>", "?", "MALFORMED-BUNDLED-RUNTIME"))
+        else:
+            license_expr = bundled.get("license")
+            if not isinstance(license_expr, str) or not license_expr:
+                violations.append((bundled["name"], bundled["version"], "NO-SPDX-ID"))
+            elif not license_allowed(license_expr):
+                violations.append((bundled["name"], bundled["version"], license_expr))
+    return violations
+
+
 def sbom(packages, version):
     components = []
     for package in sorted(packages, key=lambda item: (item["name"], item.get("version", ""))):
@@ -191,6 +277,75 @@ def self_test():
             failures += 1
         else:
             print(f"SELF-TEST OK: {package['name']} -> {'red' if found else 'green'}")
+
+    def npm_manifest(packages, roots=None, bundled=None):
+        return {
+            "schema_version": 1,
+            "roots": roots
+            if roots is not None
+            else [{"name": "@openma/deepseek-harness-acp", "version": "0.4.41"}],
+            "bundled_runtime": bundled
+            if bundled is not None
+            else {"name": "@deepseek-ai/dsh", "version": "0.2.1-rc.5", "license": "MIT"},
+            "packages": packages,
+        }
+
+    npm_fixtures = [
+        (
+            "npm-good",
+            npm_manifest(
+                [
+                    {
+                        "name": "@openma/deepseek-harness-acp",
+                        "version": "0.4.41",
+                        "license": "Apache-2.0",
+                    },
+                    {"name": "tar", "version": "7.5.22", "license": "BlueOak-1.0.0"},
+                ]
+            ),
+            False,
+        ),
+        (
+            "npm-gpl",
+            npm_manifest(
+                [{"name": "bad", "version": "1.0.0", "license": "GPL-2.0-only"}],
+                roots=[{"name": "bad", "version": "1.0.0"}],
+            ),
+            True,
+        ),
+        ("npm-empty", npm_manifest([]), True),
+        (
+            "npm-root-missing",
+            npm_manifest(
+                [{"name": "tar", "version": "7.5.22", "license": "BlueOak-1.0.0"}],
+                roots=[{"name": "@openma/deepseek-harness-acp", "version": "0.4.41"}],
+            ),
+            True,
+        ),
+        (
+            "npm-missing-license",
+            npm_manifest(
+                [{"name": "@openma/deepseek-harness-acp", "version": "0.4.41"}],
+            ),
+            True,
+        ),
+        (
+            "npm-bundled-gpl",
+            npm_manifest(
+                [{"name": "@openma/deepseek-harness-acp", "version": "0.4.41", "license": "Apache-2.0"}],
+                bundled={"name": "@deepseek-ai/dsh", "version": "0.2.1-rc.5", "license": "GPL-2.0-only"},
+            ),
+            True,
+        ),
+    ]
+    for label, manifest, expect_violation in npm_fixtures:
+        found = scan_external_npm(manifest)
+        if bool(found) != expect_violation:
+            print(f"SELF-TEST FAIL: {label} expected violation={expect_violation}, got {found}")
+            failures += 1
+        else:
+            print(f"SELF-TEST OK: {label} -> {'red' if found else 'green'}")
+
     if failures:
         return 1
     bom = sbom(
@@ -216,12 +371,23 @@ def main():
         if package.get("source") is not None
     ]
     violations = scan(packages)
-    if violations:
+    try:
+        npm_manifest = load_npm_manifest()
+    except (OSError, ValueError) as error:
+        print(f"VIOLATION {NPM_MANIFEST_NAME}: {error}")
+        return 1
+    npm_violations = scan_external_npm(npm_manifest)
+    if violations or npm_violations:
         for name, version, license_expr in violations:
             print(f"VIOLATION {name} {version}: {license_expr}")
-        print(f"✗ {len(violations)} license violations")
+        for name, version, license_expr in npm_violations:
+            print(f"VIOLATION npm {name} {version}: {license_expr}")
+        print(f"✗ {len(violations) + len(npm_violations)} license violations")
         return 1
     print(f"✓ {len(packages)} Rust packages license-compatible with AGPL-3.0")
+    print(
+        f"✓ {len(npm_manifest['packages'])} runtime npm packages license-compatible with AGPL-3.0"
+    )
     output = "target/sbom.cdx.json"
     if "--sbom" in args:
         output = args[args.index("--sbom") + 1]

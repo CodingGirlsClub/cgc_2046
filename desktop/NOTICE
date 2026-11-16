@@ -1,0 +1,90 @@
+CGC-2046 Desktop — Third-Party Notices
+======================================
+
+本文件记录桌面客户端在运行时通过 npm 安装的第三方组件（不进入 Cargo 依赖图）的
+许可与归属。完整许可证文本随各 npm 包分发（包内 LICENSE / NOTICE 文件）。
+
+组件与版本清单以 `desktop/scripts/npm_licenses.json` 为准，并由
+`desktop/scripts/check_licenses.py` 做 AGPL-3.0 兼容性门禁。
+
+
+@openma/deepseek-harness-acp 0.4.41
+-----------------------------------
+
+Copyright 2026 The @openma/deepseek-harness-acp authors
+
+License: Apache License 2.0
+Repository: https://github.com/openma-ai/deepseek-harness-acp
+Package: https://www.npmjs.com/package/@openma/deepseek-harness-acp/v/0.4.41
+
+Apache-2.0 完整许可证文本随 npm 包内的 `LICENSE` 文件分发。
+
+该包内含 `vendor/dsh-runtime.tgz`（DeepSeek Harness dsh 0.2.1-rc.5，MIT License），
+作为适配器在用户未安装 dsh 时的私有运行时。
+
+上游 NOTICE（`src/multi-root/NOTICE.md`）原文保留如下：
+
+# Attribution
+
+The dialect-widening approach in `src/multi-root/dialects.ts` is adapted from
+the MIT-licensed community package
+[`@dsh-electron/dsh-plugin-multi-root-workspace`](https://github.com/cherrchen/dsh-plugin-multi-root-workspace)
+version `0.1.10`:
+
+> MIT License
+>
+> Copyright (c) 2026 Cherry Chen
+>
+> Permission is hereby granted, free of charge, to any person obtaining a copy
+> of this software and associated documentation files (the "Software"), to deal
+> in the Software without restriction, including without limitation the rights
+> to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+> copies of the Software, and to permit persons to whom the Software is
+> furnished to do so, subject to the following conditions:
+>
+> The above copyright notice and this permission notice shall be included in all
+> copies or substantial portions of the Software.
+>
+> THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+> IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+> FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+> AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+> LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+> OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+> SOFTWARE.
+
+Only the profile-observation and grant-insertion mechanics were adapted. The
+ACP scope, validation, persistence, and provider wiring are original to this
+repository; the community package's UI client, LSP, skills, registry, review,
+Windows broker, and exact-version allowlist are deliberately not vendored.
+
+
+传递依赖（npm install --package-lock-only 解析结果）
+----------------------------------------------------
+
+| 包 | 版本 | License |
+| --- | --- | --- |
+| @agentclientprotocol/sdk | 2.0.2 | Apache-2.0 |
+| @deepseek-ai/libreoffice-kit-darwin-arm64 | 0.1.5 | MPL-2.0 |
+| @deepseek-ai/libreoffice-kit-darwin-x64 | 0.1.5 | MPL-2.0 |
+| @deepseek-ai/libreoffice-kit-wasm | 0.1.5 | MPL-2.0 |
+| @deepseek-ai/libreoffice-kit-win32-arm64 | 0.1.5 | MPL-2.0 |
+| @deepseek-ai/libreoffice-kit-win32-x64 | 0.1.5 | MPL-2.0 |
+| @isaacs/fs-minipass | 4.0.1 | ISC |
+| chownr | 3.0.0 | BlueOak-1.0.0 |
+| minipass | 7.1.3 | BlueOak-1.0.0 |
+| minizlib | 3.1.0 | MIT |
+| semver | 7.8.6 | ISC |
+| sherpa-onnx-darwin-arm64 | 1.13.8 | Apache-2.0 |
+| sherpa-onnx-darwin-x64 | 1.13.8 | Apache-2.0 |
+| sherpa-onnx-linux-arm64 | 1.13.8 | Apache-2.0 |
+| sherpa-onnx-linux-x64 | 1.13.8 | Apache-2.0 |
+| sherpa-onnx-win-ia32 | 1.13.8 | Apache-2.0 |
+| sherpa-onnx-win-x64 | 1.13.8 | Apache-2.0 |
+| tar | 7.5.22 | BlueOak-1.0.0 |
+| yallist | 5.0.0 | BlueOak-1.0.0 |
+| yaml | 2.9.1 | ISC |
+| zod | 4.4.3 | MIT |
+
+说明：`libreoffice-kit-*` 与 `sherpa-onnx-*` 是适配器的 optionalDependencies，
+按平台安装；未在目标平台安装时不参与构建与运行。

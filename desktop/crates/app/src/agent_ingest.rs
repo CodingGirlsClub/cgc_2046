@@ -39,11 +39,15 @@ pub fn apply_thread_event(thread: &mut ConversationThread, event: &HostEvent) ->
             title,
             status,
             output,
+            args,
+            locations,
         } => ThreadEvent::ToolCallUpdated {
             tool_call_id: tool_call_id.clone(),
             title: title.clone(),
             status: status.clone(),
             output: output.clone(),
+            args: args.clone(),
+            locations: locations.clone(),
         },
         HostEvent::PlanUpdated { steps } => ThreadEvent::PlanUpdated(
             steps
@@ -89,6 +93,7 @@ pub fn apply_thread_event(thread: &mut ConversationThread, event: &HostEvent) ->
         | HostEvent::ConfigOptions { .. }
         | HostEvent::ModeUpdated { .. }
         | HostEvent::Sessions { .. }
+        | HostEvent::AuthRequired { .. }
         | HostEvent::Exited => return false,
     };
     thread.apply(thread_event);
@@ -207,6 +212,8 @@ mod tests {
                 title: None,
                 status: Some("completed".to_string()),
                 output: Some("ok".to_string()),
+                locations: None,
+                args: None,
             },
             HostEvent::UsageUpdated {
                 used: 15,
@@ -243,6 +250,8 @@ mod tests {
                 title: None,
                 status: Some("completed".to_string()),
                 output: Some("ok".to_string()),
+                locations: None,
+                args: None,
             },
             HostEvent::UsageUpdated {
                 used: 15,

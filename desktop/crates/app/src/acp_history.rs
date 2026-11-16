@@ -92,6 +92,30 @@ impl HistoryEntry {
     }
 }
 
+/// 历史侧栏展示名：与 Agent Registry 的 `display_name` 对齐
+/// （`deepseek` → `DeepSeek Harness`），未知 id 原样返回。
+///
+/// 分组标题与行内标签共用，避免侧栏出现裸内部 id。
+static AGENT_DISPLAY_NAMES: std::sync::LazyLock<std::collections::HashMap<String, String>> =
+    std::sync::LazyLock::new(|| {
+        cgc_platform::registry::manifest::Registry::builtin()
+            .map(|registry| {
+                registry
+                    .agents
+                    .iter()
+                    .map(|entry| (entry.id.clone(), entry.display_name.clone()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    });
+
+pub fn agent_display_name(agent_id: &str) -> String {
+    AGENT_DISPLAY_NAMES
+        .get(agent_id)
+        .cloned()
+        .unwrap_or_else(|| agent_id.to_string())
+}
+
 pub fn acp_thread_id(session_id: &str) -> String {
     format!("{ACP_THREAD_PREFIX}{session_id}")
 }
@@ -735,6 +759,83 @@ pub fn resume_decision(
     } else {
         ResumeDecision::Empty
     }
+}
+
+/// 同 [`resume_decision`]，但区分「agent 是否会回放历史」。
+///
+/// `session/resume`（DSH adapter）只恢复模型上下文、不回放 UI 历史；此时本地
+/// transcript 就是预期视图，不应显示“无法恢复会话”的降级提示。
+pub fn resume_decision_with_replay(
+    load_failed: bool,
+    has_local_content: bool,
+    saw_replay: bool,
+    replay_expected: bool,
+) -> ResumeDecision {
+    if !replay_expected && !load_failed {
+        return ResumeDecision::Empty;
+    }
+    resume_decision(load_failed, has_local_content, saw_replay)
+}
+
+/// `session.lock` 跨进程冲突（DSH session-persistence 的 flock）在 UI 上的提示。
+pub const SESSION_LOCKED_MESSAGE: &str = "该会话正被另一窗口使用";
+
+/// 是否为本机另一个进程持有 session.lock 引起的冲突。
+///
+/// DSH 的错误原文：`session "<id>" is already owned by an active write handle`；
+/// ACP 层也可能转成 `session is already active`。旧 agent 的 “method not found”
+/// 不属于锁冲突。
+pub fn is_session_lock_conflict(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("session.lock")
+        || lower.contains("sessionalreadyowned")
+        || lower.contains("already owned by an active write handle")
+        || lower.contains("session is already active")
+        || lower.contains("session already active")
+}
+
+/// 锁冲突时返回友好提示；其他错误保持原文。
+pub fn friendly_session_error(message: &str) -> Option<String> {
+    is_session_lock_conflict(message).then(|| SESSION_LOCKED_MESSAGE.to_string())
+}
+
+/// 将 `session/list` 中缺失的会话登记为 sidebar 元数据，不伪造本地正文。
+/// 已有记录原样保留，使用户重命名、归档与原始 agent 身份不被列表刷新覆盖。
+pub fn import_agent_sessions(
+    store: &ConversationStore,
+    sessions: &[cgc_platform::acp::connection::SessionSummary],
+    agent_id: &str,
+    now: &str,
+) -> Result<(), ConversationStoreError> {
+    for session in sessions {
+        if session.session_id.trim().is_empty() {
+            continue;
+        }
+        let thread_id = acp_thread_id(&session.session_id);
+        if store.load_sidebar(&thread_id)?.is_some() {
+            continue;
+        }
+        let updated_at = session
+            .updated_at
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or(now)
+            .to_string();
+        store.upsert_sidebar(&SidebarThread {
+            thread_id,
+            session_id: Some(session.session_id.clone()),
+            agent_id: Some(agent_id.to_string()),
+            title: session
+                .title
+                .clone()
+                .filter(|title| !title.trim().is_empty()),
+            title_override: None,
+            created_at: updated_at.clone(),
+            updated_at,
+            archived: false,
+        })?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1482,9 +1583,108 @@ mod tests {
     }
 
     #[test]
+    fn agent_display_name_uses_registry_display_name() {
+        assert_eq!(agent_display_name("deepseek"), "DeepSeek Harness");
+        assert_eq!(agent_display_name("unknown-agent"), "unknown-agent");
+    }
+
+    #[test]
     fn acp_thread_id_helpers_round_trip() {
         assert_eq!(acp_thread_id("sess-1"), "acp-sess-1");
         assert_eq!(session_id_from_thread_id("acp-sess-1"), Some("sess-1"));
         assert_eq!(session_id_from_thread_id("native-1"), None);
+    }
+
+    #[test]
+    fn agent_sessions_import_preserves_metadata_and_history_actions() {
+        use cgc_platform::acp::connection::SessionSummary;
+
+        let store = ConversationStore::open_in_memory().unwrap();
+        let local = SidebarThread {
+            thread_id: "acp-known".into(),
+            agent_id: Some("deepseek".into()),
+            session_id: Some("known".into()),
+            title: Some("local title".into()),
+            title_override: Some("user title".into()),
+            created_at: "2026-10-26T11:00:00Z".into(),
+            updated_at: "2026-10-26T12:00:00Z".into(),
+            archived: true,
+        };
+        store.upsert_sidebar(&local).unwrap();
+        let sessions = vec![
+            SessionSummary {
+                session_id: "known".into(),
+                title: Some("server title".into()),
+                updated_at: Some("2026-10-26T13:00:00Z".into()),
+            },
+            SessionSummary {
+                session_id: "remote-only".into(),
+                title: None,
+                updated_at: None,
+            },
+        ];
+        let now = "2026-11-15T12:00:00Z";
+        import_agent_sessions(&store, &sessions, "deepseek", now).unwrap();
+        assert_eq!(store.load_sidebar("acp-known").unwrap(), Some(local));
+        let remote = store
+            .load_sidebar("acp-remote-only")
+            .unwrap()
+            .expect("remote metadata");
+        assert_eq!(remote.agent_id.as_deref(), Some("deepseek"));
+        assert_eq!(remote.session_id.as_deref(), Some("remote-only"));
+        assert_eq!(remote.updated_at, now);
+        assert!(store.load_content("acp-remote-only").unwrap().is_none());
+
+        store
+            .set_title_override("acp-remote-only", Some("renamed remotely discovered chat"))
+            .unwrap();
+        assert!(store.set_archived("acp-remote-only", true).unwrap());
+        import_agent_sessions(&store, &sessions, "deepseek", now).unwrap();
+        let restored = store.load_sidebar("acp-remote-only").unwrap().unwrap();
+        assert_eq!(
+            restored.title_override.as_deref(),
+            Some("renamed remotely discovered chat")
+        );
+        assert!(restored.archived);
+        assert_eq!(store.list_archived(10).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn session_lock_conflict_maps_to_friendly_message() {
+        for message in [
+            "acp connection: session/load: session \"abc\" is already owned by an active write handle",
+            "Error: session.lock is held by another process",
+            "session/load: session is already active: abc",
+            "SessionAlreadyOwnedError: abc",
+        ] {
+            assert!(
+                is_session_lock_conflict(message),
+                "should detect lock conflict: {message}"
+            );
+            assert_eq!(
+                friendly_session_error(message).as_deref(),
+                Some(SESSION_LOCKED_MESSAGE)
+            );
+        }
+        assert!(!is_session_lock_conflict(
+            "session/load: Internal error: no rollout found"
+        ));
+        assert_eq!(friendly_session_error("network down"), None);
+    }
+
+    #[test]
+    fn resume_without_replay_keeps_local_record_without_degrade_notice() {
+        assert_eq!(
+            resume_decision_with_replay(false, true, false, false),
+            ResumeDecision::Empty
+        );
+        assert_eq!(
+            resume_decision_with_replay(true, true, false, false),
+            ResumeDecision::KeepLocalRecord
+        );
+        assert_eq!(
+            resume_decision_with_replay(false, true, true, true),
+            ResumeDecision::UseReplay
+        );
     }
 }

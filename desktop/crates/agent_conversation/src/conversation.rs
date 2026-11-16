@@ -413,11 +413,15 @@ impl ConversationThread {
                 title,
                 status,
                 output,
+                args,
+                locations,
             } => {
                 let Some(Entry::ToolCall {
                     title: entry_title,
                     status: entry_status,
                     output: entry_output,
+                    args: entry_args,
+                    locations: entry_locations,
                     ..
                 }) = self.entries.iter_mut().find(|entry| {
                     matches!(entry, Entry::ToolCall { tool_call_id: id, .. } if id == &tool_call_id)
@@ -432,6 +436,12 @@ impl ConversationThread {
                 }
                 if let Some(output) = output {
                     *entry_output = Some(output);
+                }
+                if let Some(args) = args {
+                    *entry_args = Some(args);
+                }
+                if let Some(locations) = locations {
+                    *entry_locations = locations;
                 }
             }
             ThreadEvent::PermissionRequested {
@@ -560,6 +570,10 @@ pub enum ThreadEvent {
         title: Option<String>,
         status: Option<String>,
         output: Option<String>,
+        /// 本次更新携带的工具入参；None 表示不修改已有值。
+        args: Option<String>,
+        /// 本次更新携带的 location 集合；None 表示不修改已有值。
+        locations: Option<Vec<String>>,
     },
     PermissionRequested {
         request_id: String,
@@ -630,6 +644,8 @@ mod tests {
                 title: None,
                 status: Some("completed".into()),
                 output: Some("ok".into()),
+                locations: None,
+                args: None,
             },
             ThreadEvent::TextDelta("done".into()),
             ThreadEvent::PermissionRequested {
@@ -764,12 +780,16 @@ mod tests {
             title: Some("Write done".into()),
             status: Some("completed".into()),
             output: Some("ok".into()),
+            locations: None,
+            args: None,
         });
         thread.apply(ThreadEvent::ToolCallUpdated {
             tool_call_id: "missing".into(),
             title: Some("ignored".into()),
             status: Some("failed".into()),
             output: None,
+            locations: None,
+            args: None,
         });
         assert_eq!(thread.entries.len(), 2);
         let Entry::ToolCall {

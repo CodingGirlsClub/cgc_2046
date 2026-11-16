@@ -71,6 +71,8 @@ mod tests {
             title: None,
             status: Some("completed".into()),
             output: None,
+            locations: None,
+            args: None,
         }
     }
 
@@ -103,6 +105,8 @@ mod tests {
             title: None,
             status: Some("failed".into()),
             output: None,
+            locations: None,
+            args: None,
         });
         assert!(!tracker.take_changed());
     }

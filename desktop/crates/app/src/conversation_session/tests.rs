@@ -15,6 +15,33 @@ fn ready() -> ConversationSession {
 }
 
 #[test]
+fn auth_required_phase_keeps_methods_and_survives_exit() {
+    let mut session = ConversationSession::native();
+    let methods = vec![AuthMethodView {
+        id: "api-key".into(),
+        name: "DeepSeek API Key".into(),
+        description: None,
+        kind: "agent".into(),
+    }];
+    assert!(session.ingest(
+        0,
+        &HostEvent::AuthRequired {
+            message: "no credential found".into(),
+            auth_methods: methods.clone(),
+        },
+    ));
+    let ConnectionPhase::AuthRequired { auth_methods, .. } = &session.phase else {
+        panic!("expected auth-required phase");
+    };
+    assert_eq!(auth_methods, &methods);
+    assert!(session.ingest(0, &HostEvent::Exited));
+    assert!(matches!(
+        session.phase,
+        ConnectionPhase::AuthRequired { .. }
+    ));
+}
+
+#[test]
 fn failed_send_restores_agent_call_and_base_prompt() {
     use crate::page_context::{ConversationScope, PageContextState};
     use cgc_courses::content::{AgentActionSpec, AgentIntent};
@@ -659,6 +686,8 @@ fn unrelated_tool_completion_cannot_resolve_new_permission() {
             title: None,
             status: Some("completed".into()),
             output: Some("old".into()),
+            locations: None,
+            args: None,
         },
     );
     assert_eq!(

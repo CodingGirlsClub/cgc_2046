@@ -3,7 +3,9 @@ use crate::agent_ingest;
 use cgc_agent_store::SessionStore;
 use cgc_agent_ui::conversation::{ConversationThread, ThreadCapabilities};
 use cgc_platform::notifications::NotificationsApi as _;
-use cgc_platform::registry::install::install_entry;
+use cgc_platform::registry::install::{
+    install_entry, install_plugin_entry, uninstall_entry, uninstall_plugin_entry,
+};
 use state::SiteTreeSection;
 
 /// 终端实例上限：达到后拒绝新建并提示，不静默淘汰。
@@ -15,6 +17,10 @@ const RESTORE_BUDGET: usize = 1;
 #[cfg(all(test, cgc_ui_tests))]
 #[path = "workspace_layout_tests.rs"]
 mod workspace_layout_tests;
+
+#[cfg(all(test, cgc_ui_tests))]
+#[path = "agent_registry_tests.rs"]
+mod agent_registry_tests;
 
 #[cfg(all(test, cgc_ui_tests))]
 #[path = "breadcrumb_tests.rs"]
@@ -1191,7 +1197,7 @@ impl RootView {
         let client_generation = self.chat.session.generation;
         let requested_agent = self.chat.selected_agent.clone();
         // Stage 3.5a：不再有课程页专用会话指针；只按历史侧栏的 restore_id 恢复。
-        let load_session = self.chat.restore_id.take();
+        let load_session = self.chat.restore_id.clone();
         self.chat.load_retry_available = load_session.is_some();
         self.chat.session.session_id = None;
         self.chat.session.configs.clear();
@@ -1264,13 +1270,50 @@ impl RootView {
                         node_found: node_found.clone(),
                     })?,
             };
-            let plan = build_launch(&chosen.entry, Some(&managed), &cwd).map_err(|error| {
-                ChatStartError {
-                    message: error.to_string(),
-                    detected: guidance,
-                    node_found,
+            let dsh_required = chosen.entry.uses_dsh_runtime();
+            let dsh_version_info = if dsh_required {
+                // standalone 的版本偏差提示以 bundled 版本为准；plugin 不报告 bundled 版本。
+                // runtime.version 是外部 DSH Desktop/PATH 的展示版本，不能用于兼容判定。
+                chosen.runtime.bundled_version.clone().map(|version| {
+                    let status = cgc_platform::agent::dsh_runtime::dsh_version_status(&version);
+                    (version, status)
+                })
+            } else {
+                None
+            };
+            let launch_options = if dsh_required {
+                if let Some(plugin) = crate::dsh_agent::dsh_plugin() {
+                    // ADR-0031 D1 修订：plugin 形态优先，复用用户 profile 的模型/凭据。
+                    crate::dsh_agent::dsh_plugin_launch_options(
+                        plugin,
+                        crate::dsh_agent::dsh_launch_env(),
+                    )
+                } else {
+                    let (dsh_home, shared) = crate::dsh_agent::resolve_dsh_home();
+                    // 共享模式指向用户自己的 DSH 目录：不创建、不改权限。
+                    if !shared {
+                        ensure_dsh_home(&dsh_home).map_err(|error| ChatStartError {
+                            message: format!("cannot prepare DSH_HOME: {error}"),
+                            detected: guidance.clone(),
+                            node_found: node_found.clone(),
+                        })?;
+                    }
+                    // 决策 A：DSH Desktop 仅检测展示，openma 统一使用自带 bundled dsh。
+                    crate::dsh_agent::dsh_launch_options(
+                        dsh_home,
+                        crate::dsh_agent::dsh_launch_env(),
+                    )
                 }
-            })?;
+            } else {
+                LaunchOptions::default()
+            };
+            let plan =
+                build_launch_with_options(&chosen.entry, Some(&managed), &cwd, &launch_options)
+                    .map_err(|error| ChatStartError {
+                        message: error.to_string(),
+                        detected: guidance,
+                        node_found,
+                    })?;
             // `None`：用当前生效端点（env > settings.json > 编译期默认值），与 GraphQL 同源。
             let endpoint = mcp_endpoint(None);
             let server = build_mcp_server(&chosen.entry, &lease, &endpoint);
@@ -1279,6 +1322,8 @@ impl RootView {
                 agent_name: chosen.entry.display_name.clone(),
                 plan,
                 server,
+                dsh_required,
+                dsh_version_info,
             })
         });
         cx.spawn(async move |this, cx| {
@@ -1292,13 +1337,26 @@ impl RootView {
                 }
                 match result {
                     Ok(prepared) => {
-                        let plan = prepared.plan;
-                        let server = prepared.server.clone();
+                        let PreparedChat {
+                            agent_id,
+                            agent_name,
+                            plan,
+                            server,
+                            dsh_required,
+                            dsh_version_info,
+                        } = prepared;
+                        let server = server.clone();
                         let make_config = |load_session: Option<&str>| {
                             let config = AcpHostConfig::from_launch_plan(plan.clone())
                                 .with_name("agent")
-                                .with_mcp_servers(vec![server.clone()]);
+                                .with_mcp_servers(vec![server.clone()])
+                                // DSH adapter 开 Ready 后拉取 session/list（cwd 由请求携带）。
+                                .with_list_sessions_after_ready(dsh_required);
                             match load_session {
+                                // DSH adapter 只有 session/resume；其他 agent 仍用 load 回放历史。
+                                Some(session_id) if dsh_required => {
+                                    config.with_resume_session(session_id)
+                                }
                                 Some(session_id) => config.with_load_session(session_id),
                                 None => config,
                             }
@@ -1316,8 +1374,9 @@ impl RootView {
                         match started {
                             Ok(host) => {
                                 let generation = this.chat.session.attach(host);
-                                this.chat.selected_agent = Some(prepared.agent_id.clone());
-                                this.chat.agent = prepared.agent_name;
+                                this.chat.selected_agent = Some(agent_id.clone());
+                                this.chat.agent = agent_name;
+                                this.chat.dsh_version_info = dsh_version_info.clone();
                                 this.chat.npx_cache_retry = false;
                                 this.spawn_chat_poller(cx, generation);
                             }
@@ -1419,6 +1478,8 @@ impl RootView {
                         .invalidate_loaded(&self.chat.conversation_scope());
                     self.chat.agent = agent_name.clone();
                     self.chat.version = Some(version.clone());
+                    self.chat.restore_id = None;
+                    self.chat.load_retry_available = false;
                     // Stage 3.3：本地历史恢复结果（回放替换 / 降级保留本地记录）。
                     self.finish_history_restore(cx);
                 }
@@ -1441,8 +1502,22 @@ impl RootView {
                     }
                 }
                 HostEvent::Sessions { sessions } => {
+                    if let Some(agent_id) = self.chat.selected_agent.as_deref() {
+                        let imported =
+                            crate::acp_history::open_conversation_store().and_then(|store| {
+                                crate::acp_history::import_agent_sessions(
+                                    &store,
+                                    sessions,
+                                    agent_id,
+                                    &cgc_agent_store::now_utc_rfc3339(),
+                                )
+                            });
+                        if let Err(error) = imported {
+                            log::warn!(target: "acp", "cannot import agent session history: {error}");
+                        }
+                    }
                     self.chat.sessions = sessions.clone();
-                    // agent 的 session 列表只用于标题/指针；统一历史从本地库加载。
+                    // 统一历史从本地 metadata 读取；列表缓存只用于当前 agent 的快捷恢复。
                     self.chat.history = self.load_unified_history();
                     if std::env::var("CGC_AUTO_RESTORE").as_deref() == Ok("1")
                         && !self.chat.auto_prompted
@@ -1468,14 +1543,27 @@ impl RootView {
                     turn_ended = true;
                 }
                 HostEvent::Error { message } => {
+                    // session.lock 跨进程冲突：DSH 会报 “already owned by an active
+                    // write handle”，换成用户能理解的「该会话正被另一窗口使用」。
+                    if let Some(friendly) = crate::acp_history::friendly_session_error(message) {
+                        self.chat.replay = None;
+                        self.chat.session.host.take();
+                        self.chat.load_retry_available = false;
+                        self.chat.restore_id = None;
+                        self.chat.resumed_without_history = false;
+                        self.chat.session.phase = ConnectionPhase::Failed(friendly);
+                        cx.notify();
+                        return false;
+                    }
                     // Stage 3.3：本地历史恢复失败（session/load 不可用）→ 保留本地
                     // 记录并提示，不再清指针重开新会话（用户可点「新建会话」）。
                     if self.chat.replay.is_some() {
                         let replay = self.chat.replay.take().expect("replay state");
-                        if crate::acp_history::resume_decision(
+                        if crate::acp_history::resume_decision_with_replay(
                             true,
                             replay.has_local_content,
                             replay.saw_events,
+                            !self.chat.restore_via_resume,
                         ) == crate::acp_history::ResumeDecision::KeepLocalRecord
                         {
                             self.chat.session.host.take();
@@ -1506,7 +1594,7 @@ impl RootView {
                     }
                     self.chat.session.phase = ConnectionPhase::Failed(message.clone());
                 }
-                HostEvent::Exited => {}
+                HostEvent::AuthRequired { .. } | HostEvent::Exited => {}
                 HostEvent::ModeUpdated { .. }
                 | HostEvent::PlanUpdated { .. }
                 | HostEvent::UsageUpdated { .. }
@@ -1557,10 +1645,11 @@ impl RootView {
         // 回放成功也不证明某个 tab 的完整正文仍在模型历史里；下一次提交保守重载。
         self.page_context
             .invalidate_loaded(&self.chat.conversation_scope());
-        match crate::acp_history::resume_decision(
+        match crate::acp_history::resume_decision_with_replay(
             false,
             replay.has_local_content,
             replay.saw_events,
+            !self.chat.restore_via_resume,
         ) {
             crate::acp_history::ResumeDecision::UseReplay => {
                 let mut restored = replay.thread;
@@ -1601,6 +1690,13 @@ impl RootView {
             }
             crate::acp_history::ResumeDecision::NewSession
             | crate::acp_history::ResumeDecision::Empty => {
+                if self.chat.restore_via_resume {
+                    let mut restored = std::mem::take(&mut self.chat.session.thread);
+                    if replay.thread.title.is_some() {
+                        restored.title = replay.thread.title;
+                    }
+                    self.chat.session.restore_thread(restored);
+                }
                 self.chat.resumed_without_history = false;
             }
         }
@@ -2299,6 +2395,13 @@ impl RootView {
                 self.chat.selected_agent = Some(agent_id);
             }
         }
+        // DSH adapter 只支持 session/resume（不回放 UI 历史），其他 agent 走 load。
+        let restore_via_resume = self.chat.selected_agent.as_deref().is_some_and(|id| {
+            Registry::builtin()
+                .ok()
+                .and_then(|registry| registry.get(id).ok().map(|entry| entry.uses_dsh_runtime()))
+                .unwrap_or(false)
+        });
         let local = crate::acp_history::load_local_transcript(&thread_id);
         let has_local_content = local
             .as_ref()
@@ -2313,6 +2416,7 @@ impl RootView {
         });
         self.chat.opened_from_history = true;
         self.chat.resumed_without_history = false;
+        self.chat.restore_via_resume = restore_via_resume;
         self.chat.restore_id = Some(session_id);
         self.chat.npx_cache_retry = false;
         self.start_chat(cx);
@@ -2372,12 +2476,15 @@ impl RootView {
         self.chat.sessions.clear();
         self.chat.opened_from_history = false;
         self.chat.session.session_id = None;
+        self.chat.restore_id = None;
         self.chat.configs_applied = false;
         self.chat.history_open = false;
         self.chat.guidance = None;
         self.chat.load_retry_available = false;
         self.chat.replay = None;
         self.chat.resumed_without_history = false;
+        self.chat.restore_via_resume = false;
+        self.chat.dsh_version_info = None;
         self.chat.acp_save_generation = self.chat.acp_save_generation.wrapping_add(1);
         self.chat.session.commands.clear();
         self.chat.slash_selection = 0;
@@ -3299,14 +3406,18 @@ impl RootView {
             let registry = Registry::builtin().map_err(|error| error.diagnostic())?;
             let managed = NodeRuntime::new(NodeRuntimeManager::default_manager().root);
             let rows = detect_all(&registry, Some(&managed));
-            Ok::<_, String>(rows)
+            let share_local = crate::dsh_agent::dsh_share_local_home();
+            Ok::<_, String>((rows, share_local))
         });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
                 this.agent_registry_loading = false;
                 match result {
-                    Ok(rows) => this.agent_registry_rows = rows,
+                    Ok((rows, share_local)) => {
+                        this.agent_registry_rows = rows;
+                        this.dsh_share_local_home = share_local;
+                    }
                     Err(error) => this.agent_registry_error = Some(error),
                 }
                 cx.notify();
@@ -3316,7 +3427,9 @@ impl RootView {
     }
 
     pub(in crate::root_view) fn install_agent(&mut self, id: &str, cx: &mut Context<Self>) {
-        if self.agent_installing.as_deref() == Some(id) {
+        if self.agent_installing.as_deref() == Some(id)
+            || self.agent_uninstalling.as_deref() == Some(id)
+        {
             return;
         }
         let Some(entry) = self
@@ -3328,7 +3441,11 @@ impl RootView {
             return;
         };
         self.agent_installing = Some(id.to_string());
-        self.agent_install_stage = Some("准备运行环境".to_string());
+        self.agent_install_stage = Some(if entry.id == "deepseek" {
+            "下载约 176 MB，首次安装较慢…".to_string()
+        } else {
+            "准备运行环境".to_string()
+        });
         self.agent_install_error = None;
         let installed_id = id.to_string();
         let installed_version = entry.minimum_version.clone();
@@ -3337,6 +3454,13 @@ impl RootView {
             cgc_platform::registry::manifest::Distribution::Npx { .. }
         );
         let task = cx.background_executor().spawn(async move {
+            // ADR-0031 D1 修订：DSH 条目优先写进用户 `profiles/acp`。
+            if entry.uses_dsh_runtime() {
+                if let Some((dsh, home)) = cgc_platform::agent::dsh_plugin::install_target() {
+                    return install_plugin_entry(&entry, &dsh, &home)
+                        .map_err(|error| error.to_string());
+                }
+            }
             let manager = NodeRuntimeManager::default_manager();
             let mut node = manager.installed_runtime();
             if node.is_none() && is_npx {
@@ -3355,6 +3479,7 @@ impl RootView {
                 match result {
                     Ok(result) => {
                         this.agent_install_error = None;
+                        let node = NodeRuntimeManager::default_manager().installed_runtime();
                         if let Some(row) = this
                             .agent_registry_rows
                             .iter_mut()
@@ -3366,6 +3491,14 @@ impl RootView {
                                     .clone()
                                     .unwrap_or_else(|| installed_version.clone()),
                             };
+                            // 安装前读不到 bundled 版本（包还没落地），装完必须重探，
+                            // 否则 runtime 行会一直停在 "unknown"。
+                            if row.entry.uses_dsh_runtime() {
+                                row.runtime = cgc_platform::agent::dsh_runtime::probe_dsh_runtime(
+                                    Some(&row.entry),
+                                    node.as_ref(),
+                                );
+                            }
                         }
                     }
                     Err(error) => this.agent_install_error = Some(error.to_string()),
@@ -3374,6 +3507,77 @@ impl RootView {
             });
         })
         .detach();
+    }
+
+    /// 卸载 npx agent：删除固定版本安装目录；DSH 条目同时清理隔离的 DSH_HOME。
+    pub(in crate::root_view) fn uninstall_agent(&mut self, id: &str, cx: &mut Context<Self>) {
+        if self.agent_installing.as_deref() == Some(id)
+            || self.agent_uninstalling.as_deref() == Some(id)
+        {
+            return;
+        }
+        let Some(entry) = self
+            .agent_registry_rows
+            .iter()
+            .find(|row| row.entry.id == id)
+            .map(|row| row.entry.clone())
+        else {
+            return;
+        };
+        self.agent_uninstalling = Some(id.to_string());
+        self.agent_install_error = None;
+        let uninstalled_id = id.to_string();
+        let task = cx.background_executor().spawn(async move {
+            // plugin 形态只从 profile 移除依赖，用户 DSH 数据目录不动。
+            if entry.uses_dsh_runtime() {
+                if let Some(plugin) = crate::dsh_agent::dsh_plugin() {
+                    return uninstall_plugin_entry(&entry, &plugin)
+                        .map_err(|error| error.to_string());
+                }
+            }
+            let manager = NodeRuntimeManager::default_manager();
+            let node = manager.installed_runtime();
+            let (dsh_home, shared) = crate::dsh_agent::resolve_dsh_home();
+            let remove_home = (!shared).then_some(dsh_home);
+            uninstall_entry(&entry, node.as_ref(), remove_home.as_deref())
+                .map_err(|error| error.to_string())
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.agent_uninstalling = None;
+                match result {
+                    Ok(_) => {
+                        this.agent_install_error = None;
+                        if let Some(row) = this
+                            .agent_registry_rows
+                            .iter_mut()
+                            .find(|row| row.entry.id == uninstalled_id)
+                        {
+                            row.status = AgentStatus::Missing;
+                        }
+                    }
+                    Err(error) => this.agent_install_error = Some(error.to_string()),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 切换 ADR-0031 D3 的本地 DSH 共享开关。
+    ///
+    /// 只改下次启动参数：已在跑的 DSH host 不会被迁移，用户下次新建对话才生效。
+    pub(in crate::root_view) fn toggle_dsh_share_local_home(&mut self, cx: &mut Context<Self>) {
+        let next = !self.dsh_share_local_home;
+        match crate::dsh_agent::set_dsh_share_local_home(next) {
+            Ok(()) => {
+                self.dsh_share_local_home = next;
+                self.agent_install_error = None;
+            }
+            Err(error) => self.agent_install_error = Some(error),
+        }
+        cx.notify();
     }
 
     /// 切到 external ACP agent 前的面板状态重置（不含 host 生命周期与启动）。
@@ -3396,6 +3600,11 @@ impl RootView {
             ConversationThread::default().with_capabilities(ThreadCapabilities::acp());
         self.chat.session.session_id = None;
         self.chat.restore_id = None;
+        self.chat.sessions.clear();
+        self.chat.replay = None;
+        self.chat.restore_via_resume = false;
+        self.chat.resumed_without_history = false;
+        self.chat.dsh_version_info = None;
         self.chat.title_override = None;
         self.chat.npx_cache_retry = false;
         self.agent_panel_editing_title = false;
