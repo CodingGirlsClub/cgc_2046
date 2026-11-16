@@ -1,29 +1,12 @@
-overrides:
-  # 2026-09-24：Dependabot #68/#2（js-yaml 4.x CVE-2026-59870 CPU 消耗，
-  # high）——eslint → @eslint/eslintrc 传递链锁 4.3.0，4.3.2 为补丁版本
-  # （range ^4 兼容）。同 miniprogram/pnpm-workspace.yaml 的 fast-uri/svgo
-  # 先例：update 不触碰传递条目，overrides 强制收敛。纯开发期工具链。
-  "js-yaml@>=4.0.0 <4.3.2": 4.3.2
-  # 2026-10-15：next 16.3.5 自带 7 条已知公告（含 1 条 critical RCE）——next 自身升 16.3.8，
-  # 其传递依赖再按本文件既有先例收敛：source-map-js（postcss 链）与 sharp（next 可选图像优化）
-  # 均为构建期/可选面，无运行时面。
-  "source-map-js@<1.2.2": 1.2.2
-  "sharp@<0.35.5": 0.35.5
-  # 2026-10-29：Dependabot high 收敛，均为开发/测试工具链：
-  # - undici 8.9.0 → 8.12.2（jsdom 传递依赖；5 条 TLS 校验/DoS/缓存公告）
-  # - vite 8.2.0 → 8.2.4（vitest/@vitejs/plugin-react peer；GHSA-587h-7wmj-h5pm）
-  "undici@<8.12.2": 8.12.2
-  "vite@<8.2.4": 8.2.4
-  # 2026-10-29：pnpm audit 全量剩余 high 收敛（不在 Dependabot 清单内，
-  # 均为开发/测试工具链）：
-  # - nanoid <3.3.18（postcss 链）
-  # - brace-expansion 1.x/2.x/4.x（eslint/minimatch 链）
-  # - zod <4.6.6（eslint-plugin-react-hooks 链）
-  "nanoid@<3.3.18": 3.3.18
-  "brace-expansion@<1.1.21": 1.1.21
-  "brace-expansion@>=2.0.0 <2.1.6": 2.1.7
-  "brace-expansion@>=4.0.0 <5.0.11": 5.0.12
-  "zod@<4.6.6": 4.6.6
+# overrides 不在这里，唯一真源是 package.json 的 "pnpm.overrides"。
+# 实证（2026-11-16）：pnpm 10.28.2（CI 与本地钉的版本，见 package.json 的
+# packageManager）完全忽略本文件的 overrides 键——锁文件 overrides 段只记录
+# package.json 的条目；pnpm 11 则相反，只读本文件、忽略 package.json。
+# miniprogram/ 因此静默失效并退回 22 条 Dependabot 告警（#1288 修复），
+# 本文件同款问题在 web 侧一并收口。
+# 升级 pnpm 11 前必须一并做：package.json overrides 迁回本文件 → 用 11 重算
+# 锁文件 → ci.yml 两处 pnpm 版本升到 11，否则会再次静默退回。
+# 各条 override 的公告/传递链理由见 git 历史（本文件 2026-11-16 之前的版本）。
 ignoredBuiltDependencies:
   - sharp
   - unrs-resolver
