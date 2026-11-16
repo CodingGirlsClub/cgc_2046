@@ -328,6 +328,8 @@ fn golden_event_sequence_maps_native_events_to_host_events() {
             title: None,
             status: Some("completed".to_string()),
             output: Some("ok".to_string()),
+            locations: None,
+            args: None,
         },
         HostEvent::UsageUpdated {
             used: 15,

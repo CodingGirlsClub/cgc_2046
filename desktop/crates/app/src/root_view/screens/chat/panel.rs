@@ -98,6 +98,40 @@ pub(in crate::root_view) fn render_chat_panel(
             let _ = root.update(cx, |this, cx| this.start_chat(cx));
         });
     }
+    // DSH 运行时版本偏差提示（不阻断启动，只提醒兼容风险）。
+    let dsh_version_notice = ctx
+        .chat
+        .dsh_version_info
+        .as_ref()
+        .and_then(|(version, status)| {
+            let (label, color) = match status {
+                cgc_platform::agent::dsh_runtime::DshVersionStatus::AboveTested => (
+                    format!(
+                        "DSH 运行时 {version} 高于测试矩阵 {}，如遇异常请安装兼容版本",
+                        cgc_platform::agent::dsh_runtime::DSH_TESTED_MAX
+                    ),
+                    palette.warning,
+                ),
+                cgc_platform::agent::dsh_runtime::DshVersionStatus::BelowMinimum => (
+                    format!(
+                        "DSH 运行时 {version} 低于适配器最低要求 {}，请升级 DSH Desktop",
+                        cgc_platform::agent::dsh_runtime::DSH_MIN_SUPPORTED
+                    ),
+                    palette.warning,
+                ),
+                _ => return None,
+            };
+            Some(
+                div()
+                    .id("chat-dsh-version-notice")
+                    .role(Role::Status)
+                    .aria_label(label.clone())
+                    .text_size(px(11.0))
+                    .text_color(color)
+                    .child(label)
+                    .into_any_element(),
+            )
+        });
     let body: AnyElement = match &phase {
         ConnectionPhase::Idle => div()
             .flex()
@@ -227,6 +261,87 @@ pub(in crate::root_view) fn render_chat_panel(
                             this.chat.session.phase = ConnectionPhase::Idle;
                             this.start_chat(cx);
                         })),
+                )
+                .into_any_element()
+        }
+        ConnectionPhase::AuthRequired { auth_methods, .. } => {
+            let method_rows = auth_methods
+                .iter()
+                .map(|method| {
+                    let detail = method
+                        .description
+                        .as_ref()
+                        .map(|description| format!(" — {description}"))
+                        .unwrap_or_default();
+                    div()
+                        .text_size(px(11.0))
+                        .text_color(palette.ink_2)
+                        .child(format!("{} ({}){detail}", method.name, method.id))
+                        .into_any_element()
+                })
+                .collect::<Vec<_>>();
+            div()
+                .flex()
+                .flex_col()
+                .gap(space(2))
+                .child(
+                    div()
+                        .text_size(px(12.0))
+                        .text_color(palette.warning)
+                        .child(translate(language, Key::AgentChatAuthRequired)),
+                )
+                .child(
+                    div()
+                        .text_size(px(11.0))
+                        .text_color(palette.ink_2)
+                        .child(translate(language, Key::AgentChatAuthHint)),
+                )
+                .child(
+                    div()
+                        .text_size(px(11.0))
+                        .text_color(palette.ink_3)
+                        .child(translate(language, Key::AgentChatAuthMethods)),
+                )
+                .children(method_rows)
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .gap(space(2))
+                        .child(
+                            div()
+                                .id("chat-auth-open-settings")
+                                .role(Role::Button)
+                                .aria_label(translate(language, Key::AgentChatAuthOpenSettings))
+                                .px(space(2))
+                                .py(px(5.0))
+                                .rounded(px(RADIUS_MEDIUM))
+                                .bg(palette.accent)
+                                .text_color(palette.canvas)
+                                .text_size(px(11.0))
+                                .child(translate(language, Key::AgentChatAuthOpenSettings))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.open_settings_ai_window(cx);
+                                })),
+                        )
+                        .child(
+                            div()
+                                .id("chat-auth-retry")
+                                .role(Role::Button)
+                                .aria_label(translate(language, Key::AgentChatAuthRetry))
+                                .px(space(2))
+                                .py(px(5.0))
+                                .rounded(px(RADIUS_MEDIUM))
+                                .border_1()
+                                .border_color(palette.line)
+                                .text_color(palette.ink)
+                                .text_size(px(11.0))
+                                .child(translate(language, Key::AgentChatAuthRetry))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.chat.session.phase = ConnectionPhase::Idle;
+                                    this.start_chat(cx);
+                                })),
+                        ),
                 )
                 .into_any_element()
         }
@@ -729,8 +844,20 @@ pub(in crate::root_view) fn render_chat_panel(
                         .enumerate()
                         .map(|(index, config)| {
                             let root = cx.entity().downgrade();
-                            let name = config.name.clone();
+                            // DSH 的 plan 是独立于权限档的协作状态；用「Plan 模式」
+                            // 而不是 adapter 原文 "Collaboration mode"，避免与 Permissions 混淆。
+                            let is_collaboration = config.id == "collaboration_mode";
+                            let name = if is_collaboration {
+                                translate(language, Key::ChatCollaborationMode).to_string()
+                            } else {
+                                config.name.clone()
+                            };
                             let current = config.current.clone();
+                            let current_label = if is_collaboration {
+                                collaboration_mode_label(language, &current)
+                            } else {
+                                current.clone()
+                            };
                             let searchable = config.category == ConfigOptionCategory::Model;
                             let query = if searchable {
                                 config_query.as_str()
@@ -743,7 +870,14 @@ pub(in crate::root_view) fn render_chat_panel(
                                 .filter(|(_, label)| {
                                     query.is_empty() || label.to_lowercase().contains(query)
                                 })
-                                .cloned()
+                                .map(|(value, label)| {
+                                    let label = if is_collaboration {
+                                        collaboration_mode_label(language, value)
+                                    } else {
+                                        label.clone()
+                                    };
+                                    (value.clone(), label)
+                                })
                                 .collect();
                             let items: Vec<PickerItem> = options
                                 .iter()
@@ -777,7 +911,7 @@ pub(in crate::root_view) fn render_chat_panel(
                                 trigger_id: SharedString::from(format!(
                                     "chat-config-trigger-{index}"
                                 )),
-                                trigger_label: current.clone(),
+                                trigger_label: current_label,
                                 trigger_tooltip: name,
                                 trigger_max_width: Some(180.0),
                                 anchor: None,
@@ -1247,6 +1381,7 @@ pub(in crate::root_view) fn render_chat_panel(
                 .min_w(px(0.0))
                 .flex_col()
                 .gap(space(1))
+                .children(dsh_version_notice)
                 .child(body),
         )
         .into_any_element()
@@ -1448,6 +1583,14 @@ fn chat_command_menu_style(palette: &theme::Palette) -> CommandMenuStyle {
         selected_text: palette.canvas,
         radius: RADIUS_MEDIUM,
         padding: 4.0,
+    }
+}
+
+fn collaboration_mode_label(language: Language, value: &str) -> String {
+    match value {
+        "default" => translate(language, Key::ChatCollaborationModeDefault).to_string(),
+        "plan" => translate(language, Key::ChatCollaborationModePlan).to_string(),
+        other => other.to_string(),
     }
 }
 

@@ -56,6 +56,7 @@ impl AgentProcess {
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
+        crate::process::hide_console_window(&mut command);
         let child = command.spawn()?;
         Ok(Self {
             child,

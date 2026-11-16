@@ -8,6 +8,7 @@
 //! 带 `schema_migrations` 版本表；缺列/损坏 JSON 容错降级（返回空/`None`），不 panic。
 //! native 既有 `agent/threads.db` schema 与内容不动；ACP 只写这里。
 
+use std::io::Write;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -116,18 +117,6 @@ pub struct TerminalSession {
 }
 
 impl TerminalSession {
-    /// 列表展示标题：用户重命名优先，其次程序标题。
-    pub fn display_title(&self) -> Option<&str> {
-        self.custom_title
-            .as_deref()
-            .filter(|title| !title.trim().is_empty())
-            .or_else(|| {
-                self.title
-                    .as_deref()
-                    .filter(|title| !title.trim().is_empty())
-            })
-    }
-
     /// 最近活动时间（关闭时间优先）。
     pub fn updated_at(&self) -> &str {
         self.closed_at.as_deref().unwrap_or(&self.created_at)
@@ -348,7 +337,8 @@ impl ConversationStore {
         match serde_json::from_str::<ConversationThread>(&data) {
             Ok(thread) => Ok(Some(thread)),
             Err(error) => {
-                eprintln!(
+                let _ = writeln!(
+                    std::io::stderr(),
                     "[conversations] 忽略损坏的 thread_content [{}]: {error}",
                     thread_digest(thread_id)
                 );
@@ -400,7 +390,8 @@ impl ConversationStore {
         match serde_json::from_str::<SavedConversation>(&data) {
             Ok(snapshot) => Ok(Some(snapshot)),
             Err(error) => {
-                eprintln!(
+                let _ = writeln!(
+                    std::io::stderr(),
                     "[conversations] 忽略损坏的 thread_snapshots [{}]: {error}",
                     thread_digest(thread_id)
                 );
@@ -432,7 +423,8 @@ impl ConversationStore {
             if has_row {
                 return Ok(Some((snapshot.into_thread(), RestoredFrom::Snapshot)));
             }
-            eprintln!(
+            let _ = writeln!(
+                std::io::stderr(),
                 "[conversations] 忽略孤儿投影 [{}]：没有对应的正文或侧栏",
                 thread_digest(thread_id)
             );
@@ -540,21 +532,37 @@ impl ConversationStore {
         Ok(())
     }
 
-    /// 终端关闭/进程退出时回填：最终标题、关闭时间与退出码。
+    /// 终端关闭/进程退出时回填：最终标题、最终目录、关闭时间与退出码。
     pub fn finish_terminal_session(
         &self,
         terminal_id: &str,
         title: Option<&str>,
+        working_directory: Option<&str>,
         closed_at: &str,
         exit_code: Option<i64>,
     ) -> Result<(), ConversationStoreError> {
         self.conn.execute(
             "UPDATE sidebar_terminal_sessions
-             SET title = COALESCE(?2, title), closed_at = ?3, exit_code = ?4
+             SET title = COALESCE(?2, title),
+                 working_directory = COALESCE(?3, working_directory),
+                 closed_at = ?4,
+                 exit_code = ?5
              WHERE terminal_id = ?1",
-            params![terminal_id, title, closed_at, exit_code],
+            params![terminal_id, title, working_directory, closed_at, exit_code],
         )?;
         Ok(())
+    }
+
+    /// 启动时收尾上一次进程留下的「活着」行（`closed_at IS NULL`）。
+    pub fn close_orphan_terminal_sessions(
+        &self,
+        closed_at: &str,
+    ) -> Result<usize, ConversationStoreError> {
+        let changed = self.conn.execute(
+            "UPDATE sidebar_terminal_sessions SET closed_at = ?1 WHERE closed_at IS NULL",
+            params![closed_at],
+        )?;
+        Ok(changed)
     }
 
     /// 重命名终端会话（`None`/空白清除自定义标题，回退到程序标题）。
@@ -599,6 +607,34 @@ impl ConversationStore {
             sessions.push(row?);
         }
         Ok(sessions)
+    }
+
+    /// 读取单个终端会话：用于把超出列表窗口的活实例补回历史。
+    pub fn terminal_session(
+        &self,
+        terminal_id: &str,
+    ) -> Result<Option<TerminalSession>, ConversationStoreError> {
+        let mut statement = self.conn.prepare(
+            "SELECT terminal_id, title, custom_title, working_directory,
+                    created_at, closed_at, exit_code
+             FROM sidebar_terminal_sessions
+             WHERE terminal_id = ?1",
+        )?;
+        let mut rows = statement.query_map(params![terminal_id], |row| {
+            Ok(TerminalSession {
+                terminal_id: row.get(0)?,
+                title: row.get(1)?,
+                custom_title: row.get(2)?,
+                working_directory: row.get(3)?,
+                created_at: row.get(4)?,
+                closed_at: row.get(5)?,
+                exit_code: row.get(6)?,
+            })
+        })?;
+        match rows.next() {
+            Some(row) => Ok(Some(row?)),
+            None => Ok(None),
+        }
     }
 
     /// 归档 / 取消归档（不动 updated_at，避免历史重排）；返回是否命中。
@@ -872,14 +908,26 @@ mod tests {
 
         let list = store.list_terminal_sessions(10).expect("list");
         assert_eq!(list.len(), 1);
-        assert_eq!(list[0].display_title(), Some("vim"));
+        assert_eq!(list[0].title.as_deref(), Some("vim"));
+        assert!(list[0].custom_title.is_none());
         assert_eq!(list[0].working_directory.as_deref(), Some("/tmp/project"));
 
         store
-            .finish_terminal_session("term-1", Some("build"), "2026-01-01T00:10:00Z", Some(2))
+            .finish_terminal_session(
+                "term-1",
+                Some("build"),
+                Some("/tmp/project/sub"),
+                "2026-01-01T00:10:00Z",
+                Some(2),
+            )
             .expect("finish");
         let list = store.list_terminal_sessions(10).expect("list");
-        assert_eq!(list[0].display_title(), Some("build"));
+        assert_eq!(list[0].title.as_deref(), Some("build"));
+        assert_eq!(
+            list[0].working_directory.as_deref(),
+            Some("/tmp/project/sub"),
+            "关闭时把 live 目录写回，重新打开不会退回启动目录"
+        );
         assert_eq!(list[0].exit_code, Some(2));
         assert_eq!(list[0].updated_at(), "2026-01-01T00:10:00Z");
 
@@ -887,9 +935,12 @@ mod tests {
         store
             .rename_terminal_session("term-1", Some("部署"))
             .expect("rename");
+        let renamed = store.list_terminal_sessions(10).unwrap();
+        assert_eq!(renamed[0].custom_title.as_deref(), Some("部署"));
         assert_eq!(
-            store.list_terminal_sessions(10).unwrap()[0].display_title(),
-            Some("部署")
+            renamed[0].title.as_deref(),
+            Some("build"),
+            "重命名只写 custom_title，不改程序标题"
         );
         store
             .rename_terminal_session("term-1", Some("   "))
@@ -903,9 +954,81 @@ mod tests {
             )
             .expect("read custom_title");
         assert_eq!(stored, None, "空白重命名应把覆盖列清成 NULL");
+        let cleared = store.list_terminal_sessions(10).unwrap();
+        assert!(cleared[0].custom_title.is_none());
+        assert_eq!(cleared[0].title.as_deref(), Some("build"));
+    }
+
+    #[test]
+    fn terminal_session_lookup_by_id() {
+        let store = ConversationStore::open_in_memory().expect("store");
+        let session = TerminalSession {
+            terminal_id: "term-1".into(),
+            title: Some("vim".into()),
+            custom_title: None,
+            working_directory: Some("/tmp/x".into()),
+            created_at: "2026-01-01T00:00:00Z".into(),
+            closed_at: None,
+            exit_code: None,
+        };
+        store.upsert_terminal_session(&session).expect("insert");
         assert_eq!(
-            store.list_terminal_sessions(10).unwrap()[0].display_title(),
-            Some("build")
+            store
+                .terminal_session("term-1")
+                .expect("lookup")
+                .map(|row| row.terminal_id),
+            Some("term-1".to_string())
+        );
+        assert!(store.terminal_session("missing").expect("lookup").is_none());
+    }
+
+    #[test]
+    fn orphan_terminal_sessions_close_once() {
+        let store = ConversationStore::open_in_memory().expect("store");
+        let session = |id: &str, closed: Option<&str>| TerminalSession {
+            terminal_id: id.into(),
+            title: Some("t".into()),
+            custom_title: None,
+            working_directory: Some("/tmp/x".into()),
+            created_at: "2026-01-01T00:00:00Z".into(),
+            closed_at: closed.map(str::to_string),
+            exit_code: None,
+        };
+        store
+            .upsert_terminal_session(&session("open", None))
+            .expect("insert open");
+        store
+            .upsert_terminal_session(&session("done", Some("2026-01-01T00:05:00Z")))
+            .expect("insert done");
+
+        assert_eq!(
+            store
+                .close_orphan_terminal_sessions("2026-01-02T00:00:00Z")
+                .expect("sweep"),
+            1,
+            "只收尾上次进程留下的 NULL 行"
+        );
+        let rows = store.list_terminal_sessions(10).expect("list");
+        let open = rows
+            .iter()
+            .find(|row| row.terminal_id == "open")
+            .expect("open");
+        assert_eq!(open.closed_at.as_deref(), Some("2026-01-02T00:00:00Z"));
+        let done = rows
+            .iter()
+            .find(|row| row.terminal_id == "done")
+            .expect("done");
+        assert_eq!(
+            done.closed_at.as_deref(),
+            Some("2026-01-01T00:05:00Z"),
+            "已关闭的行不被改写"
+        );
+        assert_eq!(
+            store
+                .close_orphan_terminal_sessions("2026-01-03T00:00:00Z")
+                .expect("second sweep"),
+            0,
+            "幂等：第二次没有孤儿"
         );
     }
 

@@ -39,7 +39,10 @@ use cgc_platform::acp::connection::{
     AcpHost, AcpHostConfig, CommandView, HostEvent, SessionSummary,
 };
 use cgc_platform::agent::detect::{detect_all, AgentStatus, DetectedAgent};
-use cgc_platform::agent::launch::{build_launch, LaunchPlan, NodeRuntime};
+use cgc_platform::agent::dsh_runtime::ensure_dsh_home;
+use cgc_platform::agent::launch::{
+    build_launch_with_options, LaunchOptions, LaunchPlan, NodeRuntime,
+};
 use cgc_platform::agent::node_runtime::{HttpDownloader, NodeRuntimeManager};
 use cgc_platform::events::{AppEvent, EventPublisher, MemoryEventBus};
 use cgc_platform::mcp::credential::{
@@ -94,6 +97,7 @@ pub(crate) use history_actions::root_weak;
 mod history_sidebar;
 mod screens;
 mod state;
+mod terminal_panel;
 
 #[cfg(all(test, cgc_ui_tests))]
 mod footer_tests;
@@ -120,7 +124,7 @@ pub(in crate::root_view) fn demo_signed_in() -> SessionService {
     service
 }
 
-use state::{AgentRegistryFilter, RightPanel, ShellState, SiteTreeSection};
+use state::{AgentRegistryFilter, RightPanel, ShellState, SiteTreeSection, TitleEditTarget};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum LoginField {
@@ -133,6 +137,9 @@ enum LoginField {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum LoginMode {
     Password,
+    // 客户端入口已移交 Web 找回页；保留 Reset 是因为 controller 的表单状态机与
+    // 邮件 token 重置 mutation 仍在（未来深链可能复用），删除会牵连登录流程。
+    #[allow(dead_code)]
     Reset,
 }
 
@@ -249,6 +256,10 @@ struct ChatUi {
     replay: Option<ReplayState>,
     /// 外部 agent 无法恢复历史（load 失败 / 无回放）：展示本地记录 + 新建会话入口。
     resumed_without_history: bool,
+    /// 本次历史恢复是否走 session/resume（不回放 UI 历史，本地记录即预期视图）。
+    restore_via_resume: bool,
+    /// DSH 运行时版本与测试矩阵的偏差（version, status）；仅 dsh 条目有值。
+    dsh_version_info: Option<(String, cgc_platform::agent::dsh_runtime::DshVersionStatus)>,
     /// ACP transcript 防抖保存的世代号。
     acp_save_generation: u64,
     session: ConversationSession,
@@ -453,6 +464,9 @@ struct PreparedChat {
     agent_name: String,
     plan: LaunchPlan,
     server: McpServerConfig,
+    /// 条目使用 openma DSH 运行时：恢复走 session/resume，并提示 dsh 版本偏差。
+    dsh_required: bool,
+    dsh_version_info: Option<(String, cgc_platform::agent::dsh_runtime::DshVersionStatus)>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -466,6 +480,20 @@ struct ResizeGhost;
 impl Render for ResizeGhost {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         div()
+    }
+}
+
+/// 锁定标题编辑的提交目标；终端需要有 active 实例才能定位。
+fn title_edit_target_for(
+    content: screens::AgentPanelContent,
+    active_terminal: Option<&str>,
+) -> Option<TitleEditTarget> {
+    match content {
+        screens::AgentPanelContent::Terminal => {
+            active_terminal.map(|id| TitleEditTarget::Terminal(id.to_string()))
+        }
+        screens::AgentPanelContent::Native => Some(TitleEditTarget::Native),
+        screens::AgentPanelContent::External => Some(TitleEditTarget::External),
     }
 }
 
@@ -569,34 +597,42 @@ impl RootView {
     }
 
     pub(in crate::root_view) fn agent_panel_title(&self, cx: &App) -> String {
-        if self.native_chat_mode && RootView::native_agent_enabled() {
-            if let Some(view) = self.native_panel_view() {
-                let view = view.read(cx);
-                if view.is_empty_thread() {
-                    return self.new_thread_title_for("CGC Agent");
-                }
-                return view.display_title();
+        // 显示与编辑同源：终端内容由 active 实例决定（#1272）。
+        match screens::panel_content(self) {
+            screens::AgentPanelContent::Terminal => {
+                let terminal_title = self.terminal_display_title(cx);
+                screens::terminal_panel_title(terminal_title.as_deref().unwrap_or(""))
             }
-            return self.new_thread_title_for("CGC Agent");
+            screens::AgentPanelContent::Native => {
+                if let Some(view) = self.native_panel_view() {
+                    let view = view.read(cx);
+                    if view.is_empty_thread() {
+                        return self.new_thread_title_for("CGC Agent");
+                    }
+                    return view.display_title();
+                }
+                self.new_thread_title_for("CGC Agent")
+            }
+            screens::AgentPanelContent::External => self
+                .chat
+                .title_override
+                .clone()
+                .or_else(|| crate::acp_history::thread_display_title(&self.chat.session.thread))
+                .or_else(|| {
+                    self.chat
+                        .session
+                        .session_id
+                        .as_ref()
+                        .and_then(|session_id| {
+                            self.chat
+                                .sessions
+                                .iter()
+                                .find(|session| &session.session_id == session_id)
+                                .and_then(|session| session.title.clone())
+                        })
+                })
+                .unwrap_or_else(|| self.new_thread_title()),
         }
-        self.chat
-            .title_override
-            .clone()
-            .or_else(|| crate::acp_history::thread_display_title(&self.chat.session.thread))
-            .or_else(|| {
-                self.chat
-                    .session
-                    .session_id
-                    .as_ref()
-                    .and_then(|session_id| {
-                        self.chat
-                            .sessions
-                            .iter()
-                            .find(|session| &session.session_id == session_id)
-                            .and_then(|session| session.title.clone())
-                    })
-            })
-            .unwrap_or_else(|| self.new_thread_title())
     }
 
     fn ensure_agent_panel_title_input(
@@ -635,6 +671,10 @@ impl RootView {
     ) {
         let title = self.agent_panel_title(cx);
         self.agent_panel_title_original = Some(title.clone());
+        self.agent_panel_title_edit_target = title_edit_target_for(
+            screens::panel_content(self),
+            self.terminal_panel.active_id(),
+        );
         let input = self.ensure_agent_panel_title_input(window, cx);
         input.update(cx, |state, cx| {
             state.set_value(title, window, cx);
@@ -657,6 +697,13 @@ impl RootView {
         let raw = input.read(cx).value().trim().to_string();
         let unchanged = self.agent_panel_title_original.as_deref() == Some(raw.as_str());
         self.agent_panel_title_original = None;
+        // 目标在 start_edit 时锁定：期间切换/关闭实例，Blur 也不会写到新实例。
+        let target = self.agent_panel_title_edit_target.take().or_else(|| {
+            title_edit_target_for(
+                screens::panel_content(self),
+                self.terminal_panel.active_id(),
+            )
+        });
         if unchanged {
             // 只是点进来又点走：退出编辑，不固化 override。
             self.agent_panel_editing_title = false;
@@ -664,21 +711,37 @@ impl RootView {
             return;
         }
         let title = if raw.is_empty() { None } else { Some(raw) };
-        if self.native_chat_mode && RootView::native_agent_enabled() {
-            if let Some(view) = self.native_panel_view() {
-                view.update(cx, |view, cx| view.set_title_override(title.clone(), cx));
-            }
-        } else {
-            self.chat.title_override = title.clone();
-            if let Some(session_id) = self.chat.session.session_id.clone() {
-                // Stage 3.3：用户重命名写 conversations.db 的 title_override，
-                // 列表展示 override 优先，agent 生成标题更新不会覆盖它。
-                if let Ok(store) = crate::acp_history::open_conversation_store() {
-                    let thread_id = crate::acp_history::acp_thread_id(&session_id);
-                    let _ = store.set_title_override(&thread_id, title.as_deref());
+        match target {
+            Some(TitleEditTarget::Terminal(session_id)) => {
+                // 终端重命名写 DB 的 custom_title，并同步实例状态：header 与侧栏共用同一个值。
+                if let Err(error) = crate::acp_history::open_conversation_store()
+                    .and_then(|store| store.rename_terminal_session(&session_id, title.as_deref()))
+                {
+                    log::warn!(target: "terminal", "重命名终端会话失败：{error}");
+                }
+                if let Some(terminal) = self.terminal_panel.get_mut(&session_id) {
+                    terminal.custom_title = title;
                 }
                 self.chat.history = self.load_unified_history();
             }
+            Some(TitleEditTarget::Native) => {
+                if let Some(view) = self.native_panel_view() {
+                    view.update(cx, |view, cx| view.set_title_override(title.clone(), cx));
+                }
+            }
+            Some(TitleEditTarget::External) => {
+                self.chat.title_override = title.clone();
+                if let Some(session_id) = self.chat.session.session_id.clone() {
+                    // Stage 3.3：用户重命名写 conversations.db 的 title_override，
+                    // 列表展示 override 优先，agent 生成标题更新不会覆盖它。
+                    if let Ok(store) = crate::acp_history::open_conversation_store() {
+                        let thread_id = crate::acp_history::acp_thread_id(&session_id);
+                        let _ = store.set_title_override(&thread_id, title.as_deref());
+                    }
+                    self.chat.history = self.load_unified_history();
+                }
+            }
+            None => {}
         }
         self.agent_panel_editing_title = false;
         cx.notify();
@@ -704,11 +767,15 @@ impl RootView {
         cx: &mut Context<Self>,
     ) {
         self.agent_panel_title_original = None;
+        self.agent_panel_title_edit_target = None;
         self.agent_panel_editing_title = false;
         cx.notify();
     }
 
     pub(in crate::root_view) fn regenerate_agent_panel_title(&mut self, cx: &mut Context<Self>) {
+        if screens::panel_content(self) == screens::AgentPanelContent::Terminal {
+            return;
+        }
         if self.native_chat_mode && RootView::native_agent_enabled() {
             if let Some(view) = self.native_panel_view() {
                 view.update(cx, |view, cx| view.regenerate_title(cx));
@@ -739,6 +806,15 @@ impl Render for RootView {
                 Some(cx.observe_global::<gpui_kit::component::Theme>(|this, cx| {
                     this.sync_terminal_theme(cx)
                 }));
+        }
+        if self.panel_restore_pending
+            && self.session.signed_in().is_some()
+            && self.native_scope.is_some()
+        {
+            self.panel_restore_pending = false;
+            cx.defer_in(window, |this, window, cx| {
+                this.restore_panel_intent(window, cx);
+            });
         }
         let fullscreen = window.is_fullscreen() || window.is_simple_fullscreen();
         let previous_page = self.page_context.visible();
@@ -3064,13 +3140,39 @@ mod tests {
     };
     use crate::i18n::{translate, Key, Language};
     use crate::registration::build_registry;
-    use crate::root_view::controller::{terminal_cwd, terminal_matches_directory};
+    use crate::root_view::controller::terminal_cwd;
     use crate::theme::ThemePreference;
     use cgc_agent_ui::conversation::{ConversationThread, Entry as ConversationEntry};
     use cgc_platform::session::{
         AuthError, FakeAuthApi, MemoryStore, SessionService, SignedInSession,
     };
     use std::path::Path;
+
+    #[test]
+    fn title_edit_target_locks_the_started_panel() {
+        use super::screens::AgentPanelContent;
+        use super::state::TitleEditTarget;
+        use super::title_edit_target_for;
+
+        assert_eq!(
+            title_edit_target_for(AgentPanelContent::Terminal, Some("a")),
+            Some(TitleEditTarget::Terminal("a".to_string()))
+        );
+        assert_eq!(
+            title_edit_target_for(AgentPanelContent::Terminal, None),
+            None,
+            "没有 active 实例时不锁定目标"
+        );
+        assert_eq!(
+            title_edit_target_for(AgentPanelContent::Native, Some("a")),
+            Some(TitleEditTarget::Native),
+            "切换实例也不改变目标种类"
+        );
+        assert_eq!(
+            title_edit_target_for(AgentPanelContent::External, None),
+            Some(TitleEditTarget::External)
+        );
+    }
 
     fn fake_signed_in() -> SignedInSession {
         SignedInSession {
@@ -4453,20 +4555,6 @@ mod tests {
 
     /// 终端默认目录优先级：上次 cwd → agent 工作区 → home。方案 A 的锚点是 agent 工作区。
     #[test]
-    fn terminal_directory_match_controls_reuse() {
-        let project = Path::new("/tmp/project");
-        assert!(
-            terminal_matches_directory(Some(project), project),
-            "同目录复用隐藏中的终端实例"
-        );
-        assert!(
-            !terminal_matches_directory(Some(Path::new("/tmp/other")), project),
-            "不同目录要走替换流程"
-        );
-        assert!(!terminal_matches_directory(None, project));
-    }
-
-    #[test]
     fn terminal_cwd_prefers_last_then_scope_then_home() {
         let last = Path::new("/tmp/last");
         let scope = Path::new("/tmp/scope");
@@ -4595,6 +4683,12 @@ mod tests {
         let mut view = view();
         view.native_chat_mode = true;
         assert!(view.native_chat_mode, "前置条件：面板先处在 native 模式");
+        view.chat.sessions = vec![cgc_platform::acp::connection::SessionSummary {
+            session_id: "dsh-remote-only".into(),
+            title: Some("DSH history".into()),
+            updated_at: None,
+        }];
+        view.chat.restore_via_resume = true;
 
         view.reset_chat_for_external_agent("claude_code", "Claude Code");
 
@@ -4602,6 +4696,14 @@ mod tests {
         assert!(
             !view.native_chat_mode,
             "Agent Panel 仍停在 native 视图：ACP 会话建出来也看不见"
+        );
+        assert!(
+            view.chat.sessions.is_empty(),
+            "切换 agent 必须丢弃旧 session/list"
+        );
+        assert!(
+            !view.chat.restore_via_resume,
+            "新 agent 不能继承 DSH 的恢复方式"
         );
         assert_eq!(
             crate::chat_state::load_native_chat_mode(),

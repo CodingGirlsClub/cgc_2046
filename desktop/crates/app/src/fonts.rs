@@ -2,13 +2,20 @@
 //!
 //! 字体随 binary 打包、启动时注册，不依赖用户机器安装——此前 `FONT_MONO`
 //! 声明的 "Geist Mono" 在系统里并不存在，终端回退到默认字体，等宽度量丢失
-//! （ASCII art 错位）、Nerd Font 图标缺字形（显示为 `?`）。
+//! （ASCII art 错位）、Nerd Font 图标缺字形（显示为 `?`）。UI 正文的
+//! "Inter" 同理：不随包时 Windows 没装就回退系统字体，与 web 设计稿不一致。
 //!
-//! 终端正文用 Geist Mono，图标由 Symbols Nerd Font 兜底。
+//! UI 正文用 Inter，终端正文用 Geist Mono，图标由 Symbols Nerd Font 兜底。
 //! 许可见 `resources/fonts/LICENSE-*` 与 `OFL-*.txt`（OFL-1.1 / MIT）。
 
 use gpui_kit::*;
 use std::borrow::Cow;
+
+/// UI 正文字体家族（`theme::FONT_SANS` 同值）。
+///
+/// Inter 4.x 的 variable 文件 family 名是 `Inter Variable`；静态版才叫 `Inter`。
+/// 换字体文件时必须同步这里与 `resources/fonts/README.md`。
+pub const SANS_FAMILY: &str = "Inter Variable";
 
 /// 终端等宽字体家族（`theme::FONT_MONO` 声明同名）。
 pub const TERMINAL_FAMILY: &str = "Geist Mono";
@@ -16,7 +23,8 @@ pub const TERMINAL_FAMILY: &str = "Geist Mono";
 /// 图标回退字体：symbols-only，补 Nerd Font 私有区字形。
 pub const SYMBOL_FAMILY: &str = "Symbols Nerd Font";
 
-const FONTS: [&[u8]; 2] = [
+const FONTS: [&[u8]; 3] = [
+    include_bytes!("../../../resources/fonts/InterVariable.ttf"),
     include_bytes!("../../../resources/fonts/GeistMono-Variable.ttf"),
     include_bytes!("../../../resources/fonts/SymbolsNerdFont-Regular.ttf"),
 ];
@@ -31,7 +39,7 @@ pub fn register(cx: &App) {
         .expect("内置字体必须能加载");
     let text_system = cx.text_system();
     let missing = text_system.resolve_font(&font("__cgc_missing_family__"));
-    for family in [TERMINAL_FAMILY, SYMBOL_FAMILY] {
+    for family in [SANS_FAMILY, TERMINAL_FAMILY, SYMBOL_FAMILY] {
         let id = text_system.resolve_font(&font(family));
         if id == missing {
             log::warn!(target: "fonts", "内置字体 {family} 未注册成功，将回退系统字体");

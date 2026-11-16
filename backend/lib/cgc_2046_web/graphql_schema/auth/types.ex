@@ -24,6 +24,11 @@ defmodule Cgc2046Web.GraphqlSchema.Auth.Types do
     field(:ok, non_null(:boolean))
   end
 
+  @desc "登录态设置/重设密码结果（成功后当前会话已换发新 token）"
+  object :set_password_result do
+    field(:ok, non_null(:boolean))
+  end
+
   @desc "第一方客户端登录结果：JWT 直接经响应体交付（不写 cookie）"
   object :desktop_sign_in_result do
     field(:token, non_null(:string))
@@ -37,6 +42,7 @@ defmodule Cgc2046Web.GraphqlSchema.Auth.Types do
     field(:id, non_null(:id))
     field(:email, :string)
     field(:is_platform_admin, non_null(:boolean))
+    field(:has_password, non_null(:boolean))
   end
 
   # 手机验证码登录（plan 002 U3）：phone 用户 email 可空（同 platform result）

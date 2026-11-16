@@ -68,7 +68,10 @@ pub fn install_panic_hook_from_env() {
             .map(String::as_str)
             .or_else(|| info.payload().downcast_ref::<&str>().copied())
             .unwrap_or("panic");
-        eprintln!("[crash] {location}: {}", redact_sensitive(message));
+        crate::logging::stderr_line(format_args!(
+            "[crash] {location}: {}",
+            redact_sensitive(message)
+        ));
         previous(info);
     }));
 }

@@ -232,6 +232,8 @@ export interface SessionSnapshot {
    * UI 据此区分「未登录」与「登录已失效」。网络瞬态失败（token 保留）为 false。
    */
   authExpired: boolean
+  /** 仅登录响应填充：false 表示该账号尚未设密码（小程序提示可跳过的设密步骤）。 */
+  hasPassword?: boolean
 }
 
 export interface EnrollmentSummary {
@@ -748,6 +750,10 @@ export interface MiniProgramApi {
   /** #930 回访静默登录：已绑定本平台身份 → 会话；未绑定或已主动退出 → null（退回手机号登录） */
   signInSilently(loginCode: string): Promise<SessionSnapshot | null>
   signOut(): Promise<void>
+  /** 密码中心：登录态设置/重设密码（免旧密码；成功后其他端会话失效，当前会话换发新 token） */
+  setPassword(password: string): Promise<void>
+  /** 密码中心：当前账号掩码手机号（Web/Desktop 登录标识） */
+  getMyPhone(): Promise<string | null>
   getEnrollments(): Promise<EnrollmentSummary[]>
   /** #355 P1-4：按 id 回查单条本人报名（服务端过滤）；查无 → null */
   getEnrollment(id: string): Promise<EnrollmentSummary | null>

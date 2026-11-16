@@ -117,23 +117,30 @@ fn check_footer(cx: &mut TestAppContext) {
             window.find_by_label("主题").bounds().center()
         })
         .unwrap();
+    // 选中项来自用户配置（`theme_name = load_selected_theme()`），不是固定为
+    // DEFAULT_THEME_NAME；gpui-kit 0.9.1 起可滚动菜单打开时会把 checked 项滚到
+    // 可视区（popup_menu.rs `scroll_to_checked_item`），因此断言 checked 项可见，
+    // 而不是断言某个固定的列表靠前主题。
+    let current_theme = cx.update(|cx| probe.read(cx).root.read(cx).theme_name.clone());
     vcx.simulate_click(theme_center, Modifiers::default());
+    vcx.run_until_parked();
+    vcx.update(|window, cx| window.render_frame(cx));
     vcx.update(|window, cx| {
-        window.render_frame(cx);
         assert!(
             window
-                .try_find_by_label("Ayu Light")
+                .try_find_by_label(&current_theme)
                 .is_some_and(|element| element.visible()),
-            "点击主题按钮后应出现主题项"
+            "点击主题按钮后应出现当前主题项 `{current_theme}`"
         );
     });
 
     vcx.simulate_keystrokes("escape");
+    vcx.run_until_parked();
+    vcx.update(|window, cx| window.render_frame(cx));
     vcx.update(|window, cx| {
-        window.render_frame(cx);
         assert!(
             window
-                .try_find_by_label("Ayu Light")
+                .try_find_by_label(&current_theme)
                 .is_none_or(|element| !element.visible()),
             "Esc 后主题菜单应关闭"
         );

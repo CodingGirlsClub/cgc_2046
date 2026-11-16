@@ -113,6 +113,10 @@ import type {
   SignOutMutationVariables,
   SignInWithPlatformMutation,
   SignInWithPlatformMutationVariables,
+  SetPasswordMutation,
+  SetPasswordMutationVariables,
+  MyPhoneQuery,
+  MyPhoneQueryVariables,
   SignInWithPlatformIdentityMutation,
   SignInWithPlatformIdentityMutationVariables,
   UploadResumeFileMutation,
@@ -184,6 +188,8 @@ import {
   SignOutMutationDocument,
   SignInWithPlatformMutationDocument,
   SignInWithPlatformIdentityMutationDocument,
+  SetPasswordMutationDocument,
+  MyPhoneQueryDocument,
   UploadResumeFileMutationDocument,
   UpsertResumeProfileMutationDocument
 } from './operations'
@@ -709,7 +715,10 @@ export class RealMiniProgramApi implements MiniProgramApi {
     setAuthToken(null)
     clearWorkspaceTab()
     clearAccountState()
-    await graphqlRequest<SignInWithPlatformMutation, SignInWithPlatformMutationVariables>(
+    const signInResult = await graphqlRequest<
+      SignInWithPlatformMutation,
+      SignInWithPlatformMutationVariables
+    >(
       SignInWithPlatformMutationDocument,
       {
         platform: currentPlatform(),
@@ -735,7 +744,7 @@ export class RealMiniProgramApi implements MiniProgramApi {
     const session = await this.hydrateSignedInSession()
     // 主动退出后关掉的回访静默登录，在任何一次登录成功后恢复（#930）
     setSilentLoginAllowed(true)
-    return session
+    return { ...session, hasPassword: signInResult.signInWithPlatform?.hasPassword }
   }
 
   /**
@@ -745,8 +754,9 @@ export class RealMiniProgramApi implements MiniProgramApi {
   async signInSilently(loginCode: string): Promise<SessionSnapshot | null> {
     if (!silentLoginAllowed()) return null
     const previous = getAuthToken()
+    let identityResult: SignInWithPlatformIdentityMutation
     try {
-      await graphqlRequest<SignInWithPlatformIdentityMutation, SignInWithPlatformIdentityMutationVariables>(
+      identityResult = await graphqlRequest<SignInWithPlatformIdentityMutation, SignInWithPlatformIdentityMutationVariables>(
         SignInWithPlatformIdentityMutationDocument,
         { platform: currentPlatform(), code: loginCode },
         { captureAuthCookie: true }
@@ -760,7 +770,8 @@ export class RealMiniProgramApi implements MiniProgramApi {
     // 新会话：清旧 Workspace / 账号状态（token 已是新签发的），保留 pending scene
     clearWorkspaceTab()
     clearAccountState()
-    return this.hydrateSignedInSession()
+    const session = await this.hydrateSignedInSession()
+    return { ...session, hasPassword: identityResult.signInWithPlatformIdentity?.hasPassword }
   }
 
   // 登录（手机号 / 静默）签发之后的会话水合：失败全量回滚，UI 显示失败与设备状态一致
@@ -806,6 +817,19 @@ export class RealMiniProgramApi implements MiniProgramApi {
     setSilentLoginAllowed(false)
     if (wipeError) throw wipeError
     await request
+  }
+
+  async setPassword(password: string): Promise<void> {
+    await graphqlRequest<SetPasswordMutation, SetPasswordMutationVariables>(
+      SetPasswordMutationDocument,
+      { password },
+      { captureAuthCookie: true }
+    )
+  }
+
+  async getMyPhone(): Promise<string | null> {
+    const data = await graphqlRequest<MyPhoneQuery, MyPhoneQueryVariables>(MyPhoneQueryDocument, {})
+    return data.myPhone ?? null
   }
 
   async getEnrollments(): Promise<EnrollmentSummary[]> {

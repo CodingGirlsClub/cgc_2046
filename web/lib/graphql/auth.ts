@@ -192,6 +192,19 @@ export const REQUEST_PASSWORD_RESET: TypedDocumentNode<
   }
 `;
 
+/**
+ * 忘记密码页主路径：固定 scene 的小程序码（直达小程序密码页）。
+ * 匿名可读；微信侧未发布页面时后端返回 null，页面降级为文字引导。
+ */
+export const PASSWORD_CENTER_QR: TypedDocumentNode<
+  { passwordCenterQr: string | null },
+  Record<string, never>
+> = gql`
+  query PasswordCenterQr {
+    passwordCenterQr
+  }
+`;
+
 export const RESET_PASSWORD: TypedDocumentNode<
   { resetPassword: ResetPasswordResult | null },
   { resetToken: string; password: string }

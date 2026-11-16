@@ -1,0 +1,123 @@
+defmodule Cgc2046Web.GraphqlSetPasswordTest do
+  use Cgc2046Web.ConnCase, async: true
+
+  alias Cgc2046.Accounts.{SignInFlow, User}
+
+  @phone "13900001111"
+  @password "sup3r-secret-password"
+
+  defp graphql_post(conn, query) do
+    conn
+    |> put_req_header("content-type", "application/json")
+    |> post("/api/graphql", %{"query" => query})
+  end
+
+  defp graphql_response(conn), do: json_response(conn, 200)
+
+  # 小程序建号用户：phone 有、email 与密码哈希都为空
+  defp create_phone_user do
+    # 生产路径（SignInPreparation）存的是 "+区号号码"；夹具必须同形，
+    # 否则后续 signIn 归一化后查不到刚建的用户。
+    {:ok, phone} = Cgc2046.Accounts.PhoneNumber.normalize(@phone)
+
+    {:ok, user} =
+      User
+      |> Ash.Changeset.for_create(:register_with_miniprogram, %{phone: phone})
+      |> Ash.create(authorize?: false)
+
+    user
+  end
+
+  defp issue_token(user) do
+    {:ok, signed} = SignInFlow.generate_token(user, nil, %{})
+    signed.__metadata__[:token]
+  end
+
+  describe "setPassword" do
+    test "sets a password for a phone-only account and refreshes the current session" do
+      user = create_phone_user()
+      old_token = issue_token(user)
+
+      query = ~s'mutation { setPassword(password: "#{@password}") { ok } }'
+
+      conn =
+        build_conn()
+        |> put_req_header("authorization", "Bearer #{old_token}")
+        |> graphql_post(query)
+
+      res = graphql_response(conn)
+      assert %{"data" => %{"setPassword" => %{"ok" => true}}} = res
+
+      # 当前会话换发新 token：cookie 写入新值
+      cookie = conn.resp_cookies["cgc_token"]
+      assert cookie != nil
+      assert cookie.value != old_token
+
+      # 旧 token 已被吊销：再拿它读 me 不再返回该用户
+      stale =
+        build_conn()
+        |> put_req_header("authorization", "Bearer #{old_token}")
+        |> graphql_post(~s'query { me { id } }')
+        |> graphql_response()
+
+      refute get_in(stale, ["data", "me", "id"]) == user.id
+
+      # 密码确实写入（否则后面的登录失败会指向错误的位置）
+      {:ok, reloaded} = Ash.get(User, user.id, authorize?: false)
+      assert is_binary(reloaded.hashed_password)
+
+      # 手机号 + 新密码可登录（Web/Desktop 的消费路径）
+      sign_in =
+        build_conn()
+        |> graphql_post(
+          ~s'mutation { signIn(login: "#{@phone}", password: "#{@password}") { id } }'
+        )
+        |> graphql_response()
+
+      assert %{"data" => %{"signIn" => %{"id" => id}}} = sign_in
+      assert id == user.id
+    end
+
+    test "rejects a password shorter than eight characters" do
+      user = create_phone_user()
+      token = issue_token(user)
+
+      res =
+        build_conn()
+        |> put_req_header("authorization", "Bearer #{token}")
+        |> graphql_post(~s'mutation { setPassword(password: "short") { ok } }')
+        |> graphql_response()
+
+      assert %{"errors" => errors} = res
+      assert Enum.any?(errors, fn error -> is_binary(error["message"]) end)
+    end
+
+    test "requires an authenticated caller" do
+      res =
+        build_conn()
+        |> graphql_post(~s'mutation { setPassword(password: "#{@password}") { ok } }')
+        |> graphql_response()
+
+      assert %{"errors" => errors} = res
+      assert Enum.any?(errors, &(&1["code"] == "unauthorized"))
+    end
+
+    test "preserves the caller's platform claim when refreshing the session" do
+      user = create_phone_user()
+      {:ok, signed} = SignInFlow.generate_token(user, :wechat, %{})
+      token = signed.__metadata__[:token]
+
+      conn =
+        build_conn()
+        |> put_req_header("authorization", "Bearer #{token}")
+        |> graphql_post(~s'mutation { setPassword(password: "#{@password}") { ok } }')
+
+      assert %{"data" => %{"setPassword" => %{"ok" => true}}} = graphql_response(conn)
+
+      # 小程序会话换发后仍必须是 wechat claim：否则不能再批准扫码登录，
+      # 且会落进 web 吊销桶被后续 web 登录误杀。
+      new_token = conn.resp_cookies["cgc_token"].value
+      assert {:ok, %{"platform" => "wechat"}, _} = AshAuthentication.Jwt.verify(new_token, User)
+    end
+  end
+end

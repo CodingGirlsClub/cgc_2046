@@ -116,6 +116,9 @@ impl RootView {
             {
                 log::warn!(target: "terminal", "重命名终端会话失败：{error}");
             }
+            if let Some(terminal) = self.terminal_panel.get_mut(terminal_id) {
+                terminal.custom_title = title.clone();
+            }
         } else if rename.thread_id.starts_with(acp_history::ACP_THREAD_PREFIX) {
             let _ = acp_history::rename_override(&rename.thread_id, title.as_deref());
             if self
@@ -190,9 +193,16 @@ impl RootView {
                 self.open_acp_history_thread(thread_id, session_id, cx);
             }
             HistorySource::Terminal => {
-                if let Some(directory) = working_directory {
-                    self.open_terminal_at(std::path::PathBuf::from(directory), window, cx);
-                }
+                let terminal_id = thread_id
+                    .strip_prefix("terminal:")
+                    .unwrap_or_default()
+                    .to_string();
+                self.open_terminal_at(
+                    &terminal_id,
+                    working_directory.map(std::path::PathBuf::from),
+                    window,
+                    cx,
+                );
             }
         }
         cx.notify();

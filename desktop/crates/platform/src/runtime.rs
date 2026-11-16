@@ -129,6 +129,31 @@ pub fn api_endpoint() -> String {
     resolve_api_endpoint(env.as_deref(), settings.as_deref(), BUILD_DEFAULT_API_URL)
 }
 
+/// Desktop 的「忘记密码」出口：交给 Web 的账号找回页（小程序优先）。
+///
+/// 官方域下把 `api.<root>` 映射到站点根域；本地开发回退到 Web dev server。
+/// 不在客户端重做重置 UI：小程序码与邮箱折叠只维护一份（Web）。
+pub fn forgot_password_url() -> String {
+    resolve_forgot_password_url(&api_endpoint())
+}
+
+fn resolve_forgot_password_url(api: &str) -> String {
+    let official_suffix = format!(".{OFFICIAL_ROOT_DOMAIN}");
+
+    match Url::parse(api) {
+        Ok(url)
+            if url.host_str().is_some_and(|host| {
+                host == OFFICIAL_ROOT_DOMAIN || host.ends_with(&official_suffix)
+            }) =>
+        {
+            // Web 只在根域部署（`web/config/deploy.yml` 的 proxy.hosts 仅裸域 + www），
+            // 所以 api / staging-api 等官方主机一律收敛到根域，而不是保留一个必然 404 的 API 主机。
+            format!("https://{OFFICIAL_ROOT_DOMAIN}/forgot-password")
+        }
+        _ => "http://localhost:3000/forgot-password".to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -194,6 +219,24 @@ mod tests {
     #[test]
     fn falls_back_to_local_endpoint() {
         assert_eq!(resolve_api_endpoint(None, None, None), LOCAL_API_URL);
+    }
+
+    #[test]
+    fn forgot_password_url_maps_api_host_to_site() {
+        assert_eq!(
+            resolve_forgot_password_url(PROD),
+            "https://codingirlsclub.com/forgot-password"
+        );
+        // 官方子域一律收敛到根域（Web 只部署在根域）；不会保留 API 主机导致 404
+        assert_eq!(
+            resolve_forgot_password_url("https://staging-api.codingirlsclub.com/api/graphql"),
+            "https://codingirlsclub.com/forgot-password"
+        );
+        // 本地开发：Web dev server，而不是 API 端口
+        assert_eq!(
+            resolve_forgot_password_url(LOCAL_API_URL),
+            "http://localhost:3000/forgot-password"
+        );
     }
 
     // ── 端点白名单：凭据只发给官方域 ──

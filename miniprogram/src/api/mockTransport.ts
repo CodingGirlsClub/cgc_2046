@@ -915,11 +915,18 @@ function responseFor(document: string, variables: object): unknown {
       return { errors: [{ message: 'No platform identity bound yet', code: 'platform_identity_not_found' }] }
     }
     loggedIn = true
-    return { signInWithPlatformIdentity: { id: 'user-1', email: 'cheng@example.com', isPlatformAdmin: false } }
+    return { signInWithPlatformIdentity: { id: 'user-1', email: 'cheng@example.com', isPlatformAdmin: false, hasPassword: false } }
+  }
+  if (document.includes('mutation SetPassword')) {
+    if (!loggedIn) return { errors: [{ message: 'unauthorized', code: 'unauthorized' }] }
+    return { setPassword: { ok: true } }
+  }
+  if (document.includes('query MyPhone')) {
+    return { myPhone: loggedIn ? '138****8000' : null }
   }
   if (document.includes('mutation SignInWithPlatform')) {
     loggedIn = true
-    return { signInWithPlatform: { id: 'user-1', email: 'cheng@example.com', isPlatformAdmin: false } }
+    return { signInWithPlatform: { id: 'user-1', email: 'cheng@example.com', isPlatformAdmin: false, hasPassword: false } }
   }
   if (document.includes('mutation SignOut')) {
     loggedIn = false

@@ -440,9 +440,8 @@ pub(in crate::root_view) fn render_login_split(
                 .text_size(px(12.0))
                 .text_color(palette.ink_3)
                 .child(translate(language, Key::AppAuthForgot))
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.switch_login_mode(LoginMode::Reset);
-                    cx.notify();
+                .on_click(cx.listener(|_this, _, _, cx| {
+                    cx.open_url(&cgc_platform::runtime::forgot_password_url());
                 })),
         )
         .child(

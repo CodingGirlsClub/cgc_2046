@@ -12,7 +12,7 @@
 //! - 调用方：`main` 启动时 [`init`] + [`install_panic_hook`]，其余模块用 `log::*!`
 
 use std::fs::{self, File, OpenOptions};
-use std::io::Write;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
@@ -42,7 +42,7 @@ pub fn init(data_root: &Path) -> Option<PathBuf> {
         let logger = match FileLogger::open(path.clone(), MAX_LOG_BYTES) {
             Ok(logger) => logger,
             Err(error) => {
-                eprintln!("[log] disabled: {error}");
+                stderr_line(format_args!("[log] disabled: {error}"));
                 return None;
             }
         };
@@ -86,6 +86,21 @@ pub fn level_from(value: Option<&str>) -> LevelFilter {
         Some(value) if value.eq_ignore_ascii_case("trace") => LevelFilter::Trace,
         _ => LevelFilter::Info,
     }
+}
+
+/// 镜像一行到 stderr；写失败即丢弃。
+///
+/// stderr 可能无效或断开：GUI 子系统下没有控制台，从管道启动后再关闭读取端则是
+/// EPIPE / ERROR_BROKEN_PIPE。`eprint!`/`eprintln!` 在写失败时会 panic——
+/// 日志不能反过来打死应用，文件出口才是唯一保证，stderr 只是顺手给人看。
+/// （std 自己只把 EBADF / ERROR_INVALID_HANDLE 当成功，见 `io::stdio::handle_ebadf`。）
+fn mirror(line: &str) {
+    let _ = io::stderr().write_all(line.as_bytes());
+}
+
+/// 日志自身的降级诊断；与 [`mirror`] 同理，写失败丢弃。
+pub(crate) fn stderr_line(args: std::fmt::Arguments<'_>) {
+    let _ = writeln!(io::stderr(), "{args}");
 }
 
 /// 渲染一行日志；`message` 写前脱敏。任何入口都走这里，避免漏脱敏。
@@ -144,7 +159,7 @@ impl FileLogger {
         if state.written > 0 && state.written + len > self.limit {
             state.file = None;
             if let Err(error) = rotate(&self.path) {
-                eprintln!("[log] rotate failed: {error}");
+                stderr_line(format_args!("[log] rotate failed: {error}"));
             }
             state.written = 0;
         }
@@ -152,14 +167,14 @@ impl FileLogger {
             match open_append(&self.path) {
                 Ok(file) => state.file = Some(file),
                 Err(error) => {
-                    eprintln!("[log] reopen failed: {error}");
+                    stderr_line(format_args!("[log] reopen failed: {error}"));
                     return;
                 }
             }
         }
         if let Some(file) = state.file.as_mut() {
             if let Err(error) = file.write_all(line.as_bytes()) {
-                eprintln!("[log] write failed: {error}");
+                stderr_line(format_args!("[log] write failed: {error}"));
                 state.file = None;
                 return;
             }
@@ -190,7 +205,7 @@ impl Log for FileLogger {
             &record.args().to_string(),
             &timestamp(),
         );
-        eprint!("{line}");
+        mirror(&line);
         self.append(&line);
     }
 

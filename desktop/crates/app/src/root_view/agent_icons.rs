@@ -10,6 +10,8 @@
 //! - claude.svg ← https://cdn.agentclientprotocol.com/registry/v1/latest/claude-acp.svg
 //! - opencode.svg ← .../opencode.svg
 //! - omp.svg    ← https://omp.sh 首页内联 logo（pi-mark 路径，转单色 currentColor）
+//! - deepseek.svg ← @openma/deepseek-harness-acp@0.4.41 `assets/icon.svg`
+//!   （DeepSeek mark，去 fill-rule 转单色 currentColor）
 //!
 //! 未知 agent 回退 Bot 图标（Lucide）。品牌 mark 只用于标识对应 agent。
 
@@ -24,6 +26,7 @@ pub(in crate::root_view) enum AgentIconKind {
     Claude,
     Omp,
     Opencode,
+    DeepSeek,
     FallbackBot,
 }
 
@@ -31,6 +34,7 @@ const CODEX_SVG: &[u8] = include_bytes!("../../icons/agents/codex.svg");
 const CLAUDE_SVG: &[u8] = include_bytes!("../../icons/agents/claude.svg");
 const OMP_SVG: &[u8] = include_bytes!("../../icons/agents/omp.svg");
 const OPENCODE_SVG: &[u8] = include_bytes!("../../icons/agents/opencode.svg");
+const DEEPSEEK_SVG: &[u8] = include_bytes!("../../icons/agents/deepseek.svg");
 
 /// agent id / 历史行 agent 标签 → 图标种类（大小写/连字符归一化）。
 pub(in crate::root_view) fn agent_icon_kind(agent_id: &str) -> AgentIconKind {
@@ -44,9 +48,11 @@ pub(in crate::root_view) fn agent_icon_kind(agent_id: &str) -> AgentIconKind {
         "claude" | "claude_code" | "claude_acp" => AgentIconKind::Claude,
         "omp" | "omp_acp" => AgentIconKind::Omp,
         "opencode" | "opencode_v2" => AgentIconKind::Opencode,
+        "deepseek" | "dsh" | "deepseek_harness" => AgentIconKind::DeepSeek,
         other if other.contains("codex") => AgentIconKind::Codex,
         other if other.contains("claude") => AgentIconKind::Claude,
         other if other.contains("opencode") => AgentIconKind::Opencode,
+        other if other.contains("deepseek") => AgentIconKind::DeepSeek,
         _ => AgentIconKind::FallbackBot,
     }
 }
@@ -76,6 +82,7 @@ pub(in crate::root_view) fn agent_icon_element(
         AgentIconKind::Claude => svg_icon(CLAUDE_SVG, size, color),
         AgentIconKind::Omp => svg_icon(OMP_SVG, size, color),
         AgentIconKind::Opencode => svg_icon(OPENCODE_SVG, size, color),
+        AgentIconKind::DeepSeek => svg_icon(DEEPSEEK_SVG, size, color),
         AgentIconKind::FallbackBot => Icon::default()
             .path(AssetIcon::Bot.path())
             .text_color(color)
@@ -123,6 +130,7 @@ mod agent_icon_tests {
             ("claude", super::CLAUDE_SVG),
             ("omp", super::OMP_SVG),
             ("opencode", super::OPENCODE_SVG),
+            ("deepseek", super::DEEPSEEK_SVG),
         ] {
             let text = std::str::from_utf8(svg).expect("utf8 svg");
             assert_eq!(
@@ -149,6 +157,9 @@ mod agent_icon_tests {
         assert_eq!(agent_icon_kind("Claude"), AgentIconKind::Claude);
         assert_eq!(agent_icon_kind("omp"), AgentIconKind::Omp);
         assert_eq!(agent_icon_kind("opencode"), AgentIconKind::Opencode);
+        assert_eq!(agent_icon_kind("deepseek"), AgentIconKind::DeepSeek);
+        assert_eq!(agent_icon_kind("dsh"), AgentIconKind::DeepSeek);
+        assert_eq!(agent_icon_kind("deepseek-harness"), AgentIconKind::DeepSeek);
         assert_eq!(agent_icon_kind("mystery-agent"), AgentIconKind::FallbackBot);
         // 包含关系兜底：新版本 id（codex-acp-v2 / claude-code-2）仍能映射。
         assert_eq!(agent_icon_kind("codex_acp_v2"), AgentIconKind::Codex);
@@ -168,6 +179,7 @@ mod agent_icon_tests {
             ("claude", super::CLAUDE_SVG),
             ("omp", super::OMP_SVG),
             ("opencode", super::OPENCODE_SVG),
+            ("deepseek", super::DEEPSEEK_SVG),
         ] {
             let text = std::str::from_utf8(svg).expect("utf8 svg");
             assert!(

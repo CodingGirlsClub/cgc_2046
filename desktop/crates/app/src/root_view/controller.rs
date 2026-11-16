@@ -3,12 +3,24 @@ use crate::agent_ingest;
 use cgc_agent_store::SessionStore;
 use cgc_agent_ui::conversation::{ConversationThread, ThreadCapabilities};
 use cgc_platform::notifications::NotificationsApi as _;
-use cgc_platform::registry::install::install_entry;
+use cgc_platform::registry::install::{
+    install_entry, install_plugin_entry, uninstall_entry, uninstall_plugin_entry,
+};
 use state::SiteTreeSection;
+
+/// 终端实例上限：达到后拒绝新建并提示，不静默淘汰。
+const TERMINAL_LIMIT: usize = 5;
+
+/// 启动时自动重建的终端数量上限（budget）。只恢复上次 active 的那一个。
+const RESTORE_BUDGET: usize = 1;
 
 #[cfg(all(test, cgc_ui_tests))]
 #[path = "workspace_layout_tests.rs"]
 mod workspace_layout_tests;
+
+#[cfg(all(test, cgc_ui_tests))]
+#[path = "agent_registry_tests.rs"]
+mod agent_registry_tests;
 
 #[cfg(all(test, cgc_ui_tests))]
 #[path = "breadcrumb_tests.rs"]
@@ -1185,7 +1197,7 @@ impl RootView {
         let client_generation = self.chat.session.generation;
         let requested_agent = self.chat.selected_agent.clone();
         // Stage 3.5a：不再有课程页专用会话指针；只按历史侧栏的 restore_id 恢复。
-        let load_session = self.chat.restore_id.take();
+        let load_session = self.chat.restore_id.clone();
         self.chat.load_retry_available = load_session.is_some();
         self.chat.session.session_id = None;
         self.chat.session.configs.clear();
@@ -1258,13 +1270,50 @@ impl RootView {
                         node_found: node_found.clone(),
                     })?,
             };
-            let plan = build_launch(&chosen.entry, Some(&managed), &cwd).map_err(|error| {
-                ChatStartError {
-                    message: error.to_string(),
-                    detected: guidance,
-                    node_found,
+            let dsh_required = chosen.entry.uses_dsh_runtime();
+            let dsh_version_info = if dsh_required {
+                // standalone 的版本偏差提示以 bundled 版本为准；plugin 不报告 bundled 版本。
+                // runtime.version 是外部 DSH Desktop/PATH 的展示版本，不能用于兼容判定。
+                chosen.runtime.bundled_version.clone().map(|version| {
+                    let status = cgc_platform::agent::dsh_runtime::dsh_version_status(&version);
+                    (version, status)
+                })
+            } else {
+                None
+            };
+            let launch_options = if dsh_required {
+                if let Some(plugin) = crate::dsh_agent::dsh_plugin() {
+                    // ADR-0031 D1 修订：plugin 形态优先，复用用户 profile 的模型/凭据。
+                    crate::dsh_agent::dsh_plugin_launch_options(
+                        plugin,
+                        crate::dsh_agent::dsh_launch_env(),
+                    )
+                } else {
+                    let (dsh_home, shared) = crate::dsh_agent::resolve_dsh_home();
+                    // 共享模式指向用户自己的 DSH 目录：不创建、不改权限。
+                    if !shared {
+                        ensure_dsh_home(&dsh_home).map_err(|error| ChatStartError {
+                            message: format!("cannot prepare DSH_HOME: {error}"),
+                            detected: guidance.clone(),
+                            node_found: node_found.clone(),
+                        })?;
+                    }
+                    // 决策 A：DSH Desktop 仅检测展示，openma 统一使用自带 bundled dsh。
+                    crate::dsh_agent::dsh_launch_options(
+                        dsh_home,
+                        crate::dsh_agent::dsh_launch_env(),
+                    )
                 }
-            })?;
+            } else {
+                LaunchOptions::default()
+            };
+            let plan =
+                build_launch_with_options(&chosen.entry, Some(&managed), &cwd, &launch_options)
+                    .map_err(|error| ChatStartError {
+                        message: error.to_string(),
+                        detected: guidance,
+                        node_found,
+                    })?;
             // `None`：用当前生效端点（env > settings.json > 编译期默认值），与 GraphQL 同源。
             let endpoint = mcp_endpoint(None);
             let server = build_mcp_server(&chosen.entry, &lease, &endpoint);
@@ -1273,6 +1322,8 @@ impl RootView {
                 agent_name: chosen.entry.display_name.clone(),
                 plan,
                 server,
+                dsh_required,
+                dsh_version_info,
             })
         });
         cx.spawn(async move |this, cx| {
@@ -1286,13 +1337,26 @@ impl RootView {
                 }
                 match result {
                     Ok(prepared) => {
-                        let plan = prepared.plan;
-                        let server = prepared.server.clone();
+                        let PreparedChat {
+                            agent_id,
+                            agent_name,
+                            plan,
+                            server,
+                            dsh_required,
+                            dsh_version_info,
+                        } = prepared;
+                        let server = server.clone();
                         let make_config = |load_session: Option<&str>| {
                             let config = AcpHostConfig::from_launch_plan(plan.clone())
                                 .with_name("agent")
-                                .with_mcp_servers(vec![server.clone()]);
+                                .with_mcp_servers(vec![server.clone()])
+                                // DSH adapter 开 Ready 后拉取 session/list（cwd 由请求携带）。
+                                .with_list_sessions_after_ready(dsh_required);
                             match load_session {
+                                // DSH adapter 只有 session/resume；其他 agent 仍用 load 回放历史。
+                                Some(session_id) if dsh_required => {
+                                    config.with_resume_session(session_id)
+                                }
                                 Some(session_id) => config.with_load_session(session_id),
                                 None => config,
                             }
@@ -1310,8 +1374,9 @@ impl RootView {
                         match started {
                             Ok(host) => {
                                 let generation = this.chat.session.attach(host);
-                                this.chat.selected_agent = Some(prepared.agent_id.clone());
-                                this.chat.agent = prepared.agent_name;
+                                this.chat.selected_agent = Some(agent_id.clone());
+                                this.chat.agent = agent_name;
+                                this.chat.dsh_version_info = dsh_version_info.clone();
                                 this.chat.npx_cache_retry = false;
                                 this.spawn_chat_poller(cx, generation);
                             }
@@ -1413,6 +1478,8 @@ impl RootView {
                         .invalidate_loaded(&self.chat.conversation_scope());
                     self.chat.agent = agent_name.clone();
                     self.chat.version = Some(version.clone());
+                    self.chat.restore_id = None;
+                    self.chat.load_retry_available = false;
                     // Stage 3.3：本地历史恢复结果（回放替换 / 降级保留本地记录）。
                     self.finish_history_restore(cx);
                 }
@@ -1435,8 +1502,22 @@ impl RootView {
                     }
                 }
                 HostEvent::Sessions { sessions } => {
+                    if let Some(agent_id) = self.chat.selected_agent.as_deref() {
+                        let imported =
+                            crate::acp_history::open_conversation_store().and_then(|store| {
+                                crate::acp_history::import_agent_sessions(
+                                    &store,
+                                    sessions,
+                                    agent_id,
+                                    &cgc_agent_store::now_utc_rfc3339(),
+                                )
+                            });
+                        if let Err(error) = imported {
+                            log::warn!(target: "acp", "cannot import agent session history: {error}");
+                        }
+                    }
                     self.chat.sessions = sessions.clone();
-                    // agent 的 session 列表只用于标题/指针；统一历史从本地库加载。
+                    // 统一历史从本地 metadata 读取；列表缓存只用于当前 agent 的快捷恢复。
                     self.chat.history = self.load_unified_history();
                     if std::env::var("CGC_AUTO_RESTORE").as_deref() == Ok("1")
                         && !self.chat.auto_prompted
@@ -1462,14 +1543,27 @@ impl RootView {
                     turn_ended = true;
                 }
                 HostEvent::Error { message } => {
+                    // session.lock 跨进程冲突：DSH 会报 “already owned by an active
+                    // write handle”，换成用户能理解的「该会话正被另一窗口使用」。
+                    if let Some(friendly) = crate::acp_history::friendly_session_error(message) {
+                        self.chat.replay = None;
+                        self.chat.session.host.take();
+                        self.chat.load_retry_available = false;
+                        self.chat.restore_id = None;
+                        self.chat.resumed_without_history = false;
+                        self.chat.session.phase = ConnectionPhase::Failed(friendly);
+                        cx.notify();
+                        return false;
+                    }
                     // Stage 3.3：本地历史恢复失败（session/load 不可用）→ 保留本地
                     // 记录并提示，不再清指针重开新会话（用户可点「新建会话」）。
                     if self.chat.replay.is_some() {
                         let replay = self.chat.replay.take().expect("replay state");
-                        if crate::acp_history::resume_decision(
+                        if crate::acp_history::resume_decision_with_replay(
                             true,
                             replay.has_local_content,
                             replay.saw_events,
+                            !self.chat.restore_via_resume,
                         ) == crate::acp_history::ResumeDecision::KeepLocalRecord
                         {
                             self.chat.session.host.take();
@@ -1500,7 +1594,7 @@ impl RootView {
                     }
                     self.chat.session.phase = ConnectionPhase::Failed(message.clone());
                 }
-                HostEvent::Exited => {}
+                HostEvent::AuthRequired { .. } | HostEvent::Exited => {}
                 HostEvent::ModeUpdated { .. }
                 | HostEvent::PlanUpdated { .. }
                 | HostEvent::UsageUpdated { .. }
@@ -1551,10 +1645,11 @@ impl RootView {
         // 回放成功也不证明某个 tab 的完整正文仍在模型历史里；下一次提交保守重载。
         self.page_context
             .invalidate_loaded(&self.chat.conversation_scope());
-        match crate::acp_history::resume_decision(
+        match crate::acp_history::resume_decision_with_replay(
             false,
             replay.has_local_content,
             replay.saw_events,
+            !self.chat.restore_via_resume,
         ) {
             crate::acp_history::ResumeDecision::UseReplay => {
                 let mut restored = replay.thread;
@@ -1595,6 +1690,13 @@ impl RootView {
             }
             crate::acp_history::ResumeDecision::NewSession
             | crate::acp_history::ResumeDecision::Empty => {
+                if self.chat.restore_via_resume {
+                    let mut restored = std::mem::take(&mut self.chat.session.thread);
+                    if replay.thread.title.is_some() {
+                        restored.title = replay.thread.title;
+                    }
+                    self.chat.session.restore_thread(restored);
+                }
                 self.chat.resumed_without_history = false;
             }
         }
@@ -1728,11 +1830,43 @@ impl RootView {
             .as_ref()
             .and_then(|store| store.archived_native_threads().ok())
             .unwrap_or_default();
-        let terminals = store
+        let mut terminals = store
             .as_ref()
             .and_then(|store| store.list_terminal_sessions(50).ok())
             .unwrap_or_default();
-        crate::acp_history::merge_history_with_terminals(native, acp, &native_archived, terminals)
+        // 活实例必须始终在列表里：它们可能早于最近 50 条，但历史行是「按 id 激活」的唯一入口。
+        if let Some(store) = store.as_ref() {
+            for terminal in self.terminal_panel.iter() {
+                if terminals.iter().any(|row| row.terminal_id == terminal.id) {
+                    continue;
+                }
+                match store.terminal_session(&terminal.id) {
+                    Ok(Some(row)) => terminals.push(row),
+                    Ok(None) => {}
+                    Err(error) => {
+                        log::warn!(target: "terminal", "补回终端会话失败：{error}");
+                    }
+                }
+            }
+        }
+        let live_terminals: Vec<_> = self
+            .terminal_panel
+            .iter()
+            .map(|terminal| {
+                (
+                    terminal.id.clone(),
+                    terminal.live_title.clone(),
+                    terminal.live_cwd.clone(),
+                )
+            })
+            .collect();
+        crate::acp_history::merge_history_with_terminals(
+            native,
+            acp,
+            &native_archived,
+            terminals,
+            &live_terminals,
+        )
     }
 
     pub(in crate::root_view) fn reset_config_search(
@@ -2261,6 +2395,13 @@ impl RootView {
                 self.chat.selected_agent = Some(agent_id);
             }
         }
+        // DSH adapter 只支持 session/resume（不回放 UI 历史），其他 agent 走 load。
+        let restore_via_resume = self.chat.selected_agent.as_deref().is_some_and(|id| {
+            Registry::builtin()
+                .ok()
+                .and_then(|registry| registry.get(id).ok().map(|entry| entry.uses_dsh_runtime()))
+                .unwrap_or(false)
+        });
         let local = crate::acp_history::load_local_transcript(&thread_id);
         let has_local_content = local
             .as_ref()
@@ -2275,6 +2416,7 @@ impl RootView {
         });
         self.chat.opened_from_history = true;
         self.chat.resumed_without_history = false;
+        self.chat.restore_via_resume = restore_via_resume;
         self.chat.restore_id = Some(session_id);
         self.chat.npx_cache_retry = false;
         self.start_chat(cx);
@@ -2334,12 +2476,15 @@ impl RootView {
         self.chat.sessions.clear();
         self.chat.opened_from_history = false;
         self.chat.session.session_id = None;
+        self.chat.restore_id = None;
         self.chat.configs_applied = false;
         self.chat.history_open = false;
         self.chat.guidance = None;
         self.chat.load_retry_available = false;
         self.chat.replay = None;
         self.chat.resumed_without_history = false;
+        self.chat.restore_via_resume = false;
+        self.chat.dsh_version_info = None;
         self.chat.acp_save_generation = self.chat.acp_save_generation.wrapping_add(1);
         self.chat.session.commands.clear();
         self.chat.slash_selection = 0;
@@ -2397,13 +2542,70 @@ impl RootView {
         crate::chat_state::save_native_chat_mode(enabled);
     }
 
-    /// 切到聊天内容时只隐藏终端：进程与输出保留，可从 ＋ 菜单或历史恢复。
+    /// 切到聊天内容时只隐藏终端：实例与 PTY 保留，可从历史或 ＋ 菜单恢复。
     pub(in crate::root_view) fn dismiss_terminal_for_chat(&mut self, cx: &mut Context<Self>) {
-        if self.terminal_view.is_some() && self.terminal_visible {
-            self.terminal_visible = false;
-            self.pending_terminal_open = None;
+        if self.terminal_panel.active_id().is_some() {
+            self.terminal_panel.hide();
+            self.persist_panel_intent();
             cx.notify();
         }
+    }
+
+    /// 记录上次可见的面板条目，供下次启动恢复（budget=1）。
+    fn persist_panel_intent(&self) {
+        match screens::panel_content(self) {
+            screens::AgentPanelContent::Terminal => {
+                let cwd = self.terminal_panel.active().and_then(|terminal| {
+                    terminal.live_cwd.clone().or_else(|| {
+                        terminal
+                            .spawn_cwd
+                            .as_deref()
+                            .and_then(std::path::Path::to_str)
+                            .map(str::to_string)
+                    })
+                });
+                crate::workspace_state::save_panel_intent("terminal", cwd.as_deref());
+            }
+            _ => crate::workspace_state::save_panel_intent("thread", None),
+        }
+    }
+
+    /// 启动恢复：先收尾上次进程留下的孤儿行，再按意图重建一个终端。
+    pub(in crate::root_view) fn restore_panel_intent(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // 单实例锁：另一个实例在跑时不能收尾它的活行，也不重复恢复。
+        let lock_path = AppPaths::from_env().data_root.join("instance.lock");
+        let lock = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(&lock_path)
+            .ok();
+        let exclusive = lock.as_ref().is_some_and(|file| file.try_lock().is_ok());
+        if !exclusive {
+            return;
+        }
+        self.instance_lock = lock;
+        // 上次进程已退出：所有 `closed_at IS NULL` 的终端行都是孤儿。
+        if let Ok(store) = crate::acp_history::open_conversation_store() {
+            let now = cgc_agent_store::now_utc_rfc3339();
+            if let Err(error) = store.close_orphan_terminal_sessions(&now) {
+                log::warn!(target: "terminal", "收尾孤儿终端会话失败：{error}");
+            }
+        }
+        let intent = crate::workspace_state::panel_intent();
+        if !should_restore_terminal(intent.active_kind.as_deref()) {
+            return;
+        }
+        if RESTORE_BUDGET == 0 || !self.terminal_panel.can_open(TERMINAL_LIMIT) {
+            return;
+        }
+        let cwd =
+            persisted_cwd_or_fallback(intent.terminal_cwd.as_deref(), self.default_terminal_cwd());
+        self.spawn_terminal(cwd, window, cx);
     }
 
     /// 「+」菜单选择 CGC Agent：在 Agent Panel 内切到 native agent。
@@ -2427,12 +2629,14 @@ impl RootView {
         cx.notify();
     }
 
-    /// 「+」菜单 → Terminal：已有终端则恢复显示（隐藏不等于销毁）。
+    /// 「+」菜单 → Terminal：新建实例（同目录允许，上限 5）。
     pub fn open_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.agent_panel_editing_title = false;
-        if self.terminal_view.is_some() {
-            self.terminal_visible = true;
-            self.pending_terminal_open = None;
+        if !self.terminal_panel.can_open(TERMINAL_LIMIT) {
+            self.pane_notice = Some(format!(
+                "终端已达上限（{}/{TERMINAL_LIMIT}），请先关闭一个",
+                self.terminal_panel.len()
+            ));
             cx.notify();
             return;
         }
@@ -2440,41 +2644,49 @@ impl RootView {
         self.spawn_terminal(cwd, window, cx);
     }
 
-    /// 从历史侧栏打开终端：同目录直接恢复；不同目录需二次点击才替换。
+    /// 从历史侧栏打开终端：活实例按 id 激活，死行按其 cwd 新建。
     pub(in crate::root_view) fn open_terminal_at(
         &mut self,
-        cwd: std::path::PathBuf,
+        terminal_id: &str,
+        cwd: Option<std::path::PathBuf>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // 折叠态切终端：先展开面板，否则焦点落进不渲染的视图，输入全部丢失。
+        self.agent_panel_open = true;
         self.agent_panel_editing_title = false;
-        if self.terminal_view.is_some() {
-            if terminal_matches_directory(self.terminal_cwd.as_deref(), &cwd) {
-                // 同一目录：复用现有实例（隐藏中的也直接恢复）。
-                self.terminal_visible = true;
-                self.pending_terminal_open = None;
-                cx.notify();
-                return;
+        if self.terminal_panel.activate(terminal_id) {
+            if let Some(view) = self
+                .terminal_panel
+                .active()
+                .map(|terminal| terminal.view.clone())
+            {
+                view.update(cx, |view, cx| view.focus(window, cx));
             }
-            if self.pending_terminal_open.as_ref() == Some(&cwd) {
-                self.pending_terminal_open = None;
-                self.close_terminal(cx);
-                self.spawn_terminal(Some(cwd), window, cx);
-            } else {
-                self.pending_terminal_open = Some(cwd);
-                self.pane_notice = Some("已有终端在运行：再点一次历史记录替换".to_string());
-                cx.notify();
-            }
+            self.persist_panel_intent();
+            cx.notify();
             return;
         }
-        self.spawn_terminal(Some(cwd), window, cx);
+        if !self.terminal_panel.can_open(TERMINAL_LIMIT) {
+            self.pane_notice = Some(format!(
+                "终端已达上限（{}/{TERMINAL_LIMIT}），请先关闭一个",
+                self.terminal_panel.len()
+            ));
+            cx.notify();
+            return;
+        }
+        self.spawn_terminal(cwd.or_else(|| self.default_terminal_cwd()), window, cx);
     }
 
     /// 新终端的工作目录：上次关闭时的目录 → agent 工作区 → home（方案 A）。
     /// 上次的目录可能已被删除；agent 工作区首次使用可能还不存在，
     /// 所以先补建目录，建不出来就退回下一级。
     fn default_terminal_cwd(&self) -> Option<std::path::PathBuf> {
-        let last = self.last_terminal_cwd.clone().filter(|path| path.is_dir());
+        let last = self
+            .terminal_panel
+            .last_cwd()
+            .filter(|path| path.is_dir())
+            .map(std::path::Path::to_path_buf);
         let scope_root = self.native_scope.as_ref().map(|scope| scope.root.clone());
         let home = home_dir();
         terminal_cwd(last.as_deref(), scope_root.as_deref(), home.as_deref())
@@ -2498,6 +2710,14 @@ impl RootView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.terminal_panel.can_open(TERMINAL_LIMIT) {
+            self.pane_notice = Some(format!(
+                "终端已达上限（{}/{TERMINAL_LIMIT}），请先关闭一个",
+                self.terminal_panel.len()
+            ));
+            cx.notify();
+            return;
+        }
         let size = cgc_terminal::GridSize { cols: 80, rows: 24 };
         let mut session = match cgc_terminal::Session::spawn_default_in(size, cwd.as_deref()) {
             Ok(session) => session,
@@ -2525,7 +2745,6 @@ impl RootView {
             .new(|cx| cgc_terminal_view::TerminalView::new(session, style, key_input, window, cx));
         view.update(cx, |view, cx| view.poll(cx));
         view.update(cx, |view, cx| view.focus(window, cx));
-        self.terminal_view = Some(view.clone());
 
         // 会话日志：open 时插入一行，close 时回填标题/退出码（低频写库）。
         let session_id = next_terminal_session_id();
@@ -2546,72 +2765,200 @@ impl RootView {
         {
             log::warn!(target: "terminal", "记录终端会话失败：{error}");
         }
-        self.terminal_session_id = Some(session_id);
-        self.terminal_visible = true;
-        self.terminal_cwd = cwd.clone();
-        self.pending_terminal_open = None;
+        self.terminal_panel
+            .insert(crate::root_view::terminal_panel::AgentTerminal {
+                id: session_id.clone(),
+                view: view.clone(),
+                custom_title: None,
+                live_title: None,
+                live_cwd: None,
+                spawn_cwd: cwd.clone(),
+            });
+        self.persist_panel_intent();
         self.chat.history = self.load_unified_history();
         cx.notify();
 
-        // 33ms 轮询 PTY；视图析构后 `update` 失败，循环自然退出。
+        // 33ms 轮询 PTY；实例被移除后 `weak.update` 失败，循环自然退出。
+        // 每个实例只更新自己的 live 字段与列表行，不在 UI 线程整表读库。
         let weak = view.downgrade();
-        cx.spawn(async move |_root, cx| loop {
-            cx.background_executor()
-                .timer(std::time::Duration::from_millis(33))
-                .await;
-            if weak.update(cx, |view, cx| view.poll(cx)).is_err() {
-                break;
+        let live_id = session_id;
+        cx.spawn(async move |root, cx| {
+            let mut last: (Option<String>, Option<String>) = (None, None);
+            loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(33))
+                    .await;
+                let Ok(snapshot) = weak.update(cx, |view, cx| {
+                    view.poll(cx);
+                    let title = Some(view.title().to_string()).filter(|title| !title.is_empty());
+                    let cwd = view.cwd().map(str::to_string);
+                    (title, cwd)
+                }) else {
+                    break;
+                };
+                if snapshot == last {
+                    continue;
+                }
+                last = snapshot.clone();
+                let (title, cwd) = snapshot;
+                let id = live_id.clone();
+                let alive = root
+                    .update(cx, |root, cx| {
+                        let Some(terminal) = root.terminal_panel.get_mut(&id) else {
+                            return false;
+                        };
+                        let cwd_changed = terminal.live_cwd != cwd;
+                        terminal.live_title = title.clone();
+                        terminal.live_cwd = cwd.clone();
+                        let custom = terminal.custom_title.clone();
+                        let spawn_cwd = terminal
+                            .spawn_cwd
+                            .as_deref()
+                            .and_then(std::path::Path::to_str)
+                            .map(str::to_string);
+                        if cwd_changed && root.terminal_panel.is_active(&id) {
+                            root.persist_panel_intent();
+                        }
+                        let resolved = crate::acp_history::live_terminal_title(
+                            title.as_deref(),
+                            custom.as_deref(),
+                            cwd.as_deref(),
+                            spawn_cwd.as_deref(),
+                        );
+                        let updated = crate::acp_history::update_live_terminal_row(
+                            &mut root.chat.history,
+                            &id,
+                            resolved.as_deref(),
+                            cwd.as_deref(),
+                        );
+                        if !updated {
+                            // 列表还没加载出这一行：退化为一次完整加载。
+                            root.chat.history = root.load_unified_history();
+                        }
+                        cx.notify();
+                        true
+                    })
+                    .unwrap_or(false);
+                if !alive {
+                    break;
+                }
             }
         })
         .detach();
     }
 
-    /// 关闭终端并回到对话视图；记住当前目录、回填会话日志。
-    pub fn close_terminal(&mut self, cx: &mut Context<Self>) {
-        if let Some(view) = self.terminal_view.take() {
-            let (cwd, title, exit_code) = {
-                let view = view.read(cx);
-                let title = view.title().trim().to_string();
-                (
-                    view.cwd().map(std::path::PathBuf::from),
-                    (!title.is_empty()).then_some(title),
-                    view.exit_code(),
-                )
-            };
-            self.last_terminal_cwd = cwd;
-            if let Some(session_id) = self.terminal_session_id.take() {
-                let closed_at = cgc_agent_store::now_utc_rfc3339();
-                if let Err(error) =
-                    crate::acp_history::open_conversation_store().and_then(|store| {
-                        store.finish_terminal_session(
-                            &session_id,
-                            title.as_deref(),
-                            &closed_at,
-                            exit_code.map(i64::from),
-                        )
-                    })
-                {
-                    log::warn!(target: "terminal", "回填终端会话失败：{error}");
-                }
+    /// 关闭当前终端实例；回填日志后回落到最近激活的实例并转移焦点。
+    pub fn close_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(session_id) = self.terminal_panel.active_id().map(str::to_string) else {
+            return;
+        };
+        self.close_terminal_instance(session_id, window, cx);
+    }
+
+    /// 关闭指定实例；只有它被销毁，active 回落到最近激活的实例。
+    pub(in crate::root_view) fn close_terminal_instance(
+        &mut self,
+        session_id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some((view, spawn_cwd)) = self
+            .terminal_panel
+            .get(&session_id)
+            .map(|terminal| (terminal.view.clone(), terminal.spawn_cwd.clone()))
+        else {
+            return;
+        };
+        let was_active = self.terminal_panel.is_active(&session_id);
+        let (cwd, title, cwd_text, exit_code) = {
+            let view = view.read(cx);
+            let osc_title = view.title().trim().to_string();
+            let cwd = view
+                .cwd()
+                .map(std::path::PathBuf::from)
+                .or_else(|| spawn_cwd.clone());
+            // 展示中的标题可能是 cwd 末段（shell 不设 OSC 标题时）；关闭时把它一并
+            // 持久化，否则行会回退到 spawn 时的目录名。
+            let title = (!osc_title.is_empty()).then_some(osc_title).or_else(|| {
+                view.cwd()
+                    .and_then(|cwd| crate::acp_history::terminal_title(None, None, Some(cwd)))
+            });
+            let cwd_text = cwd
+                .as_deref()
+                .and_then(std::path::Path::to_str)
+                .map(str::to_string);
+            (cwd, title, cwd_text, view.exit_code())
+        };
+        self.terminal_panel.set_last_cwd(cwd);
+        self.terminal_panel.remove(&session_id);
+        self.persist_panel_intent();
+        if was_active {
+            if let Some(view) = self
+                .terminal_panel
+                .active()
+                .map(|terminal| terminal.view.clone())
+            {
+                // 侧栏在面板折叠时仍可关闭 active：先展开再聚焦，避免焦点进隐藏视图。
+                self.agent_panel_open = true;
+                view.update(cx, |view, cx| view.focus(window, cx));
             }
         }
-        self.pending_terminal_open = None;
-        self.terminal_visible = false;
-        self.terminal_cwd = None;
+        let closed_at = cgc_agent_store::now_utc_rfc3339();
+        if let Err(error) = crate::acp_history::open_conversation_store().and_then(|store| {
+            store.finish_terminal_session(
+                &session_id,
+                title.as_deref(),
+                cwd_text.as_deref(),
+                &closed_at,
+                exit_code.map(i64::from),
+            )
+        }) {
+            log::warn!(target: "terminal", "回填终端会话失败：{error}");
+        }
         self.chat.history = self.load_unified_history();
         cx.notify();
     }
 
-    /// 应用主题变化后，把新配色同步给已打开的终端（历史输出一起换色）。
-    pub(in crate::root_view) fn sync_terminal_theme(&mut self, cx: &mut Context<Self>) {
-        let Some(view) = self.terminal_view.clone() else {
+    /// ⌥⌘] / ⌥⌘[ 循环终端；隐藏（active=None）时先激活再轮转。
+    pub(in crate::root_view) fn cycle_terminal(
+        &mut self,
+        forward: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.terminal_panel.cycle(forward) {
             return;
-        };
+        }
+        // 折叠态循环：先展开面板，否则焦点落进不渲染的终端视图，输入丢失。
+        self.agent_panel_open = true;
+        if let Some(view) = self
+            .terminal_panel
+            .active()
+            .map(|terminal| terminal.view.clone())
+        {
+            view.update(cx, |view, cx| view.focus(window, cx));
+        }
+        self.persist_panel_intent();
+        cx.notify();
+    }
+
+    /// 应用主题变化后，把新配色同步给所有已打开的终端（历史输出一起换色）。
+    pub(in crate::root_view) fn sync_terminal_theme(&mut self, cx: &mut Context<Self>) {
+        let views: Vec<_> = self
+            .terminal_panel
+            .iter()
+            .map(|terminal| terminal.view.clone())
+            .collect();
+        if views.is_empty() {
+            return;
+        }
         let style = theme::terminal_style(cx);
         let colors = theme::terminal_theme(&self.theme_name, cx);
-        match view.update(cx, |view, cx| view.apply_theme(style, &colors, cx)) {
-            Ok(()) => {}
-            Err(error) => log::warn!(target: "terminal", "同步终端配色失败：{error}"),
+        for view in views {
+            match view.update(cx, |view, cx| view.apply_theme(style.clone(), &colors, cx)) {
+                Ok(()) => {}
+                Err(error) => log::warn!(target: "terminal", "同步终端配色失败：{error}"),
+            }
         }
     }
 
@@ -3100,14 +3447,18 @@ impl RootView {
             let registry = Registry::builtin().map_err(|error| error.diagnostic())?;
             let managed = NodeRuntime::new(NodeRuntimeManager::default_manager().root);
             let rows = detect_all(&registry, Some(&managed));
-            Ok::<_, String>(rows)
+            let share_local = crate::dsh_agent::dsh_share_local_home();
+            Ok::<_, String>((rows, share_local))
         });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
                 this.agent_registry_loading = false;
                 match result {
-                    Ok(rows) => this.agent_registry_rows = rows,
+                    Ok((rows, share_local)) => {
+                        this.agent_registry_rows = rows;
+                        this.dsh_share_local_home = share_local;
+                    }
                     Err(error) => this.agent_registry_error = Some(error),
                 }
                 cx.notify();
@@ -3117,7 +3468,9 @@ impl RootView {
     }
 
     pub(in crate::root_view) fn install_agent(&mut self, id: &str, cx: &mut Context<Self>) {
-        if self.agent_installing.as_deref() == Some(id) {
+        if self.agent_installing.as_deref() == Some(id)
+            || self.agent_uninstalling.as_deref() == Some(id)
+        {
             return;
         }
         let Some(entry) = self
@@ -3129,7 +3482,11 @@ impl RootView {
             return;
         };
         self.agent_installing = Some(id.to_string());
-        self.agent_install_stage = Some("准备运行环境".to_string());
+        self.agent_install_stage = Some(if entry.id == "deepseek" {
+            "下载约 176 MB，首次安装较慢…".to_string()
+        } else {
+            "准备运行环境".to_string()
+        });
         self.agent_install_error = None;
         let installed_id = id.to_string();
         let installed_version = entry.minimum_version.clone();
@@ -3138,6 +3495,13 @@ impl RootView {
             cgc_platform::registry::manifest::Distribution::Npx { .. }
         );
         let task = cx.background_executor().spawn(async move {
+            // ADR-0031 D1 修订：DSH 条目优先写进用户 `profiles/acp`。
+            if entry.uses_dsh_runtime() {
+                if let Some((dsh, home)) = cgc_platform::agent::dsh_plugin::install_target() {
+                    return install_plugin_entry(&entry, &dsh, &home)
+                        .map_err(|error| error.to_string());
+                }
+            }
             let manager = NodeRuntimeManager::default_manager();
             let mut node = manager.installed_runtime();
             if node.is_none() && is_npx {
@@ -3156,6 +3520,7 @@ impl RootView {
                 match result {
                     Ok(result) => {
                         this.agent_install_error = None;
+                        let node = NodeRuntimeManager::default_manager().installed_runtime();
                         if let Some(row) = this
                             .agent_registry_rows
                             .iter_mut()
@@ -3167,6 +3532,14 @@ impl RootView {
                                     .clone()
                                     .unwrap_or_else(|| installed_version.clone()),
                             };
+                            // 安装前读不到 bundled 版本（包还没落地），装完必须重探，
+                            // 否则 runtime 行会一直停在 "unknown"。
+                            if row.entry.uses_dsh_runtime() {
+                                row.runtime = cgc_platform::agent::dsh_runtime::probe_dsh_runtime(
+                                    Some(&row.entry),
+                                    node.as_ref(),
+                                );
+                            }
                         }
                     }
                     Err(error) => this.agent_install_error = Some(error.to_string()),
@@ -3175,6 +3548,77 @@ impl RootView {
             });
         })
         .detach();
+    }
+
+    /// 卸载 npx agent：删除固定版本安装目录；DSH 条目同时清理隔离的 DSH_HOME。
+    pub(in crate::root_view) fn uninstall_agent(&mut self, id: &str, cx: &mut Context<Self>) {
+        if self.agent_installing.as_deref() == Some(id)
+            || self.agent_uninstalling.as_deref() == Some(id)
+        {
+            return;
+        }
+        let Some(entry) = self
+            .agent_registry_rows
+            .iter()
+            .find(|row| row.entry.id == id)
+            .map(|row| row.entry.clone())
+        else {
+            return;
+        };
+        self.agent_uninstalling = Some(id.to_string());
+        self.agent_install_error = None;
+        let uninstalled_id = id.to_string();
+        let task = cx.background_executor().spawn(async move {
+            // plugin 形态只从 profile 移除依赖，用户 DSH 数据目录不动。
+            if entry.uses_dsh_runtime() {
+                if let Some(plugin) = crate::dsh_agent::dsh_plugin() {
+                    return uninstall_plugin_entry(&entry, &plugin)
+                        .map_err(|error| error.to_string());
+                }
+            }
+            let manager = NodeRuntimeManager::default_manager();
+            let node = manager.installed_runtime();
+            let (dsh_home, shared) = crate::dsh_agent::resolve_dsh_home();
+            let remove_home = (!shared).then_some(dsh_home);
+            uninstall_entry(&entry, node.as_ref(), remove_home.as_deref())
+                .map_err(|error| error.to_string())
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.agent_uninstalling = None;
+                match result {
+                    Ok(_) => {
+                        this.agent_install_error = None;
+                        if let Some(row) = this
+                            .agent_registry_rows
+                            .iter_mut()
+                            .find(|row| row.entry.id == uninstalled_id)
+                        {
+                            row.status = AgentStatus::Missing;
+                        }
+                    }
+                    Err(error) => this.agent_install_error = Some(error.to_string()),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 切换 ADR-0031 D3 的本地 DSH 共享开关。
+    ///
+    /// 只改下次启动参数：已在跑的 DSH host 不会被迁移，用户下次新建对话才生效。
+    pub(in crate::root_view) fn toggle_dsh_share_local_home(&mut self, cx: &mut Context<Self>) {
+        let next = !self.dsh_share_local_home;
+        match crate::dsh_agent::set_dsh_share_local_home(next) {
+            Ok(()) => {
+                self.dsh_share_local_home = next;
+                self.agent_install_error = None;
+            }
+            Err(error) => self.agent_install_error = Some(error),
+        }
+        cx.notify();
     }
 
     /// 切到 external ACP agent 前的面板状态重置（不含 host 生命周期与启动）。
@@ -3197,6 +3641,11 @@ impl RootView {
             ConversationThread::default().with_capabilities(ThreadCapabilities::acp());
         self.chat.session.session_id = None;
         self.chat.restore_id = None;
+        self.chat.sessions.clear();
+        self.chat.replay = None;
+        self.chat.restore_via_resume = false;
+        self.chat.resumed_without_history = false;
+        self.chat.dsh_version_info = None;
         self.chat.title_override = None;
         self.chat.npx_cache_retry = false;
         self.agent_panel_editing_title = false;
@@ -3829,14 +4278,6 @@ mod login_email_tests {
     }
 }
 
-/// 历史点击时，现有终端是否就在目标目录（可直接复用实例而不是替换）。
-pub(in crate::root_view) fn terminal_matches_directory(
-    current: Option<&std::path::Path>,
-    target: &std::path::Path,
-) -> bool {
-    current == Some(target)
-}
-
 /// 进程内唯一、按时间可排序的终端会话 id。
 fn next_terminal_session_id() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -3849,7 +4290,7 @@ fn next_terminal_session_id() -> String {
 }
 
 /// 用户 home：macOS/Linux 用 `HOME`，Windows 用 `USERPROFILE`。
-fn home_dir() -> Option<std::path::PathBuf> {
+pub(in crate::root_view) fn home_dir() -> Option<std::path::PathBuf> {
     std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map(std::path::PathBuf::from)
@@ -3864,4 +4305,77 @@ pub(in crate::root_view) fn terminal_cwd<'a>(
     home: Option<&'a std::path::Path>,
 ) -> Option<&'a std::path::Path> {
     last.or(scope_root).or(home)
+}
+
+/// 启动恢复只认「上次停在终端」这一种意图。
+fn should_restore_terminal(kind: Option<&str>) -> bool {
+    kind == Some("terminal")
+}
+
+/// 恢复目录：存值仍是目录就用，否则走默认回退链。
+fn persisted_cwd_or_fallback(
+    persisted: Option<&str>,
+    fallback: Option<std::path::PathBuf>,
+) -> Option<std::path::PathBuf> {
+    persisted
+        .map(std::path::PathBuf::from)
+        .filter(|path| path.is_dir())
+        .or(fallback)
+}
+
+#[cfg(test)]
+mod restart_recovery_tests {
+    use super::{persisted_cwd_or_fallback, should_restore_terminal};
+    use std::fs::OpenOptions;
+
+    #[test]
+    fn instance_lock_rejects_a_second_holder() {
+        let path = std::env::temp_dir().join(format!("cgc-instance-lock-{}", std::process::id()));
+        let first = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(&path)
+            .expect("open first");
+        assert!(first.try_lock().is_ok(), "第一个实例拿到锁");
+        let second = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(&path)
+            .expect("open second");
+        assert!(second.try_lock().is_err(), "第二个实例拿不到锁");
+        drop(first);
+        assert!(second.try_lock().is_ok(), "释放后可以接管");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn only_terminal_intent_restores_an_instance() {
+        assert!(should_restore_terminal(Some("terminal")));
+        assert!(!should_restore_terminal(Some("thread")));
+        assert!(!should_restore_terminal(None));
+    }
+
+    #[test]
+    fn persisted_cwd_must_still_exist() {
+        let dir = std::env::temp_dir().join(format!("cgc-restore-cwd-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let saved = dir.to_string_lossy().to_string();
+        assert_eq!(
+            persisted_cwd_or_fallback(Some(&saved), Some("/fallback".into())),
+            Some(dir.clone()),
+            "存值仍是目录时优先"
+        );
+        assert_eq!(
+            persisted_cwd_or_fallback(Some("/definitely/missing"), Some("/fallback".into())),
+            Some("/fallback".into()),
+            "目录不存在时回退"
+        );
+        assert_eq!(
+            persisted_cwd_or_fallback(None, Some("/fallback".into())),
+            Some("/fallback".into())
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

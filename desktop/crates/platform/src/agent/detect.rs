@@ -3,6 +3,7 @@
 use std::time::Duration;
 
 use super::command::run_output;
+use super::dsh_runtime::{probe_dsh_runtime, RuntimeProbe};
 use super::launch::{build_launch, NodeRuntime};
 use super::node_runtime::NODE_VERSION;
 use crate::registry::manifest::{AgentEntry, Distribution, Registry};
@@ -42,6 +43,8 @@ pub enum AgentStatus {
 pub struct DetectedAgent {
     pub entry: AgentEntry,
     pub status: AgentStatus,
+    /// 非阻断运行时探测：UI 用于展示 DSH Desktop 版本 / bundled 来源。
+    pub runtime: RuntimeProbe,
 }
 
 pub fn parse_version(output: &str) -> Option<String> {
@@ -91,13 +94,48 @@ pub fn detect_node(runtime: Option<&NodeRuntime>, required: &str) -> NodeStatus 
 }
 
 pub fn detect_all(registry: &Registry, runtime: Option<&NodeRuntime>) -> Vec<DetectedAgent> {
+    let plugin = super::dsh_plugin::probe();
+    detect_all_with(registry, runtime, plugin.as_ref())
+}
+
+/// 可注入 plugin 探测的版本（测试不依赖本机 DSH 安装）。
+pub fn detect_all_with(
+    registry: &Registry,
+    runtime: Option<&NodeRuntime>,
+    plugin: Option<&super::dsh_plugin::DshPlugin>,
+) -> Vec<DetectedAgent> {
     let node = detect_node(runtime, &registry.node_required);
     registry
         .agents
         .iter()
-        .map(|entry| DetectedAgent {
-            entry: entry.clone(),
-            status: detect_agent(entry, runtime, &node),
+        .map(|entry| {
+            // plugin 使用用户 DSH 的 runtime，按注册表最低版本判断是否需要升级。
+            if let Some(plugin) = plugin.filter(|_| entry.uses_dsh_runtime()) {
+                return DetectedAgent {
+                    entry: entry.clone(),
+                    status: if version_at_least(&plugin.version, &entry.minimum_version) {
+                        AgentStatus::Ready {
+                            version: plugin.version.clone(),
+                        }
+                    } else {
+                        AgentStatus::Outdated {
+                            found: plugin.version.clone(),
+                            required: entry.minimum_version.clone(),
+                        }
+                    },
+                    runtime: RuntimeProbe::plugin(plugin.version.clone(), plugin.dsh.clone()),
+                };
+            }
+            let runtime_probe = if entry.uses_dsh_runtime() {
+                probe_dsh_runtime(Some(entry), runtime)
+            } else {
+                RuntimeProbe::missing()
+            };
+            DetectedAgent {
+                entry: entry.clone(),
+                status: detect_agent(entry, runtime, &node),
+                runtime: runtime_probe,
+            }
         })
         .collect()
 }
@@ -155,6 +193,57 @@ pub fn detect_agent(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn plugin_form_wins_for_dsh_entry() {
+        let registry = Registry::builtin().expect("registry");
+        let plugin = crate::agent::dsh_plugin::DshPlugin {
+            dsh: std::path::PathBuf::from("/tmp/dsh"),
+            home: std::path::PathBuf::from("/tmp/dsh-home"),
+            version: "0.4.41".to_string(),
+        };
+        let rows = detect_all_with(&registry, None, Some(&plugin));
+        let dsh = rows
+            .iter()
+            .find(|row| row.entry.id == "deepseek")
+            .expect("deepseek row");
+        assert_eq!(
+            dsh.status,
+            AgentStatus::Ready {
+                version: "0.4.41".to_string()
+            }
+        );
+        assert_eq!(
+            dsh.runtime.source,
+            crate::agent::dsh_runtime::RuntimeSource::Plugin
+        );
+        assert_eq!(dsh.runtime.version.as_deref(), Some("0.4.41"));
+        // 非 DSH 条目不受 plugin 影响（没有 Node 时仍是 NodeUnavailable）。
+        let codex = rows
+            .iter()
+            .find(|row| row.entry.id == "codex")
+            .expect("codex");
+        assert!(matches!(codex.status, AgentStatus::NodeUnavailable { .. }));
+    }
+
+    #[test]
+    fn outdated_plugin_requires_registry_upgrade() {
+        let mut registry = Registry::builtin().expect("registry");
+        registry.agents.retain(|entry| entry.id == "deepseek");
+        let plugin = crate::agent::dsh_plugin::DshPlugin {
+            dsh: "/tmp/dsh".into(),
+            home: "/tmp/dsh-home".into(),
+            version: "0.4.40".into(),
+        };
+        let rows = detect_all_with(&registry, None, Some(&plugin));
+        assert_eq!(
+            rows[0].status,
+            AgentStatus::Outdated {
+                found: "0.4.40".into(),
+                required: "0.4.41".into(),
+            }
+        );
+    }
 
     #[test]
     fn parses_versions_from_cli_output() {

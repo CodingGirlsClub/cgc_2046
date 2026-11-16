@@ -622,6 +622,8 @@ fn submit_tool_completion_marks_learning_state_changed() {
             title: None,
             status: Some("completed".into()),
             output: None,
+            locations: None,
+            args: None,
         },
     );
     assert!(

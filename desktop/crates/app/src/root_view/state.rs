@@ -20,6 +20,14 @@ pub(in crate::root_view) enum NotesFilter {
     Retro,
 }
 
+/// 标题编辑开始时锁定的提交目标：之后切换/关闭实例，Blur 仍写回原目标。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::root_view) enum TitleEditTarget {
+    Terminal(String),
+    Native,
+    External,
+}
+
 /// 媒体（课程图片）的加载状态；只在内存缓存，不落盘。
 pub(in crate::root_view) enum MediaState {
     Loading,
@@ -305,6 +313,8 @@ pub struct ShellState {
     /// native 面板事件订阅：标题生成中/失败/完成时重绘 header。
     pub(in crate::root_view) native_agent_view_subscription: Option<Subscription>,
     pub(in crate::root_view) agent_panel_editing_title: bool,
+    /// 编辑开始时的提交目标：防止切换实例后 Blur 把标题写到新实例。
+    pub(in crate::root_view) agent_panel_title_edit_target: Option<TitleEditTarget>,
     pub(in crate::root_view) history_sidebar:
         Option<crate::root_view::history_sidebar::HistorySidebar>,
     pub(in crate::root_view) history_dirty_seen: u64,
@@ -315,10 +325,13 @@ pub struct ShellState {
     pub(in crate::root_view) agent_registry_loading: bool,
     pub(in crate::root_view) agent_registry_error: Option<String>,
     pub(in crate::root_view) agent_installing: Option<String>,
+    pub(in crate::root_view) agent_uninstalling: Option<String>,
     pub(in crate::root_view) agent_install_stage: Option<String>,
     pub(in crate::root_view) agent_auto_install_attempted: bool,
     pub(in crate::root_view) agent_install_error: Option<String>,
     pub(in crate::root_view) agent_registry_query: String,
+    /// ADR-0031 D3 opt-in：与本地 DSH 共享会话数据（切换后下一次新对话生效）。
+    pub(in crate::root_view) dsh_share_local_home: bool,
     pub(in crate::root_view) chat_input: Option<Entity<gpui_kit::component::input::TextareaState>>,
     pub(in crate::root_view) chat_input_subscription: Option<Subscription>,
     pub(in crate::root_view) chat_input_pending_clear: bool,
@@ -378,21 +391,14 @@ pub struct ShellState {
     pub(in crate::root_view) native_chat_mode: bool,
     pub(in crate::root_view) native_agent_view:
         Option<gpui_kit::Entity<crate::native_agent_view::NativeAgentView>>,
-    /// 终端视图（＋ 菜单 → Terminal）。存在即表示 agent panel 处于终端模式。
-    pub(in crate::root_view) terminal_view:
-        Option<gpui_kit::Entity<cgc_terminal_view::TerminalView>>,
+    /// 终端实例表（B1）：身份按 id，切到 agent 只隐藏，PTY 保留。
+    pub(in crate::root_view) terminal_panel: crate::root_view::terminal_panel::LiveTerminalPanel,
+    /// 启动恢复只尝试一次（登录态/scope 就绪后由 render 触发）。
+    pub(in crate::root_view) panel_restore_pending: bool,
+    /// 单实例锁：持有到进程退出；拿不到说明另一个实例在跑（跳过孤儿收尾与恢复）。
+    pub(in crate::root_view) instance_lock: Option<std::fs::File>,
     /// 应用主题变化订阅：切换主题时把新配色同步给已打开的终端。
     pub(in crate::root_view) theme_subscription: Option<Subscription>,
-    /// 上次终端的 cwd：新终端从该目录启动（终端关闭后仍保留）。
-    pub(in crate::root_view) last_terminal_cwd: Option<std::path::PathBuf>,
-    /// 当前终端会话 id（历史侧栏 terminal 行的 key）。
-    pub(in crate::root_view) terminal_session_id: Option<String>,
-    /// 终端是否占据面板内容（关闭面板内容不等于销毁终端，见 `dismiss_terminal_for_chat`）。
-    pub(in crate::root_view) terminal_visible: bool,
-    /// 当前终端启动时的工作目录（不依赖 shell 的 OSC 7，用于判断能否复用实例）。
-    pub(in crate::root_view) terminal_cwd: Option<std::path::PathBuf>,
-    /// 等待二次确认的替换目录（已有终端在跑时点历史记录）。
-    pub(in crate::root_view) pending_terminal_open: Option<std::path::PathBuf>,
     pub(in crate::root_view) native_runtime: Option<crate::native_runtime::NativeRuntimeHandle>,
     pub(in crate::root_view) native_scope: Option<crate::agent_scope::AgentScope>,
     pub(in crate::root_view) page_context: crate::page_context::PageContextState,
@@ -557,6 +563,7 @@ impl ShellState {
             agent_panel_title_subscription: None,
             native_agent_view_subscription: None,
             agent_panel_editing_title: false,
+            agent_panel_title_edit_target: None,
             history_sidebar: None,
             history_dirty_seen: 0,
             history_cleared_seen: 0,
@@ -565,10 +572,13 @@ impl ShellState {
             agent_registry_loading: false,
             agent_registry_error: None,
             agent_installing: None,
+            agent_uninstalling: None,
             agent_install_stage: None,
             agent_auto_install_attempted: false,
             agent_install_error: None,
             agent_registry_query: String::new(),
+            // 进入 Agent Registry 时从 prefs 刷新；构造期不读用户文件（测试隔离）。
+            dsh_share_local_home: false,
             agent_registry_search_focused: false,
             chat_input: None,
             chat_input_subscription: None,
@@ -608,13 +618,10 @@ impl ShellState {
             native_agent_highlight: None,
             native_chat_mode: crate::chat_state::load_native_chat_mode().unwrap_or(true),
             native_agent_view: None,
-            terminal_view: None,
+            terminal_panel: Default::default(),
+            panel_restore_pending: true,
+            instance_lock: None,
             theme_subscription: None,
-            last_terminal_cwd: None,
-            terminal_session_id: None,
-            terminal_visible: false,
-            terminal_cwd: None,
-            pending_terminal_open: None,
             native_runtime: None,
             native_scope: None,
             page_context: Default::default(),
