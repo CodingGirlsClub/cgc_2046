@@ -2847,15 +2847,27 @@ impl RootView {
 
     /// 关闭当前终端实例；回填日志后回落到最近激活的实例并转移焦点。
     pub fn close_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some((session_id, view, spawn_cwd)) = self.terminal_panel.active().map(|terminal| {
-            (
-                terminal.id.clone(),
-                terminal.view.clone(),
-                terminal.spawn_cwd.clone(),
-            )
-        }) else {
+        let Some(session_id) = self.terminal_panel.active_id().map(str::to_string) else {
             return;
         };
+        self.close_terminal_instance(session_id, window, cx);
+    }
+
+    /// 关闭指定实例；只有它被销毁，active 回落到最近激活的实例。
+    pub(in crate::root_view) fn close_terminal_instance(
+        &mut self,
+        session_id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some((view, spawn_cwd)) = self
+            .terminal_panel
+            .get(&session_id)
+            .map(|terminal| (terminal.view.clone(), terminal.spawn_cwd.clone()))
+        else {
+            return;
+        };
+        let was_active = self.terminal_panel.is_active(&session_id);
         let (cwd, title, cwd_text, exit_code) = {
             let view = view.read(cx);
             let osc_title = view.title().trim().to_string();
@@ -2878,12 +2890,14 @@ impl RootView {
         self.terminal_panel.set_last_cwd(cwd);
         self.terminal_panel.remove(&session_id);
         self.persist_panel_intent();
-        if let Some(view) = self
-            .terminal_panel
-            .active()
-            .map(|terminal| terminal.view.clone())
-        {
-            view.update(cx, |view, cx| view.focus(window, cx));
+        if was_active {
+            if let Some(view) = self
+                .terminal_panel
+                .active()
+                .map(|terminal| terminal.view.clone())
+            {
+                view.update(cx, |view, cx| view.focus(window, cx));
+            }
         }
         let closed_at = cgc_agent_store::now_utc_rfc3339();
         if let Err(error) = crate::acp_history::open_conversation_store().and_then(|store| {
@@ -2898,6 +2912,27 @@ impl RootView {
             log::warn!(target: "terminal", "回填终端会话失败：{error}");
         }
         self.chat.history = self.load_unified_history();
+        cx.notify();
+    }
+
+    /// ⌥⌘] / ⌥⌘[ 循环终端；隐藏（active=None）时先激活再轮转。
+    pub(in crate::root_view) fn cycle_terminal(
+        &mut self,
+        forward: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.terminal_panel.cycle(forward) {
+            return;
+        }
+        if let Some(view) = self
+            .terminal_panel
+            .active()
+            .map(|terminal| terminal.view.clone())
+        {
+            view.update(cx, |view, cx| view.focus(window, cx));
+        }
+        self.persist_panel_intent();
         cx.notify();
     }
 

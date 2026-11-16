@@ -312,6 +312,37 @@ impl RootView {
             );
         }
 
+        if let Some(terminal_id) = live_terminal_id {
+            let close_root = cx.entity().downgrade();
+            let close_id = terminal_id.to_string();
+            let group = group_name.clone();
+            action_buttons.push(
+                div()
+                    .id(format!("history-close-icon-{thread_id}"))
+                    .role(Role::Button)
+                    .aria_label("关闭终端")
+                    .size(px(18.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(RADIUS_SMALL))
+                    .text_color(palette.ink_3)
+                    .opacity(0.0)
+                    .group_hover(group, |style| style.opacity(1.0))
+                    .hover(|style| style.bg(palette.card))
+                    .child(div().text_size(px(12.0)).child("×"))
+                    .tooltip(move |window, cx| Tooltip::new("关闭终端").build(window, cx))
+                    .on_click(move |_, window, cx| {
+                        cx.stop_propagation();
+                        let close_id = close_id.clone();
+                        let _ = close_root.update(cx, |this, cx| {
+                            this.close_terminal_instance(close_id, window, cx);
+                        });
+                    })
+                    .into_any_element(),
+            );
+        }
+
         let mut row = div()
             .id(format!("history-row-{thread_id}"))
             .group(group_name)
