@@ -356,6 +356,7 @@ pub(in crate::root_view) fn header(
     let regenerate_root = root.clone();
     let settings_root = root.clone();
     let terminal_open = ctx.terminal_panel.active_id().is_some();
+    let terminal_count = ctx.terminal_panel.len();
 
     div()
         .id("agent-panel-header")
@@ -611,6 +612,22 @@ pub(in crate::root_view) fn header(
                             move |_, window, cx| {
                                 let _ = close_root
                                     .update(cx, |this, cx| this.close_terminal(window, cx));
+                            },
+                        ));
+                    }
+                    if terminal_count >= 2 {
+                        let next_root = settings_root.clone();
+                        menu = menu.item(PopupMenuItem::new("Next Terminal").on_click(
+                            move |_, window, cx| {
+                                let _ = next_root
+                                    .update(cx, |this, cx| this.cycle_terminal(true, window, cx));
+                            },
+                        ));
+                        let prev_root = settings_root.clone();
+                        menu = menu.item(PopupMenuItem::new("Previous Terminal").on_click(
+                            move |_, window, cx| {
+                                let _ = prev_root
+                                    .update(cx, |this, cx| this.cycle_terminal(false, window, cx));
                             },
                         ));
                     }
