@@ -18,6 +18,24 @@ develop→main 发布时把该段改名为 `## [发布日期]` 并重新立一�
 commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `miniprogram`）。
 ## [Unreleased]
 
+### Added
+
+- [Desktop] 新增 DeepSeek Harness 外部 Agent，支持复用本地 DSH 模型与会话，未安装 DSH 时使用内置运行时。
+
+### Changed
+
+- [Desktop] DeepSeek Harness 以 plugin 形态安装或升级时默认启用自动对话标题，保留用户显式关闭的设置。
+
+### Fixed
+
+- [Desktop] 修复外部 Agent 历史的重命名、归档和切换归属，鉴权重试继续恢复原会话，恢复后保留生成标题并使旧审批失效。
+- [Desktop] 修复 DSH profile 空值配置的标题插件安装和自定义数据目录卸载，忽略不可执行的 dsh 路径及停用的 Provider。
+- [Desktop] 修复 DSH 探测在 Windows 条件编译下的 lint 错误，恢复 Windows 桌面构建。
+- [Desktop] 修复 Windows 上 DSH CLI 的 `.exe` / `.cmd` / `.bat` 查找，避免本地 profile 被误判缺失。
+- [Desktop] 显式新建会话时清除待恢复目标，避免鉴权或恢复期间的新消息误用旧会话上下文。
+- [Desktop] DeepSeek 已就绪时提供重新安装入口，旧版 profile adapter 标记为待升级；本地 DSH 尚未安装 adapter 时也能初始化 profile 与自动标题配置，安装和卸载互斥。
+- [Desktop] DSH 会话恢复测试失败时不再在诊断日志打印会话标识符。
+
 ## [微信 v0.2.7] - 2026-11-15
 
 - [Miniprogram] 新增「登录密码」页面（`pages/account-password`）：学员可在小程序内修改登录密码；入口在登录页与「我的」页。密码规则判据下沉 `src/domain/password-center.ts`，由 `tests/password-center.test.ts` 钉住。

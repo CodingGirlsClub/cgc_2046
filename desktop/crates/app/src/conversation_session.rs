@@ -5,7 +5,9 @@ use crate::{
 };
 use cgc_agent_core::ImageAttachment;
 use cgc_agent_ui::conversation::{ConversationThread, ThreadCapabilities, ThreadStatus};
-use cgc_platform::acp::connection::{AcpHost, CommandView, ConfigOptionView, HostEvent};
+use cgc_platform::acp::connection::{
+    AcpHost, AuthMethodView, CommandView, ConfigOptionView, HostEvent,
+};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum ConnectionPhase {
@@ -13,6 +15,11 @@ pub enum ConnectionPhase {
     Idle,
     Starting,
     Ready,
+    /// DSH adapter 要求凭据：UI 收集 Key（只进 keychain）后重连。
+    AuthRequired {
+        message: String,
+        auth_methods: Vec<AuthMethodView>,
+    },
     Failed(String),
 }
 
@@ -229,6 +236,18 @@ impl ConversationSession {
                 self.in_flight = None;
                 self.turn_closed = true;
             }
+            HostEvent::AuthRequired {
+                message,
+                auth_methods,
+            } => {
+                self.last_error = Some(message.clone());
+                self.in_flight = None;
+                self.turn_closed = true;
+                self.phase = ConnectionPhase::AuthRequired {
+                    message: message.clone(),
+                    auth_methods: auth_methods.clone(),
+                };
+            }
             HostEvent::Error { message } => {
                 self.last_error = Some(message.clone());
                 self.in_flight = None;
@@ -239,7 +258,10 @@ impl ConversationSession {
                 self.in_flight = None;
                 self.ready_for_next = false;
                 self.turn_closed = true;
-                if !matches!(self.phase, ConnectionPhase::Failed(_)) {
+                if !matches!(
+                    self.phase,
+                    ConnectionPhase::Failed(_) | ConnectionPhase::AuthRequired { .. }
+                ) {
                     self.phase = ConnectionPhase::Failed("agent connection exited".into());
                 }
             }
@@ -287,8 +309,24 @@ impl ConversationSession {
         true
     }
     pub(crate) fn restore_thread(&mut self, mut thread: ConversationThread) {
+        use cgc_agent_ui::conversation::{Entry, NoticeLevel};
+
         thread.status = ThreadStatus::Idle;
         thread.pending_permission = None;
+        // 旧正文没有 snapshot 的净化；恢复后与 snapshot 一样只展示失效审批。
+        for entry in &mut thread.entries {
+            if let Entry::Permission {
+                title,
+                resolved: None,
+                ..
+            } = entry
+            {
+                *entry = Entry::Notice {
+                    level: NoticeLevel::Warning,
+                    text: format!("审批已失效（会话中断）：{title}"),
+                };
+            }
+        }
         self.thread = thread;
         self.in_flight = None;
         self.last_error = None;

@@ -11,9 +11,10 @@ use std::time::{Duration, Instant};
 
 use agent_client_protocol::schema::v1::{
     AgentCapabilities, CancelNotification, ContentBlock, ContentChunk, CurrentModeUpdate,
-    InitializeRequest, InitializeResponse, NewSessionRequest, NewSessionResponse, PermissionOption,
-    PermissionOptionKind, Plan, PlanEntry, PlanEntryPriority, PlanEntryStatus, PromptRequest,
-    PromptResponse, RequestPermissionOutcome, RequestPermissionRequest, SessionId,
+    InitializeRequest, InitializeResponse, ListSessionsRequest, ListSessionsResponse,
+    NewSessionRequest, NewSessionResponse, PermissionOption, PermissionOptionKind, Plan, PlanEntry,
+    PlanEntryPriority, PlanEntryStatus, PromptRequest, PromptResponse, RequestPermissionOutcome,
+    RequestPermissionRequest, ResumeSessionRequest, ResumeSessionResponse, SessionId, SessionInfo,
     SessionNotification, SessionUpdate, StopReason, TextContent, ToolCall, ToolCallStatus,
     ToolCallUpdate, ToolCallUpdateFields, UsageUpdate,
 };
@@ -553,5 +554,100 @@ fn in_process_stop_cancels_turn() {
         std::thread::sleep(Duration::from_millis(20));
     }
     assert!(agent_cancelled, "agent must receive session/cancel");
+    host.shutdown();
+}
+
+#[test]
+fn session_load_falls_back_to_resume_when_method_is_unsupported() {
+    let resumed: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+    let seen = resumed.clone();
+    let agent = base_agent().on_receive_request(
+        async move |request: ResumeSessionRequest, responder, _cx| {
+            *seen.lock().expect("resume seen") = Some(request.session_id.0.to_string());
+            responder.respond(ResumeSessionResponse::new())
+        },
+        on_receive_request!(),
+    );
+    let host =
+        AcpHost::start_in_process(config("resume").with_load_session("resume-session"), agent)
+            .expect("start host");
+    let mut events = Vec::new();
+    assert!(
+        wait_for(
+            &host,
+            &mut events,
+            |event| matches!(
+                event,
+                cgc_platform::acp::connection::HostEvent::Ready { .. }
+            ),
+            Duration::from_secs(10),
+        ),
+        "ready after resume fallback: {events:?}"
+    );
+    let ready = events
+        .iter()
+        .find_map(|event| match event {
+            cgc_platform::acp::connection::HostEvent::Ready { session_id, .. } => {
+                Some(session_id.clone())
+            }
+            _ => None,
+        })
+        .expect("ready");
+    assert_eq!(ready, "resume-session");
+    assert_eq!(
+        resumed.lock().expect("resume seen").as_deref(),
+        Some("resume-session")
+    );
+    host.shutdown();
+}
+
+#[test]
+fn session_list_sends_cwd_filter_and_emits_sessions() {
+    let seen_cwd: Arc<Mutex<Option<std::path::PathBuf>>> = Arc::new(Mutex::new(None));
+    let capture = seen_cwd.clone();
+    let agent = base_agent().on_receive_request(
+        async move |request: ListSessionsRequest, responder, _cx| {
+            *capture.lock().expect("cwd seen") = request.cwd.clone();
+            let cwd = request.cwd.clone().expect("cwd filter");
+            responder.respond(ListSessionsResponse::new(vec![SessionInfo::new(
+                "listed-session",
+                cwd,
+            )
+            .title(Some("listed title".to_string()))
+            .updated_at(Some("2026-11-12T10:00:00Z".to_string()))]))
+        },
+        on_receive_request!(),
+    );
+    let config = config("list").with_list_sessions_after_ready(true);
+    let expected_cwd = config.cwd.clone();
+    let host = AcpHost::start_in_process(config, agent).expect("start host");
+    let mut events = Vec::new();
+    assert!(
+        wait_for(
+            &host,
+            &mut events,
+            |event| matches!(
+                event,
+                cgc_platform::acp::connection::HostEvent::Sessions { .. }
+            ),
+            Duration::from_secs(10),
+        ),
+        "sessions event: {events:?}"
+    );
+    assert_eq!(
+        seen_cwd.lock().expect("cwd seen").as_deref(),
+        Some(expected_cwd.as_path()),
+        "session/list must carry the launch cwd filter"
+    );
+    let sessions = events
+        .iter()
+        .find_map(|event| match event {
+            cgc_platform::acp::connection::HostEvent::Sessions { sessions } => Some(sessions),
+            _ => None,
+        })
+        .expect("sessions");
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions[0].session_id, "listed-session");
+    assert_eq!(sessions[0].title.as_deref(), Some("listed title"));
     host.shutdown();
 }

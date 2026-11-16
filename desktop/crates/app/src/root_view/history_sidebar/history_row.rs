@@ -52,7 +52,7 @@ impl RootView {
                 HistorySource::Terminal => "Terminal".to_string(),
                 _ => "未命名对话".to_string(),
             });
-        let agent_label = entry.agent_label().to_string();
+        let agent_label = acp_history::agent_display_name(entry.agent_label());
         let time_label = acp_history::relative_time_label(&entry.updated_at, now);
         let home = crate::root_view::controller::home_dir()
             .and_then(|path| path.to_str().map(str::to_string));

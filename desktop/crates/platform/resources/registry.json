@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-10-21",
+  "generated_at": "2026-11-12",
   "node_runtime": {
     "required": "24.0.0",
     "note": "客户端管理的 Node.js 24 LTS；用于 codex-acp / @zed-industries/claude-agent-acp 的 npx 分发"
@@ -53,6 +53,23 @@
       "minimum_version": "0.94.0",
       "mcp_server_name": "cgc-2046-learning",
       "login_hint": "在系统浏览器完成 Anthropic 登录；凭证归用户所有"
+    },
+    {
+      "id": "deepseek",
+      "display_name": "DeepSeek Harness",
+      "distribution": {
+        "kind": "npx",
+        "package": "@openma/deepseek-harness-acp",
+        "version": "0.4.41",
+        "node": "24"
+      },
+      "launch": {
+        "args": []
+      },
+      "minimum_version": "0.4.41",
+      "mcp_server_name": "cgc-2046-learning",
+      "login_hint": "使用 DeepSeek API Key；客户端从本机钥匙串读取并只注入子进程环境",
+      "download_hint": "https://dshsuite.dev/"
     }
   ]
 }
