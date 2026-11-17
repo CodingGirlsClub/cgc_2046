@@ -185,6 +185,48 @@ defmodule Cgc2046.LlmGateway.LedgerTest do
 
       assert log.charged_mc == 10_000
     end
+
+    test "never deducts more than the grant buckets actually cover" do
+      user = register_user("ledger-underfunded")
+      {:ok, _} = Ledger.grant_personal_credits(user.id, %{amount_mc: 10_000, source_type: :pack})
+
+      # 模拟账本不一致：钱包缓存比批次多 5_000。正常写路径不会产生，
+      # 这里钉住「扣费不得超过 grants 实际可扣额」的防御性上限。
+      Repo.query!(
+        "UPDATE llm_wallets SET cached_balance_mc = cached_balance_mc + $2 WHERE user_id = $1",
+        [Ecto.UUID.dump!(user.id), 5_000]
+      )
+
+      assert {:ok, _} = Ledger.acquire_hold(user.id, 5_000)
+
+      assert {:ok, wallet} =
+               Ledger.settle_usage(user.id, 5_000, %{
+                 logical_model: "cgc-default",
+                 upstream_channel: "deepseek_official_1",
+                 upstream_model: "deepseek-chat",
+                 billing_mode: :exact,
+                 charged_mc: 15_000,
+                 upstream_cost_mc: 7_000
+               })
+
+      assert wallet.cached_balance_mc == 5_000
+      assert wallet.held_mc == 0
+
+      [grant] =
+        CreditGrant
+        |> Ash.read!(authorize?: false)
+        |> Enum.filter(&(&1.user_id == user.id))
+
+      assert grant.remaining_mc == 0
+      assert grant.status == :exhausted
+
+      [log] =
+        UsageLog
+        |> Ash.read!(authorize?: false)
+        |> Enum.filter(&(&1.user_id == user.id))
+
+      assert log.charged_mc == 10_000
+    end
   end
 
   describe "CreditExpiryWorker" do

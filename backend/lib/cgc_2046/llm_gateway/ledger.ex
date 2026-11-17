@@ -355,7 +355,8 @@ defmodule Cgc2046.LlmGateway.Ledger do
 
           actual_deduct_mc = min(charged_mc, available_mc)
 
-          deduct_from_grants_fifo!(wallet_id_bin, actual_deduct_mc, now)
+          leftover_mc = deduct_from_grants_fifo!(wallet_id_bin, actual_deduct_mc, now)
+          actual_deduct_mc = actual_deduct_mc - leftover_mc
 
           Repo.query!(
             """
@@ -459,7 +460,7 @@ defmodule Cgc2046.LlmGateway.Ledger do
     {length(grants), expired_sum}
   end
 
-  defp deduct_from_grants_fifo!(_wallet_id_bin, 0, _now), do: :ok
+  defp deduct_from_grants_fifo!(_wallet_id_bin, 0, _now), do: 0
 
   defp deduct_from_grants_fifo!(wallet_id_bin, amount_to_deduct, now)
        when amount_to_deduct > 0 do
@@ -498,8 +499,6 @@ defmodule Cgc2046.LlmGateway.Ledger do
         {:cont, left - take}
       end
     end)
-
-    :ok
   end
 
   defp fetch_batch(ws_uuid, idempotency_key) do
