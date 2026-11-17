@@ -100,8 +100,8 @@ defmodule Cgc2046Web.Router do
 
   # LLM Gateway（Phase 2）：OpenAI-compatible chat completions 流式入口。
   # 复用 MCP bearer token 鉴权；全局 Plug.Parsers 已处理 JSON body。
+  # 不做 :accepts 内容协商——SSE 客户端通常发送 Accept: text/event-stream。
   pipeline :llm_gateway do
-    plug(:accepts, ["json"])
     plug(Cgc2046Web.Plugs.McpAuthPlug)
   end
 

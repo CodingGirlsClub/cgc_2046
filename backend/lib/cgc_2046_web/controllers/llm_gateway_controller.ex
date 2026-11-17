@@ -197,13 +197,11 @@ defmodule Cgc2046Web.LlmGatewayController do
             false
           )
 
-        {:error, reason} ->
-          state = Process.get(@process_state_key, %{})
-          committed? = Map.get(state, :chunked_started?, false)
-          final_conn = if committed?, do: Map.get(state, :conn, conn), else: conn
+        {:error, reason, final_acc} ->
+          committed? = Map.get(final_acc, :chunked_started?, false)
 
           handle_pre_stream_failure(
-            final_conn,
+            Map.get(final_acc, :conn, conn),
             params,
             channel,
             rest_candidates,

@@ -184,7 +184,7 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
         build_conn()
         |> put_req_header("authorization", "Bearer #{raw_token}")
         |> put_req_header("content-type", "application/json")
-        |> put_req_header("accept", "application/json")
+        |> put_req_header("accept", "text/event-stream")
         |> post("/v1/chat/completions", %{
           "model" => "cgc-default",
           "messages" => [%{"role" => "user", "content" => "Hello DeepSeek"}]
