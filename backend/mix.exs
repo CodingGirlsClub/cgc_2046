@@ -73,6 +73,9 @@ defmodule Cgc2046.MixProject do
       {:anubis_mcp, "~> 2.0"},
       {:cors_plug, "~> 3.0"},
       {:oban, "~> 2.20"},
+      # LLM Gateway Phase 2：上游渠道熔断器（fuse 已在 lock 中作为 jido_signal/
+      # tesla 的传递依赖，此处提升为直接依赖，零新增下载）。Phase 1 账本不依赖它。
+      {:fuse, "~> 2.5"},
       # 缴费闭环 U4：渠道边界 adapter（ADR-0007 平台统一商户号）。两 SDK 均
       # Apache-2.0（license gate 过）；wechat 引入 tesla/finch，与既有 req 并存。
       # saxy/x509：wechat 支付 APIv3 平台证书解析/验签（MIT/BSD-3，SDK optional deps）。
