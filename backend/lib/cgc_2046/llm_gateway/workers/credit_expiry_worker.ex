@@ -1,11 +1,16 @@
 defmodule Cgc2046.LlmGateway.Workers.CreditExpiryWorker do
   @moduledoc """
   周期性把到期的 active 额度批次标记为 `expired`，并从钱包缓存余额中扣除
-  未用部分。使用 `FOR UPDATE SKIP LOCKED`，多实例/重入不会重复扣减。
+  未用部分。
+
+  锁序与 `Cgc2046.LlmGateway.Ledger.settle_usage/3` 一致：先锁 wallet、再锁
+  grants。wallet 用 `FOR UPDATE SKIP LOCKED`，与结算并发时跳过、下一拍重试，
+  不会形成「结算持 wallet 等 grant、Worker 持 grant 等 wallet」的环。
   """
 
   use Oban.Worker, queue: :maintenance, max_attempts: 3
 
+  alias Cgc2046.LlmGateway.Ledger
   alias Cgc2046.Repo
 
   @impl Oban.Worker
@@ -13,44 +18,32 @@ defmodule Cgc2046.LlmGateway.Workers.CreditExpiryWorker do
     now = DateTime.utc_now()
 
     Repo.transaction(fn ->
-      expired_rows =
+      wallet_ids =
         Repo.query!(
           """
-          SELECT id, wallet_id, remaining_mc
+          SELECT DISTINCT wallet_id
           FROM llm_credit_grants
           WHERE status = 'active'
             AND expires_at IS NOT NULL
             AND expires_at <= $1
-          FOR UPDATE SKIP LOCKED
           """,
           [now]
         ).rows
+        |> Enum.map(fn [wallet_id] -> wallet_id end)
+        |> Enum.sort()
 
-      Enum.each(expired_rows, fn [grant_id_bin, wallet_id_bin, remaining_mc] ->
-        Repo.query!(
-          """
-          UPDATE llm_credit_grants
-          SET remaining_mc = 0, status = 'expired', updated_at = $2
-          WHERE id = $1
-          """,
-          [grant_id_bin, now]
-        )
-
-        if remaining_mc > 0 do
+      locked_wallet_ids =
+        Enum.filter(wallet_ids, fn wallet_id_bin ->
           Repo.query!(
-            """
-            UPDATE llm_wallets
-            SET cached_balance_mc = GREATEST(0, cached_balance_mc - $2),
-                held_mc = LEAST(held_mc, GREATEST(0, cached_balance_mc - $2)),
-                updated_at = $3
-            WHERE id = $1
-            """,
-            [wallet_id_bin, remaining_mc, now]
-          )
-        end
-      end)
+            "SELECT id FROM llm_wallets WHERE id = $1 FOR UPDATE SKIP LOCKED",
+            [wallet_id_bin]
+          ).rows != []
+        end)
 
-      length(expired_rows)
+      Enum.reduce(locked_wallet_ids, 0, fn wallet_id_bin, count ->
+        {expired_count, _expired_sum} = Ledger.expire_wallet_grants!(wallet_id_bin, now)
+        count + expired_count
+      end)
     end)
 
     :ok

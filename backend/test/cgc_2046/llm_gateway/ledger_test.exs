@@ -137,6 +137,54 @@ defmodule Cgc2046.LlmGateway.LedgerTest do
 
       assert log.charged_mc == 6_000
     end
+
+    test "reconciles past-due credits before computing the charge" do
+      user = register_user("ledger-expired-settle")
+      past = DateTime.add(DateTime.utc_now(), -60, :second)
+
+      {:ok, _} =
+        Ledger.grant_personal_credits(user.id, %{amount_mc: 10_000, source_type: :pack})
+
+      {:ok, _} =
+        Ledger.grant_personal_credits(user.id, %{
+          amount_mc: 5_000,
+          source_type: :subscription,
+          expires_at: past
+        })
+
+      assert {:ok, _} = Ledger.acquire_hold(user.id, 5_000)
+
+      assert {:ok, wallet} =
+               Ledger.settle_usage(user.id, 5_000, %{
+                 logical_model: "cgc-default",
+                 upstream_channel: "deepseek_official_1",
+                 upstream_model: "deepseek-chat",
+                 billing_mode: :exact,
+                 charged_mc: 10_000,
+                 upstream_cost_mc: 5_000
+               })
+
+      assert wallet.cached_balance_mc == 0
+      assert wallet.held_mc == 0
+
+      grants =
+        CreditGrant
+        |> Ash.read!(authorize?: false)
+        |> Enum.filter(&(&1.user_id == user.id))
+        |> Map.new(&{&1.source_type, &1})
+
+      assert grants[:subscription].status == :expired
+      assert grants[:subscription].remaining_mc == 0
+      assert grants[:pack].status == :exhausted
+      assert grants[:pack].remaining_mc == 0
+
+      [log] =
+        UsageLog
+        |> Ash.read!(authorize?: false)
+        |> Enum.filter(&(&1.user_id == user.id))
+
+      assert log.charged_mc == 10_000
+    end
   end
 
   describe "CreditExpiryWorker" do
