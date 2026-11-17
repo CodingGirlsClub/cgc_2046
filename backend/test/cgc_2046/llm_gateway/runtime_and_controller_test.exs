@@ -220,5 +220,48 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
       LeaseManager.release_slot(user.id)
       assert LeaseManager.active_streams_count(user.id) == 0
     end
+
+    test "waives the charge when the upstream transport is unreachable" do
+      user = register_user("gateway-dead-upstream")
+      {:ok, _record, raw_token} = McpToken.issue("gateway-test", user, :terminal)
+
+      {:ok, _} =
+        Ledger.grant_personal_credits(user.id, %{amount_mc: 500_000, source_type: :pack})
+
+      dead_channels = [
+        %{
+          id: "dead_upstream",
+          provider: :deepseek,
+          base_url: "http://127.0.0.1:1",
+          api_key: "test-dead",
+          chat_path: "/chat/completions",
+          models: %{
+            "cgc-default" => "deepseek-chat",
+            "cgc-reasoning" => "deepseek-reasoner",
+            "cgc-background" => "deepseek-chat"
+          }
+        }
+      ]
+
+      Application.put_env(:cgc_2046, :llm_gateway_channels, dead_channels)
+      AffinityRouter.setup!()
+      :fuse.reset(:llm_fuse_dead_upstream)
+
+      conn =
+        build_conn()
+        |> put_req_header("authorization", "Bearer #{raw_token}")
+        |> put_req_header("content-type", "application/json")
+        |> put_req_header("accept", "text/event-stream")
+        |> post("/v1/chat/completions", %{
+          "model" => "cgc-default",
+          "messages" => [%{"role" => "user", "content" => "Hello"}]
+        })
+
+      assert %{"error" => %{"code" => "upstream_unavailable"}} = json_response(conn, 502)
+
+      wallet = Ledger.fetch_wallet!(user.id)
+      assert wallet.cached_balance_mc == 500_000
+      assert wallet.held_mc == 0
+    end
   end
 end
