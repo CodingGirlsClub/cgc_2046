@@ -9,6 +9,9 @@ defmodule Cgc2046.LlmGateway.AffinityRouter do
 
   @ets_table :llm_session_affinity
   @affinity_ttl_seconds 7_200
+  @max_output_tokens 8_192
+  @default_output_tokens 4_096
+  @background_output_tokens 1_024
 
   @default_channels [
     %{
@@ -40,6 +43,20 @@ defmodule Cgc2046.LlmGateway.AffinityRouter do
     end
 
     Enum.each(configured_channels(), fn channel -> install_fuse(channel.id) end)
+    :ok
+  end
+
+  @doc """
+  删除已过期的会话粘性条目；由 `AffinityStore` 周期调用，测试可直接调用。
+  """
+  def cleanup_expired! do
+    setup!()
+    now = System.system_time(:second)
+
+    :ets.select_delete(@ets_table, [
+      {{:_, :_, :"$1"}, [{:"=<", :"$1", now}], [true]}
+    ])
+
     :ok
   end
 
@@ -180,17 +197,24 @@ defmodule Cgc2046.LlmGateway.AffinityRouter do
         params
       end
 
-    if logical_model == "cgc-background" do
+    output_limit =
       case Map.get(params, "max_tokens") do
-        max_tokens when is_integer(max_tokens) ->
-          Map.put(params, "max_tokens", min(max_tokens, 1024))
+        max_tokens when is_integer(max_tokens) and max_tokens > 0 ->
+          if logical_model == "cgc-background" do
+            min(max_tokens, @background_output_tokens)
+          else
+            min(max_tokens, @max_output_tokens)
+          end
 
         _ ->
-          Map.put(params, "max_tokens", 1024)
+          if logical_model == "cgc-background" do
+            @background_output_tokens
+          else
+            @default_output_tokens
+          end
       end
-    else
-      params
-    end
+
+    Map.put(params, "max_tokens", output_limit)
   end
 
   defp resolve_sticky_primary(affinity_key, pool, now) do
@@ -200,6 +224,10 @@ defmodule Cgc2046.LlmGateway.AffinityRouter do
           nil -> bind_new_channel(affinity_key, pool, now)
           channel -> channel
         end
+
+      [{^affinity_key, _bound_channel_id, _expires_at}] ->
+        :ets.delete(@ets_table, affinity_key)
+        bind_new_channel(affinity_key, pool, now)
 
       _ ->
         bind_new_channel(affinity_key, pool, now)

@@ -126,9 +126,62 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
 
       assert bg_cleaned["max_tokens"] == 1024
     end
+
+    test "evicts expired session-affinity entries" do
+      key = "session:expired-#{Ecto.UUID.generate()}"
+
+      :ets.insert(
+        :llm_session_affinity,
+        {key, "ds_primary_1", System.system_time(:second) - 1}
+      )
+
+      assert :ets.lookup(:llm_session_affinity, key) != []
+      assert :ok = AffinityRouter.cleanup_expired!()
+      assert :ets.lookup(:llm_session_affinity, key) == []
+    end
   end
 
   describe "TokenizerAndPricing exact vs abort billing" do
+    test "pre-flight hold scales with the effective output limit" do
+      [channel | _] = AffinityRouter.configured_channels()
+
+      params = %{
+        "model" => "cgc-default",
+        "max_tokens" => 8192,
+        "messages" => [%{"role" => "user", "content" => "Hello"}]
+      }
+
+      {_, _, prepared} = AffinityRouter.prepare_upstream_payload(params, channel)
+      assert prepared["max_tokens"] == 8192
+
+      hold_large =
+        TokenizerAndPricing.estimate_pre_flight_hold_mc(prepared, "deepseek-chat")
+
+      hold_small =
+        TokenizerAndPricing.estimate_pre_flight_hold_mc(
+          Map.put(prepared, "max_tokens", 1024),
+          "deepseek-chat"
+        )
+
+      assert hold_large > hold_small
+
+      {_, _, capped} =
+        AffinityRouter.prepare_upstream_payload(
+          %{"model" => "cgc-default", "max_tokens" => 100_000, "messages" => params["messages"]},
+          channel
+        )
+
+      assert capped["max_tokens"] == 8192
+
+      {_, _, defaulted} =
+        AffinityRouter.prepare_upstream_payload(
+          %{"model" => "cgc-default", "messages" => params["messages"]},
+          channel
+        )
+
+      assert defaulted["max_tokens"] == 4096
+    end
+
     test "uses official usage for exact billing and Tiktoken estimate when usage is nil" do
       sse_chunk = """
       data: {"choices":[{"delta":{"reasoning_content":"先思考一下架构。"}}]}

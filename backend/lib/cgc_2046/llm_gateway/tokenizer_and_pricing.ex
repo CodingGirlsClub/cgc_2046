@@ -86,10 +86,19 @@ defmodule Cgc2046.LlmGateway.TokenizerAndPricing do
     prompt_tokens = count_request_prompt_tokens(params)
     rates = rates_for(upstream_model)
 
+    output_tokens =
+      case Map.get(params, "max_tokens") do
+        max_tokens when is_integer(max_tokens) and max_tokens > 0 ->
+          max_tokens
+
+        _ ->
+          @default_hold_output_tokens
+      end
+
     raw_cost_mc =
       div(
         prompt_tokens * rates.cache_miss_mc +
-          @default_hold_output_tokens * rates.output_mc,
+          output_tokens * rates.output_mc,
         1_000_000
       )
 

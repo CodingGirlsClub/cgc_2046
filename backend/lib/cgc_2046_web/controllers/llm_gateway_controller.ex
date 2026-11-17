@@ -29,11 +29,13 @@ defmodule Cgc2046Web.LlmGatewayController do
       primary = hd(candidates)
       wallet = Ledger.ensure_wallet!(user.id)
 
-      {logical_model, initial_upstream_model, _} =
+      {logical_model, initial_upstream_model, initial_payload} =
         AffinityRouter.prepare_upstream_payload(params, primary)
 
       prompt_tokens = TokenizerAndPricing.count_request_prompt_tokens(params)
-      hold_mc = TokenizerAndPricing.estimate_pre_flight_hold_mc(params, initial_upstream_model)
+
+      hold_mc =
+        TokenizerAndPricing.estimate_pre_flight_hold_mc(initial_payload, initial_upstream_model)
 
       case LeaseManager.acquire_slot(user.id, wallet.max_concurrent_streams) do
         :ok ->
@@ -89,6 +91,7 @@ defmodule Cgc2046Web.LlmGatewayController do
       output_iodata: [],
       reasoning_iodata: [],
       sse_buffer: "",
+      error_body: [],
       official_usage: nil,
       first_chunk_sent?: false,
       chunked_started?: false,
@@ -159,94 +162,105 @@ defmodule Cgc2046Web.LlmGatewayController do
       upstream_model: upstream_model
     })
 
-    url = AffinityRouter.chat_url(channel)
-
-    headers = [
-      {"content-type", "application/json"},
-      {"accept", "text/event-stream"},
-      {"authorization", "Bearer #{channel.api_key}"}
-    ]
-
-    body = Jason.encode!(upstream_payload)
     finch_name = Application.get_env(:cgc_2046, :llm_gateway_finch, Cgc2046.LlmGateway.Finch)
 
-    initial_acc = %{
-      conn: conn,
-      status: nil,
-      chunked_started?: false,
-      error_body: []
-    }
-
-    req = Finch.build(:post, url, headers, body)
+    req =
+      Req.new(
+        url: AffinityRouter.chat_url(channel),
+        method: :post,
+        headers: [
+          {"content-type", "application/json"},
+          {"accept", "text/event-stream"},
+          {"authorization", "Bearer #{channel.api_key}"}
+        ],
+        body: Jason.encode!(upstream_payload),
+        finch: finch_name,
+        retry: false,
+        redirect: false,
+        decode_body: false,
+        into: fn {:data, data}, {req, resp} ->
+          case handle_req_data(data, resp.status, start_ms) do
+            :cont -> {:cont, {req, resp}}
+            :halt -> {:halt, {req, resp}}
+          end
+        end
+      )
 
     try do
-      case Finch.stream(req, finch_name, initial_acc, fn message, acc ->
-             handle_finch_message(message, acc, start_ms)
-           end) do
-        {:ok, %{status: status, conn: final_conn}} when status in 200..299 ->
-          final_conn
+      result = Req.request(req)
+      state = Process.get(@process_state_key, %{})
 
-        {:ok, %{status: status, error_body: error_body, conn: final_conn}} ->
+      case result do
+        {:ok, %Req.Response{status: status}} ->
+          cond do
+            Map.get(state, :aborted?, false) ->
+              Map.get(state, :conn, conn)
+
+            status in 200..299 ->
+              if Map.get(state, :chunked_started?, false) do
+                Map.get(state, :conn, conn)
+              else
+                start_sse(Map.get(state, :conn, conn))
+              end
+
+            true ->
+              handle_pre_stream_failure(
+                Map.get(state, :conn, conn),
+                params,
+                channel,
+                rest_candidates,
+                start_ms,
+                {:http_error, status, IO.iodata_to_binary(Map.get(state, :error_body, []))},
+                false
+              )
+          end
+
+        {:error, exception} ->
+          committed? = Map.get(state, :chunked_started?, false)
+
           handle_pre_stream_failure(
-            final_conn,
+            Map.get(state, :conn, conn),
             params,
             channel,
             rest_candidates,
             start_ms,
-            {:http_error, status, IO.iodata_to_binary(error_body)},
-            false
-          )
-
-        {:error, reason, final_acc} ->
-          committed? = Map.get(final_acc, :chunked_started?, false)
-
-          handle_pre_stream_failure(
-            Map.get(final_acc, :conn, conn),
-            params,
-            channel,
-            rest_candidates,
-            start_ms,
-            {:transport_error, reason},
+            {:transport_error, exception},
             committed?
           )
       end
     catch
-      {:downstream_closed, closed_conn} ->
-        closed_conn
+      {:downstream_closed, closed_conn} -> closed_conn
     end
   end
 
-  defp handle_finch_message({:status, status}, acc, _start_ms) do
-    %{acc | status: status}
-  end
+  defp handle_req_data(data, status, start_ms) do
+    state = Process.get(@process_state_key, %{})
 
-  defp handle_finch_message({:headers, _headers}, acc, _start_ms) do
-    if acc.status in 200..299 and not acc.chunked_started? do
-      chunked_conn =
-        acc.conn
-        |> put_resp_content_type("text/event-stream")
-        |> put_resp_header("cache-control", "no-cache")
-        |> put_resp_header("x-accel-buffering", "no")
-        |> send_chunked(200)
+    if is_integer(status) and status in 200..299 do
+      conn =
+        if Map.get(state, :chunked_started?, false) do
+          Map.get(state, :conn)
+        else
+          start_sse(Map.get(state, :conn))
+        end
 
-      update_process_state(%{chunked_started?: true, conn: chunked_conn})
-      %{acc | conn: chunked_conn, chunked_started?: true}
+      update_process_state(%{chunked_started?: true, conn: conn})
+
+      case handle_stream_data(conn, data, start_ms) do
+        {:cont, next_conn} ->
+          update_process_state(%{conn: next_conn})
+          :cont
+
+        {:halt, _conn} ->
+          :halt
+      end
     else
-      acc
+      update_process_state(%{error_body: [Map.get(state, :error_body, []) | data]})
+      :cont
     end
   end
 
-  defp handle_finch_message({:data, data}, acc, start_ms) do
-    if acc.status in 200..299 do
-      handle_sse_data_chunk(acc, data, start_ms)
-    else
-      %{acc | error_body: [acc.error_body, data]}
-    end
-  end
-
-  defp handle_finch_message(_message, acc, _start_ms), do: acc
-
-  defp handle_sse_data_chunk(acc, data, start_ms) do
+  defp handle_stream_data(conn, data, start_ms) do
     state = Process.get(@process_state_key, %{})
 
     ttfb_ms =
@@ -268,15 +282,22 @@ defmodule Cgc2046Web.LlmGatewayController do
 
     Process.put(@process_state_key, new_state)
 
-    case Plug.Conn.chunk(acc.conn, data) do
+    case Plug.Conn.chunk(conn, data) do
       {:ok, next_conn} ->
-        update_process_state(%{conn: next_conn})
-        %{acc | conn: next_conn}
+        {:cont, next_conn}
 
       {:error, _closed_reason} ->
         update_process_state(%{aborted?: true})
-        throw({:downstream_closed, acc.conn})
+        {:halt, conn}
     end
+  end
+
+  defp start_sse(conn) do
+    conn
+    |> put_resp_content_type("text/event-stream")
+    |> put_resp_header("cache-control", "no-cache")
+    |> put_resp_header("x-accel-buffering", "no")
+    |> send_chunked(200)
   end
 
   defp split_sse_frames(buffer) do
