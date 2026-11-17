@@ -41,7 +41,7 @@ defmodule Cgc2046Web.LlmGatewayController do
       case LeaseManager.acquire_slot(user.id, wallet.max_concurrent_streams) do
         :ok ->
           case Ledger.acquire_hold(user.id, hold_mc) do
-            {:ok, _held_wallet} ->
+            {:ok, held_wallet} ->
               run_stream(
                 conn,
                 params,
@@ -53,7 +53,8 @@ defmodule Cgc2046Web.LlmGatewayController do
                 initial_upstream_model,
                 initial_pricing_model,
                 prompt_tokens,
-                hold_mc
+                hold_mc,
+                held_wallet.hold_id
               )
 
             {:error, reason} ->
@@ -83,7 +84,8 @@ defmodule Cgc2046Web.LlmGatewayController do
          initial_upstream_model,
          initial_pricing_model,
          prompt_tokens,
-         hold_mc
+         hold_mc,
+         hold_id
        ) do
     start_ms = System.monotonic_time(:millisecond)
 
@@ -120,11 +122,28 @@ defmodule Cgc2046Web.LlmGatewayController do
     after
       final_state = Process.get(@process_state_key, initial_state)
       duration_ms = System.monotonic_time(:millisecond) - start_ms
-      settle_and_release(user.id, hold_mc, prompt_tokens, final_state, session_id, duration_ms)
+
+      settle_and_release(
+        user.id,
+        hold_mc,
+        prompt_tokens,
+        final_state,
+        session_id,
+        duration_ms,
+        hold_id
+      )
     end
   end
 
-  defp settle_and_release(user_id, hold_mc, prompt_tokens, state, session_id, duration_ms) do
+  defp settle_and_release(
+         user_id,
+         hold_mc,
+         prompt_tokens,
+         state,
+         session_id,
+         duration_ms,
+         hold_id
+       ) do
     try do
       settlement =
         TokenizerAndPricing.calculate_settlement(
@@ -143,7 +162,7 @@ defmodule Cgc2046Web.LlmGatewayController do
           duration_ms: duration_ms
         })
 
-      case Ledger.settle_usage(user_id, hold_mc, usage_attrs) do
+      case Ledger.settle_usage(user_id, hold_mc, usage_attrs, hold_id: hold_id) do
         {:ok, _wallet} -> :ok
         {:error, reason} -> Logger.error("llm gateway settlement failed: #{inspect(reason)}")
       end
