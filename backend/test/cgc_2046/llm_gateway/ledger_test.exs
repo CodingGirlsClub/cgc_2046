@@ -361,5 +361,54 @@ defmodule Cgc2046.LlmGateway.LedgerTest do
       assert wallet_c.cached_balance_mc == 0
       assert wallet_c.held_mc == 0
     end
+
+    test "limits expired credit consumption to the reserved hold" do
+      user = register_user("ledger-expired-budget")
+      future = DateTime.add(DateTime.utc_now(), 3_600, :second)
+
+      {:ok, _} =
+        Ledger.grant_personal_credits(user.id, %{
+          amount_mc: 100,
+          source_type: :subscription,
+          expires_at: future
+        })
+
+      assert {:ok, _} = Ledger.acquire_hold(user.id, 10)
+
+      past = DateTime.add(DateTime.utc_now(), -60, :second)
+
+      Repo.query!(
+        "UPDATE llm_credit_grants SET expires_at = $2 WHERE user_id = $1 AND status = 'active'",
+        [Ecto.UUID.dump!(user.id), past]
+      )
+
+      assert {:ok, wallet} =
+               Ledger.settle_usage(user.id, 10, %{
+                 logical_model: "cgc-default",
+                 upstream_channel: "deepseek_official_1",
+                 upstream_model: "deepseek-chat",
+                 billing_mode: :exact,
+                 charged_mc: 100,
+                 upstream_cost_mc: 50
+               })
+
+      assert wallet.cached_balance_mc == 90
+      assert wallet.held_mc == 0
+
+      [log] =
+        UsageLog
+        |> Ash.read!(authorize?: false)
+        |> Enum.filter(&(&1.user_id == user.id))
+
+      assert log.charged_mc == 10
+
+      [grant] =
+        CreditGrant
+        |> Ash.read!(authorize?: false)
+        |> Enum.filter(&(&1.user_id == user.id))
+
+      assert grant.remaining_mc == 90
+      assert grant.status == :active
+    end
   end
 end

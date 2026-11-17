@@ -379,7 +379,9 @@ defmodule Cgc2046.LlmGateway.Ledger do
           actual_deduct_mc = min(charged_mc, available_mc)
 
           leftover_mc =
-            deduct_from_grants_fifo!(wallet_id_bin, actual_deduct_mc, now, include_expired?: true)
+            deduct_from_grants_fifo!(wallet_id_bin, actual_deduct_mc, now,
+              expired_budget_mc: hold_to_release_mc
+            )
 
           actual_deduct_mc = actual_deduct_mc - leftover_mc
 
@@ -512,43 +514,60 @@ defmodule Cgc2046.LlmGateway.Ledger do
 
   defp deduct_from_grants_fifo!(wallet_id_bin, amount_to_deduct, now, opts)
        when amount_to_deduct > 0 do
-    include_expired? = Keyword.get(opts, :include_expired?, false)
+    expired_budget_mc = max(0, Keyword.get(opts, :expired_budget_mc, 0))
 
     %{rows: grants} =
       Repo.query!(
         """
-        SELECT id, remaining_mc
+        SELECT id, remaining_mc, (expires_at IS NOT NULL AND expires_at <= $2) AS expired
         FROM llm_credit_grants
         WHERE wallet_id = $1
           AND status = 'active'
           AND remaining_mc > 0
-          AND ($3::boolean OR expires_at IS NULL OR expires_at > $2)
         ORDER BY expires_at ASC NULLS LAST, inserted_at ASC
         FOR UPDATE
         """,
-        [wallet_id_bin, now, include_expired?]
+        [wallet_id_bin, now]
       )
 
-    Enum.reduce_while(grants, amount_to_deduct, fn [grant_id_bin, remaining], left ->
-      if left <= 0 do
-        {:halt, 0}
-      else
-        take = min(remaining, left)
-        new_remaining = remaining - take
-        new_status = if new_remaining == 0, do: "exhausted", else: "active"
+    {leftover_mc, _expired_budget_mc} =
+      Enum.reduce_while(
+        grants,
+        {amount_to_deduct, expired_budget_mc},
+        fn [grant_id_bin, remaining, expired], {left, budget} ->
+          if left <= 0 do
+            {:halt, {0, budget}}
+          else
+            take =
+              if expired do
+                min(remaining, min(left, budget))
+              else
+                min(remaining, left)
+              end
 
-        Repo.query!(
-          """
-          UPDATE llm_credit_grants
-          SET remaining_mc = $2, status = $3, updated_at = $4
-          WHERE id = $1
-          """,
-          [grant_id_bin, new_remaining, new_status, now]
-        )
+            if take > 0 do
+              new_remaining = remaining - take
+              new_status = if new_remaining == 0, do: "exhausted", else: "active"
 
-        {:cont, left - take}
-      end
-    end)
+              Repo.query!(
+                """
+                UPDATE llm_credit_grants
+                SET remaining_mc = $2, status = $3, updated_at = $4
+                WHERE id = $1
+                """,
+                [grant_id_bin, new_remaining, new_status, now]
+              )
+
+              next_budget = if expired, do: budget - take, else: budget
+              {:cont, {left - take, next_budget}}
+            else
+              {:cont, {left, budget}}
+            end
+          end
+        end
+      )
+
+    leftover_mc
   end
 
   defp fetch_batch(ws_uuid, idempotency_key) do
