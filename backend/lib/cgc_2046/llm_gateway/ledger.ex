@@ -372,20 +372,15 @@ defmodule Cgc2046.LlmGateway.Ledger do
           Repo.rollback(:wallet_not_found)
 
         [[wallet_id_bin, current_balance, current_held]] ->
-          # 先就地收口已到期批次：否则过期额度仍计入 cached_balance，既能被
-          # 本次结算消费，又会在 Worker 后续扣减时被二次扣除。
-          {_expired_count, expired_sum} = expire_wallet_grants!(wallet_id_bin, now)
-
-          balance_after_expiry = max(0, current_balance - expired_sum)
-          held_after_expiry = min(current_held, balance_after_expiry)
-          effective_hold_mc = min(hold_mc, held_after_expiry)
-
-          available_mc =
-            max(0, balance_after_expiry - max(0, held_after_expiry - effective_hold_mc))
-
+          # 不在此处收口过期 grants：在 hold 有效期内到期的批次仍是本次请求的
+          # 已授权额度，必须可用于扣费；Worker 会按 held_mc 保留它们。
+          hold_to_release_mc = min(hold_mc, current_held)
+          available_mc = max(0, current_balance - max(0, current_held - hold_to_release_mc))
           actual_deduct_mc = min(charged_mc, available_mc)
 
-          leftover_mc = deduct_from_grants_fifo!(wallet_id_bin, actual_deduct_mc, now)
+          leftover_mc =
+            deduct_from_grants_fifo!(wallet_id_bin, actual_deduct_mc, now, include_expired?: true)
+
           actual_deduct_mc = actual_deduct_mc - leftover_mc
 
           Repo.query!(
@@ -396,7 +391,7 @@ defmodule Cgc2046.LlmGateway.Ledger do
                 updated_at = $4
             WHERE id = $1
             """,
-            [wallet_id_bin, actual_deduct_mc, effective_hold_mc, now]
+            [wallet_id_bin, actual_deduct_mc, hold_to_release_mc, now]
           )
 
           Repo.query!(
@@ -442,58 +437,19 @@ defmodule Cgc2046.LlmGateway.Ledger do
   end
 
   @doc false
-  # 内部收口入口：调用方必须已持有目标 wallet 行锁（结算事务或到期 Worker）。
-  # 锁定顺序固定为 wallet → grants，与 `deduct_from_grants_fifo!/3` 同序，
-  # 避免与 Worker 的 wallet 更新形成死锁。
+  # 内部收口入口：调用方必须已持有目标 wallet 行锁（hold 准入或到期 Worker）。
+  # 只过期「超出 held_mc 保留额」的批次：活跃请求的预授权额度即使中途到期，
+  # 也要保留到结算，不能在这里被清零。
   def expire_wallet_grants!(wallet_id_bin, now) do
-    %{rows: grants} =
-      Repo.query!(
-        """
-        SELECT id, remaining_mc
-        FROM llm_credit_grants
-        WHERE wallet_id = $1
-          AND status = 'active'
-          AND expires_at IS NOT NULL
-          AND expires_at <= $2
-        FOR UPDATE
-        """,
-        [wallet_id_bin, now]
-      )
+    preserve_mc =
+      case Repo.query!(
+             "SELECT held_mc FROM llm_wallets WHERE id = $1",
+             [wallet_id_bin]
+           ).rows do
+        [[held_mc]] -> held_mc
+        [] -> 0
+      end
 
-    expired_sum =
-      Enum.reduce(grants, 0, fn [_grant_id_bin, remaining], acc -> acc + remaining end)
-
-    Enum.each(grants, fn [grant_id_bin, _remaining] ->
-      Repo.query!(
-        """
-        UPDATE llm_credit_grants
-        SET remaining_mc = 0, status = 'expired', updated_at = $2
-        WHERE id = $1
-        """,
-        [grant_id_bin, now]
-      )
-    end)
-
-    if expired_sum > 0 do
-      Repo.query!(
-        """
-        UPDATE llm_wallets
-        SET cached_balance_mc = GREATEST(0, cached_balance_mc - $2),
-            held_mc = LEAST(held_mc, GREATEST(0, cached_balance_mc - $2)),
-            updated_at = $3
-        WHERE id = $1
-        """,
-        [wallet_id_bin, expired_sum, now]
-      )
-    end
-
-    {length(grants), expired_sum}
-  end
-
-  defp deduct_from_grants_fifo!(_wallet_id_bin, 0, _now), do: 0
-
-  defp deduct_from_grants_fifo!(wallet_id_bin, amount_to_deduct, now)
-       when amount_to_deduct > 0 do
     %{rows: grants} =
       Repo.query!(
         """
@@ -502,11 +458,75 @@ defmodule Cgc2046.LlmGateway.Ledger do
         WHERE wallet_id = $1
           AND status = 'active'
           AND remaining_mc > 0
-          AND (expires_at IS NULL OR expires_at > $2)
-        ORDER BY expires_at ASC NULLS LAST, inserted_at ASC
+          AND expires_at IS NOT NULL
+          AND expires_at <= $2
+        ORDER BY expires_at ASC, inserted_at ASC
         FOR UPDATE
         """,
         [wallet_id_bin, now]
+      )
+
+    expired_sum =
+      Enum.reduce(grants, 0, fn [_grant_id_bin, remaining], acc -> acc + remaining end)
+
+    to_expire_mc = max(0, expired_sum - preserve_mc)
+
+    Enum.reduce_while(grants, to_expire_mc, fn [grant_id_bin, remaining], left ->
+      if left <= 0 do
+        {:halt, 0}
+      else
+        take = min(remaining, left)
+        new_remaining = remaining - take
+        new_status = if new_remaining == 0, do: "expired", else: "active"
+
+        Repo.query!(
+          """
+          UPDATE llm_credit_grants
+          SET remaining_mc = $2, status = $3, updated_at = $4
+          WHERE id = $1
+          """,
+          [grant_id_bin, new_remaining, new_status, now]
+        )
+
+        {:cont, left - take}
+      end
+    end)
+
+    if to_expire_mc > 0 do
+      Repo.query!(
+        """
+        UPDATE llm_wallets
+        SET cached_balance_mc = GREATEST(0, cached_balance_mc - $2),
+            held_mc = LEAST(held_mc, GREATEST(0, cached_balance_mc - $2)),
+            updated_at = $3
+        WHERE id = $1
+        """,
+        [wallet_id_bin, to_expire_mc, now]
+      )
+    end
+
+    {length(grants), to_expire_mc}
+  end
+
+  defp deduct_from_grants_fifo!(_wallet_id_bin, 0, _now, _opts), do: 0
+
+  defp deduct_from_grants_fifo!(wallet_id_bin, amount_to_deduct, now, opts)
+       when amount_to_deduct > 0 do
+    include_expired? = Keyword.get(opts, :include_expired?, false)
+
+    %{rows: grants} =
+      Repo.query!(
+        """
+        SELECT id, remaining_mc
+        FROM llm_credit_grants
+        WHERE wallet_id = $1
+          AND status = 'active'
+          AND remaining_mc > 0
+          AND ($3::boolean OR expires_at IS NULL OR expires_at > $2)
+        ORDER BY expires_at ASC NULLS LAST, inserted_at ASC
+        FOR UPDATE
+        """,
+        [wallet_id_bin, now, include_expired?]
       )
 
     Enum.reduce_while(grants, amount_to_deduct, fn [grant_id_bin, remaining], left ->
