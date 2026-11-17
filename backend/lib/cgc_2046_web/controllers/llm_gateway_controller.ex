@@ -32,10 +32,11 @@ defmodule Cgc2046Web.LlmGatewayController do
       {logical_model, initial_upstream_model, initial_payload} =
         AffinityRouter.prepare_upstream_payload(params, primary)
 
+      initial_pricing_model = AffinityRouter.pricing_model(primary, logical_model)
       prompt_tokens = TokenizerAndPricing.count_request_prompt_tokens(params)
 
       hold_mc =
-        TokenizerAndPricing.estimate_pre_flight_hold_mc(initial_payload, initial_upstream_model)
+        TokenizerAndPricing.estimate_pre_flight_hold_mc(initial_payload, initial_pricing_model)
 
       case LeaseManager.acquire_slot(user.id, wallet.max_concurrent_streams) do
         :ok ->
@@ -50,6 +51,7 @@ defmodule Cgc2046Web.LlmGatewayController do
                 primary,
                 logical_model,
                 initial_upstream_model,
+                initial_pricing_model,
                 prompt_tokens,
                 hold_mc
               )
@@ -65,6 +67,7 @@ defmodule Cgc2046Web.LlmGatewayController do
     else
       [] -> upstream_unavailable(conn)
       {:error, :unauthorized} -> unauthorized(conn)
+      {:error, :forbidden} -> forbidden(conn)
       {:error, :invalid_request} -> invalid_request(conn)
     end
   end
@@ -78,6 +81,7 @@ defmodule Cgc2046Web.LlmGatewayController do
          primary,
          logical_model,
          initial_upstream_model,
+         initial_pricing_model,
          prompt_tokens,
          hold_mc
        ) do
@@ -88,6 +92,7 @@ defmodule Cgc2046Web.LlmGatewayController do
       channel_id: primary.id,
       logical_model: logical_model,
       upstream_model: initial_upstream_model,
+      pricing_model: initial_pricing_model,
       output_iodata: [],
       reasoning_iodata: [],
       sse_buffer: "",
@@ -123,7 +128,7 @@ defmodule Cgc2046Web.LlmGatewayController do
     try do
       settlement =
         TokenizerAndPricing.calculate_settlement(
-          Map.get(state, :upstream_model),
+          Map.get(state, :pricing_model, Map.get(state, :upstream_model)),
           prompt_tokens,
           state
         )
@@ -159,7 +164,8 @@ defmodule Cgc2046Web.LlmGatewayController do
     update_process_state(%{
       channel_id: channel.id,
       logical_model: logical_model,
-      upstream_model: upstream_model
+      upstream_model: upstream_model,
+      pricing_model: AffinityRouter.pricing_model(channel, logical_model)
     })
 
     finch_name = Application.get_env(:cgc_2046, :llm_gateway_finch, Cgc2046.LlmGateway.Finch)
@@ -439,8 +445,9 @@ defmodule Cgc2046Web.LlmGatewayController do
   defp retryable_failure?(_), do: false
 
   defp fetch_user(conn) do
-    case conn.assigns[:current_user] do
-      %{id: _} = user -> {:ok, user}
+    case {conn.assigns[:current_user], conn.assigns[:mcp_token_kind]} do
+      {%{id: _} = user, :terminal} -> {:ok, user}
+      {%{id: _}, _restricted_kind} -> {:error, :forbidden}
       _ -> {:error, :unauthorized}
     end
   end
@@ -520,6 +527,19 @@ defmodule Cgc2046Web.LlmGatewayController do
         code: "unauthorized",
         type: "authentication_error",
         message: "A valid MCP bearer token is required."
+      }
+    })
+  end
+
+  defp forbidden(conn) do
+    conn
+    |> put_status(403)
+    |> json(%{
+      error: %{
+        code: "forbidden",
+        type: "authorization_error",
+        message:
+          "This endpoint requires a terminal MCP token; learning-host tokens cannot spend wallet credits."
       }
     })
   end

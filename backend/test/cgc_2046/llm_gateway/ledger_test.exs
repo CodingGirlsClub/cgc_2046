@@ -227,6 +227,32 @@ defmodule Cgc2046.LlmGateway.LedgerTest do
 
       assert log.charged_mc == 10_000
     end
+
+    test "rejects a hold when only expired credits remain" do
+      user = register_user("ledger-expired-hold")
+      past = DateTime.add(DateTime.utc_now(), -60, :second)
+
+      {:ok, _} =
+        Ledger.grant_personal_credits(user.id, %{
+          amount_mc: 5_000,
+          source_type: :subscription,
+          expires_at: past
+        })
+
+      assert {:error, :insufficient_quota} = Ledger.acquire_hold(user.id, 1_000)
+
+      wallet = Ledger.fetch_wallet!(user.id)
+      assert wallet.cached_balance_mc == 0
+      assert wallet.held_mc == 0
+
+      [grant] =
+        CreditGrant
+        |> Ash.read!(authorize?: false)
+        |> Enum.filter(&(&1.user_id == user.id))
+
+      assert grant.status == :expired
+      assert grant.remaining_mc == 0
+    end
   end
 
   describe "CreditExpiryWorker" do

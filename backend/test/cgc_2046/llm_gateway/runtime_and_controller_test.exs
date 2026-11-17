@@ -20,6 +20,11 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
         base_url: "https://api.deepseek.com",
         api_key: "sk-test-primary-1",
         chat_path: "/chat/completions",
+        pricing_model: %{
+          "cgc-default" => "deepseek-chat",
+          "cgc-reasoning" => "deepseek-reasoner",
+          "cgc-background" => "deepseek-chat"
+        },
         models: %{
           "cgc-default" => "deepseek-chat",
           "cgc-reasoning" => "deepseek-reasoner",
@@ -32,6 +37,11 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
         base_url: "https://api.deepseek.com",
         api_key: "sk-test-primary-2",
         chat_path: "/chat/completions",
+        pricing_model: %{
+          "cgc-default" => "deepseek-chat",
+          "cgc-reasoning" => "deepseek-reasoner",
+          "cgc-background" => "deepseek-chat"
+        },
         models: %{
           "cgc-default" => "deepseek-chat",
           "cgc-reasoning" => "deepseek-reasoner",
@@ -44,6 +54,11 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
         base_url: "https://ark.cn-beijing.volces.com/api/v3",
         api_key: "ark-test-backup",
         chat_path: "/chat/completions",
+        pricing_model: %{
+          "cgc-default" => "deepseek-chat",
+          "cgc-reasoning" => "deepseek-reasoner",
+          "cgc-background" => "deepseek-chat"
+        },
         models: %{
           "cgc-default" => "ep-v3-backup",
           "cgc-reasoning" => "ep-r1-backup",
@@ -138,6 +153,56 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
       assert :ets.lookup(:llm_session_affinity, key) != []
       assert :ok = AffinityRouter.cleanup_expired!()
       assert :ets.lookup(:llm_session_affinity, key) == []
+    end
+
+    test "uses the explicit pricing model for opaque endpoint IDs" do
+      channel = %{
+        id: "volcengine_opaque",
+        provider: :volcengine,
+        base_url: "http://127.0.0.1:1",
+        api_key: "test",
+        chat_path: "/chat/completions",
+        pricing_model: %{
+          "cgc-default" => "deepseek-chat",
+          "cgc-reasoning" => "deepseek-reasoner",
+          "cgc-background" => "deepseek-chat"
+        },
+        models: %{
+          "cgc-default" => "ep-v3-20261117",
+          "cgc-reasoning" => "ep-20261117-abc",
+          "cgc-background" => "ep-v3-20261117"
+        }
+      }
+
+      {_, upstream_model, _} =
+        AffinityRouter.prepare_upstream_payload(
+          %{"model" => "cgc-reasoning", "messages" => [%{"role" => "user", "content" => "Hi"}]},
+          channel
+        )
+
+      assert upstream_model == "ep-20261117-abc"
+      assert AffinityRouter.pricing_model(channel, "cgc-reasoning") == "deepseek-reasoner"
+
+      usage = %{
+        "prompt_tokens" => 1_000,
+        "prompt_cache_hit_tokens" => 0,
+        "prompt_cache_miss_tokens" => 1_000,
+        "completion_tokens" => 1_000
+      }
+
+      chat_settlement =
+        TokenizerAndPricing.calculate_settlement("deepseek-chat", 1_000, %{
+          official_usage: usage
+        })
+
+      reasoner_settlement =
+        TokenizerAndPricing.calculate_settlement(
+          AffinityRouter.pricing_model(channel, "cgc-reasoning"),
+          1_000,
+          %{official_usage: usage}
+        )
+
+      assert reasoner_settlement.charged_mc > chat_settlement.charged_mc
     end
   end
 
@@ -246,6 +311,29 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
       assert %{"error" => %{"code" => "insufficient_quota"}} = json_response(conn, 402)
     end
 
+    test "rejects a learning_host token before spending credits" do
+      user = register_user("gateway-learning-token")
+      {:ok, _record, raw_token} = McpToken.issue("gateway-learning", user, :learning_host)
+
+      {:ok, _} =
+        Ledger.grant_personal_credits(user.id, %{amount_mc: 500_000, source_type: :pack})
+
+      conn =
+        build_conn()
+        |> put_req_header("authorization", "Bearer #{raw_token}")
+        |> put_req_header("content-type", "application/json")
+        |> put_req_header("accept", "text/event-stream")
+        |> post("/v1/chat/completions", %{
+          "model" => "cgc-default",
+          "messages" => [%{"role" => "user", "content" => "Hello"}]
+        })
+
+      assert %{"error" => %{"code" => "forbidden"}} = json_response(conn, 403)
+
+      wallet = Ledger.fetch_wallet!(user.id)
+      assert wallet.cached_balance_mc == 500_000
+    end
+
     test "returns 429 when concurrent stream slots are exhausted" do
       user = register_user("gateway-concurrent")
       {:ok, _record, raw_token} = McpToken.issue("gateway-test", user, :terminal)
@@ -288,6 +376,11 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
           base_url: "http://127.0.0.1:1",
           api_key: "test-dead",
           chat_path: "/chat/completions",
+          pricing_model: %{
+            "cgc-default" => "deepseek-chat",
+            "cgc-reasoning" => "deepseek-reasoner",
+            "cgc-background" => "deepseek-chat"
+          },
           models: %{
             "cgc-default" => "deepseek-chat",
             "cgc-reasoning" => "deepseek-reasoner",

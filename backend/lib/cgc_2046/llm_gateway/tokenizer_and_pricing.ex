@@ -82,9 +82,9 @@ defmodule Cgc2046.LlmGateway.TokenizerAndPricing do
   @doc """
   预授权冻结额：按 100% cache-miss prompt + 保守输出缓冲估算，再乘 markup。
   """
-  def estimate_pre_flight_hold_mc(params, upstream_model) do
+  def estimate_pre_flight_hold_mc(params, pricing_model) do
     prompt_tokens = count_request_prompt_tokens(params)
-    rates = rates_for(upstream_model)
+    rates = rates_for(pricing_model)
 
     output_tokens =
       case Map.get(params, "max_tokens") do
@@ -110,9 +110,9 @@ defmodule Cgc2046.LlmGateway.TokenizerAndPricing do
   结算计算。上游 `usage` 存在 → 精确计费；nil → 断流估算；上游在产生
   token 前失败 → 全免。
   """
-  def calculate_settlement(upstream_model, prompt_tokens, stream_state)
+  def calculate_settlement(pricing_model, prompt_tokens, stream_state)
       when is_map(stream_state) do
-    rates = rates_for(upstream_model)
+    rates = rates_for(pricing_model)
     markup = Application.get_env(:cgc_2046, :llm_gateway_markup_ratio, @default_markup_ratio)
 
     case Map.get(stream_state, :official_usage) do
@@ -224,18 +224,13 @@ defmodule Cgc2046.LlmGateway.TokenizerAndPricing do
     {hit, miss, completion, reasoning}
   end
 
-  defp rates_for(upstream_model) when is_binary(upstream_model) do
-    cond do
-      Map.has_key?(@pricing_per_million_tokens, upstream_model) ->
-        Map.fetch!(@pricing_per_million_tokens, upstream_model)
-
-      String.contains?(upstream_model, "reasoner") or String.contains?(upstream_model, "-r1") ->
-        @pricing_per_million_tokens["deepseek-reasoner"]
-
-      true ->
-        @pricing_per_million_tokens["deepseek-chat"]
-    end
+  defp rates_for(pricing_model) when is_binary(pricing_model) do
+    Map.get(
+      @pricing_per_million_tokens,
+      pricing_model,
+      @pricing_per_million_tokens["deepseek-chat"]
+    )
   end
 
-  defp rates_for(_upstream_model), do: @pricing_per_million_tokens["deepseek-chat"]
+  defp rates_for(_pricing_model), do: @pricing_per_million_tokens["deepseek-chat"]
 end

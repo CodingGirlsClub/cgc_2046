@@ -20,6 +20,11 @@ defmodule Cgc2046.LlmGateway.AffinityRouter do
       base_url: "https://api.deepseek.com",
       api_key: "sk-dev-placeholder",
       chat_path: "/chat/completions",
+      pricing_model: %{
+        "cgc-default" => "deepseek-chat",
+        "cgc-reasoning" => "deepseek-reasoner",
+        "cgc-background" => "deepseek-chat"
+      },
       models: %{
         "cgc-default" => "deepseek-chat",
         "cgc-reasoning" => "deepseek-reasoner",
@@ -169,6 +174,20 @@ defmodule Cgc2046.LlmGateway.AffinityRouter do
 
     base_url <> path
   end
+
+  @doc """
+  返回渠道/逻辑模型对应的计费模型。渠道可显式配置 `pricing_model` 映射，
+  避免从火山方舟 `ep-...` 这类不透明上游 ID 猜模型族。
+  """
+  def pricing_model(channel, logical_model) when is_map(channel) and is_binary(logical_model) do
+    case get_in(channel, [:pricing_model, logical_model]) do
+      model when is_binary(model) -> model
+      _ -> default_pricing_model(logical_model)
+    end
+  end
+
+  defp default_pricing_model("cgc-reasoning"), do: "deepseek-reasoner"
+  defp default_pricing_model(_logical_model), do: "deepseek-chat"
 
   def configured_channels do
     case Application.get_env(:cgc_2046, :llm_gateway_channels, @default_channels) do
