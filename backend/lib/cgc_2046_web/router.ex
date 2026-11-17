@@ -98,6 +98,19 @@ defmodule Cgc2046Web.Router do
     forward("/", Anubis.Server.Transport.StreamableHTTP.Plug, server: Cgc2046.Mcp.Server)
   end
 
+  # LLM Gateway（Phase 2）：OpenAI-compatible chat completions 流式入口。
+  # 复用 MCP bearer token 鉴权；全局 Plug.Parsers 已处理 JSON body。
+  pipeline :llm_gateway do
+    plug(:accepts, ["json"])
+    plug(Cgc2046Web.Plugs.McpAuthPlug)
+  end
+
+  scope "/v1", Cgc2046Web do
+    pipe_through(:llm_gateway)
+
+    post("/chat/completions", LlmGatewayController, :chat_completions)
+  end
+
   # 渠道回调（缴费闭环 U6，KTD4）：不过 :graphql（无 actor），鉴权 = 渠道验签；
   # raw body 验签依赖 endpoint 全局 body_reader 缓存（CachingBodyReader）。
   pipeline :webhooks do

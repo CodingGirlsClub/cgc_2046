@@ -511,6 +511,62 @@ if config_env() == :prod do
       return_url: System.get_env("ALIPAY_RETURN_URL"),
       sandbox: System.get_env("ALIPAY_SANDBOX") == "true"
     ]
+
+  # LLM Gateway 上游渠道（Phase 2）：密钥仅经环境变量注入，不进 git。
+  # DeepSeek 支持多个官方 key 轮换/粘性；火山方舟作为首包前 failover 备用。
+  deepseek_keys =
+    System.get_env("DEEPSEEK_API_KEYS", System.get_env("DEEPSEEK_API_KEY", ""))
+    |> String.split(",", trim: true)
+
+  primary_channels =
+    deepseek_keys
+    |> Enum.with_index(1)
+    |> Enum.map(fn {key, idx} ->
+      %{
+        id: "deepseek_official_#{idx}",
+        provider: :deepseek,
+        base_url: System.get_env("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
+        api_key: key,
+        chat_path: "/chat/completions",
+        models: %{
+          "cgc-default" => "deepseek-chat",
+          "cgc-reasoning" => "deepseek-reasoner",
+          "cgc-background" => "deepseek-chat"
+        }
+      }
+    end)
+
+  backup_channels =
+    case System.get_env("VOLCENGINE_ARK_API_KEY") do
+      nil ->
+        []
+
+      "" ->
+        []
+
+      ark_key ->
+        [
+          %{
+            id: "volcengine_ark_backup",
+            provider: :volcengine,
+            base_url:
+              System.get_env(
+                "VOLCENGINE_ARK_BASE_URL",
+                "https://ark.cn-beijing.volces.com/api/v3"
+              ),
+            api_key: ark_key,
+            chat_path: "/chat/completions",
+            models: %{
+              "cgc-default" => System.get_env("VOLCENGINE_V3_EP", "deepseek-v3-250324"),
+              "cgc-reasoning" => System.get_env("VOLCENGINE_R1_EP", "deepseek-r1-250120"),
+              "cgc-background" => System.get_env("VOLCENGINE_V3_EP", "deepseek-v3-250324")
+            }
+          }
+        ]
+    end
+
+  # 空列表 = 生产未配置上游，controller 返回 503（不回落 dev placeholder）。
+  config :cgc_2046, :llm_gateway_channels, primary_channels ++ backup_channels
 end
 
 # SendCloud SMS / 微信扫码（plan 002）：dev 可选注入真凭证（.env / direnv）。
