@@ -285,30 +285,60 @@ defmodule Cgc2046.LlmGateway.Ledger do
   并发请求不会超卖。
   """
   def acquire_hold(user_id, hold_mc) when is_integer(hold_mc) and hold_mc > 0 do
-    _wallet = ensure_wallet!(user_id)
     now = DateTime.utc_now()
+    user_uuid = dump_uuid!(user_id)
 
-    case Repo.query!(
-           """
-           UPDATE llm_wallets
-           SET held_mc = held_mc + $2, updated_at = $3
-           WHERE user_id = $1
-             AND status = 'active'
-             AND (cached_balance_mc - held_mc) >= $2
-           RETURNING id, cached_balance_mc, held_mc
-           """,
-           [dump_uuid!(user_id), hold_mc, now]
-         ).rows do
-      [[wallet_id, cached_balance_mc, held_mc]] ->
-        {:ok,
-         %{
-           wallet_id: Ecto.UUID.load!(wallet_id),
-           cached_balance_mc: cached_balance_mc,
-           held_mc: held_mc
-         }}
+    result =
+      Repo.transaction(fn ->
+        _wallet = ensure_wallet!(user_id)
 
-      [] ->
-        {:error, :insufficient_quota}
+        case Repo.query!(
+               """
+               SELECT id
+               FROM llm_wallets
+               WHERE user_id = $1
+               FOR UPDATE
+               """,
+               [user_uuid]
+             ).rows do
+          [] ->
+            Repo.rollback(:wallet_not_found)
+
+          [[wallet_id_bin]] ->
+            # 过期批次在 Worker 跑之前仍计入 cached_balance；先在钱包锁内
+            # 收口，否则过期-only 钱包会被错误授权，结算时又因过期无法扣费。
+            {_expired_count, _expired_sum} = expire_wallet_grants!(wallet_id_bin, now)
+
+            case Repo.query!(
+                   """
+                   UPDATE llm_wallets
+                   SET held_mc = held_mc + $2, updated_at = $3
+                   WHERE id = $1
+                     AND status = 'active'
+                     AND (cached_balance_mc - held_mc) >= $2
+                   RETURNING id, cached_balance_mc, held_mc
+                   """,
+                   [wallet_id_bin, hold_mc, now]
+                 ).rows do
+              [[wallet_id, cached_balance_mc, held_mc]] ->
+                {:ok,
+                 %{
+                   wallet_id: Ecto.UUID.load!(wallet_id),
+                   cached_balance_mc: cached_balance_mc,
+                   held_mc: held_mc
+                 }}
+
+              [] ->
+                # 返回错误而非 rollback：保留过期收口，避免余额缓存继续陈旧。
+                {:error, :insufficient_quota}
+            end
+        end
+      end)
+
+    case result do
+      {:ok, {:ok, wallet}} -> {:ok, wallet}
+      {:ok, {:error, reason}} -> {:error, reason}
+      {:error, reason} -> {:error, reason}
     end
   end
 
