@@ -3857,6 +3857,36 @@ export type LlmCreditGrantItem = {
   status: Scalars['String']['output'];
 };
 
+/** 创单结果：订单快照 + 渠道凭据（二维码/跳转参数） */
+export type LlmPaymentCheckout = {
+  /** 渠道凭据；幂等重放原样返回 */
+  credential?: Maybe<Scalars['Json']['output']>;
+  order: LlmPaymentOrder;
+};
+
+/** LLM 算力收银台订单（独立于报名支付 payments_orders） */
+export type LlmPaymentOrder = {
+  /** 实付金额（分） */
+  amountCents: Scalars['Int']['output'];
+  /** 入账算力（微积分；1 cent = 10,000 mc） */
+  creditsMc: Scalars['Int']['output'];
+  expiresAt?: Maybe<Scalars['DateTime']['output']>;
+  id: Scalars['ID']['output'];
+  insertedAt: Scalars['DateTime']['output'];
+  /** llm_subscription | llm_credit_pack | llm_workspace_pool_topup */
+  orderKind: Scalars['String']['output'];
+  outTradeNo: Scalars['String']['output'];
+  paidAt?: Maybe<Scalars['DateTime']['output']>;
+  /** wechat_native | alipay_page | alipay_qr | alipay_wap */
+  provider: Scalars['String']['output'];
+  /** pending | paid | cancelled | expired */
+  status: Scalars['String']['output'];
+  /** 购买人/钱包入账用户 */
+  userId: Scalars['ID']['output'];
+  /** 工作台池充值目标；个人订单为空 */
+  workspaceId?: Maybe<Scalars['ID']['output']>;
+};
+
 /** 当前用户 LLM 钱包摘要；金额均为微积分（1 CNY = 1,000,000 mc） */
 export type LlmWalletSummary = {
   activeGrants: Array<LlmCreditGrantItem>;
@@ -4929,6 +4959,8 @@ export type RootMutationType = {
   createInviteBatch: CreateInviteBatchResult;
   /** 提交加入申请 */
   createJoinRequest: CreateJoinRequestResult;
+  /** 创建 LLM 算力收银台订单并返回渠道凭据；同 idempotencyKey 返回原单 */
+  createLlmPaymentOrder?: Maybe<LlmPaymentCheckout>;
   /** 签发 MCP 连接 token（切片 D #44；明文仅本次经 plainToken 返回一次，库中只存 SHA256 hash；kind 缺省 TERMINAL，LEARNING_HOST 签发学习凭证，ADR-0022） */
   createMcpToken?: Maybe<CreateMcpTokenPayload>;
   /** 报名者下单：payment_pending 报名 → pending 订单 + 渠道凭据（R5/R6/R13） */
@@ -5409,6 +5441,15 @@ export type RootMutationTypeCreateInviteBatchArgs = {
 
 export type RootMutationTypeCreateJoinRequestArgs = {
   input: CreateJoinRequestInput;
+};
+
+
+export type RootMutationTypeCreateLlmPaymentOrderArgs = {
+  amountCents: Scalars['Int']['input'];
+  idempotencyKey: Scalars['String']['input'];
+  orderKind: Scalars['String']['input'];
+  provider: Scalars['String']['input'];
+  workspaceId?: InputMaybe<Scalars['ID']['input']>;
 };
 
 
@@ -6233,6 +6274,8 @@ export type RootQueryType = {
   listWorkspaceApplications: Array<AdminWorkspaceApplication>;
   /** 平台管理员：工作台列表（R13；search 匹配 name/slug，分页 first/after） */
   listWorkspaces: Array<AdminWorkspace>;
+  /** 当前用户/购买人读取单笔 LLM 收银台订单 */
+  llmPaymentOrder?: Maybe<LlmPaymentOrder>;
   /** 当前登录用户个人资料（#68 Profile API，需登录）：id/email/displayName/isPlatformAdmin + memberNumber/joinedAt（ADR-0004 收窄为全局身份） */
   me?: Maybe<User>;
   /** 当前用户可进入的工作台列表（成员资格 + 创建者） */
@@ -6681,6 +6724,11 @@ export type RootQueryTypeListWorkspacesArgs = {
   after?: InputMaybe<Scalars['String']['input']>;
   first?: InputMaybe<Scalars['Int']['input']>;
   search?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type RootQueryTypeLlmPaymentOrderArgs = {
+  id: Scalars['ID']['input'];
 };
 
 

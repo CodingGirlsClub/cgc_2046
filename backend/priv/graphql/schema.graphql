@@ -5305,6 +5305,9 @@ type RootQueryType {
   "当前用户在课程下的 Notes（服务端真源；可按 issue 过滤）"
   myCourseNotes(courseId: ID!, issueId: String): [CourseNote!]!
 
+  "当前用户\/购买人读取单笔 LLM 收银台订单"
+  llmPaymentOrder(id: ID!): LlmPaymentOrder
+
   "当前用户 LLM 钱包（含活跃授信批次）；未登录 unauthorized"
   myLlmWallet: LlmWalletSummary
 
@@ -6441,6 +6444,11 @@ type RootMutationType {
   "关闭批次：open → closed（Owner\/Admin ∪ platform_admin；关闭后不放行新申请，在途申请照常走完）"
   closeRecruitmentCohort(workspaceId: ID!, id: ID!): RecruitmentCohortPayload
 
+  "创建 LLM 算力收银台订单并返回渠道凭据；同 idempotencyKey 返回原单"
+  createLlmPaymentOrder(
+    orderKind: String!, provider: String!, amountCents: Int!, workspaceId: ID, idempotencyKey: String!
+  ): LlmPaymentCheckout
+
   "工作台 Owner\/Admin 从算力池向当前全部成员派发额度；同 idempotencyKey 幂等"
   distributeWorkspaceLlmCredits(workspaceId: ID!, perMemberMc: Int!, idempotencyKey: String!, expiresAt: DateTime): LlmWorkspaceGrantResult
 
@@ -6708,6 +6716,48 @@ type LlmWorkspaceGrantResult {
   memberCount: Int!
   totalGrantedMc: Int!
   idempotentReplay: Boolean!
+}
+
+"LLM 算力收银台订单（独立于报名支付 payments_orders）"
+type LlmPaymentOrder {
+  id: ID!
+
+  "购买人\/钱包入账用户"
+  userId: ID!
+
+  "工作台池充值目标；个人订单为空"
+  workspaceId: ID
+
+  "llm_subscription | llm_credit_pack | llm_workspace_pool_topup"
+  orderKind: String!
+
+  "wechat_native | alipay_page | alipay_qr | alipay_wap"
+  provider: String!
+
+  outTradeNo: String!
+
+  "实付金额（分）"
+  amountCents: Int!
+
+  "入账算力（微积分；1 cent = 10,000 mc）"
+  creditsMc: Int!
+
+  "pending | paid | cancelled | expired"
+  status: String!
+
+  expiresAt: DateTime
+
+  paidAt: DateTime
+
+  insertedAt: DateTime!
+}
+
+"创单结果：订单快照 + 渠道凭据（二维码\/跳转参数）"
+type LlmPaymentCheckout {
+  order: LlmPaymentOrder!
+
+  "渠道凭据；幂等重放原样返回"
+  credential: Json
 }
 
 type FlashbackRates {

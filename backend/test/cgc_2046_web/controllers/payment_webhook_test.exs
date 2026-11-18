@@ -15,6 +15,7 @@ defmodule Cgc2046Web.PaymentWebhookTest do
   alias Cgc2046.Payments.Providers.Fake
   alias Cgc2046.Payments.WebhookEvent
   alias Cgc2046.Payments.Workers.PaymentSettlementWorker
+  alias Cgc2046.LlmGateway.Workers.LlmPaymentSettlementWorker
 
   describe "POST /api/payments/webhooks/:provider" do
     test "合法回调：200 + 事件落库 + 落账 job 入队（args 只带 webhook_event_id）" do
@@ -31,6 +32,20 @@ defmodule Cgc2046Web.PaymentWebhookTest do
         worker: PaymentSettlementWorker,
         args: %{"webhook_event_id" => fetch_event_id("evt-1")}
       )
+    end
+
+    test "LLM_ 商户单号分流到独立 LLM 结算 worker，不误入报名结算" do
+      body =
+        ~s({"id":"evt-llm-route","event_type":"TRANSACTION.SUCCESS","out_trade_no":"LLM_route_test"})
+
+      assert json_response(post_wechat(body), 200)
+
+      assert_enqueued(
+        worker: LlmPaymentSettlementWorker,
+        args: %{"webhook_event_id" => fetch_event_id("evt-llm-route")}
+      )
+
+      assert [] = all_enqueued(worker: PaymentSettlementWorker)
     end
 
     test "同 (provider, event_id) 重放：200 + 不再入队 + 单行事件" do

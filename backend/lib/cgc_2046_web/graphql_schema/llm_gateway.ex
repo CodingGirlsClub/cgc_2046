@@ -1,12 +1,16 @@
 defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
   @moduledoc """
-  LLM Gateway 读面与管理工作台/个人算力 GraphQL 面（Phase 3A）。
+  LLM Gateway 读面、管理面与独立收银台 GraphQL 面（Phase 3A/3B）。
 
   记账、并发 hold、FIFO 扣费全部收敛在 `Cgc2046.LlmGateway.Ledger`（Phase 1）；
   本模块只做鉴权、输入校验、金额单位换算与读模型投影，不直接写钱包/批次表。
+  收银台创单/凭据由 `Cgc2046.LlmGateway.PaymentOrders` 负责，回调落账由
+  `Cgc2046.LlmGateway.Workers.LlmPaymentSettlementWorker` 负责。
 
   - 个人读面：`myLlmWallet`（钱包 + 活跃授信批次 + 剩余额度百分比）
   - 工作台读面：`workspaceLlmPool`（Owner/Admin 或 PlatformAdmin）
+  - 收银台：`createLlmPaymentOrder` / `llmPaymentOrder`（独立
+    `llm_payment_orders`，`LLM_` 回调前缀）
   - 工作台派发：`distributeWorkspaceLlmCredits`（Owner/Admin；Ledger 按
     `(workspace_id, idempotency_key)` 幂等）
   - 平台管理：`adminTopupWorkspaceLlmPool` / `adminGrantUserLlmCredits`
@@ -23,6 +27,7 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
   alias Cgc2046.Accounts.Role
   alias Cgc2046.Accounts.User
   alias Cgc2046.LlmGateway.Ledger
+  alias Cgc2046.LlmGateway.PaymentOrders
   alias Cgc2046.Repo
 
   @desc "LLM 钱包内一笔活跃授信（订阅/算力包/工作台派发/管理员赠送）"
@@ -81,7 +86,50 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
     field(:idempotent_replay, non_null(:boolean))
   end
 
+  @desc "LLM 算力收银台订单（独立于报名支付 payments_orders）"
+  object :llm_payment_order do
+    field(:id, non_null(:id))
+    field(:user_id, non_null(:id), description: "购买人/钱包入账用户")
+    field(:workspace_id, :id, description: "工作台池充值目标；个人订单为空")
+
+    field(:order_kind, non_null(:string),
+      description: "llm_subscription | llm_credit_pack | llm_workspace_pool_topup"
+    )
+
+    field(:provider, non_null(:string),
+      description: "wechat_native | alipay_page | alipay_qr | alipay_wap"
+    )
+
+    field(:out_trade_no, non_null(:string))
+    field(:amount_cents, non_null(:integer), description: "实付金额（分）")
+    field(:credits_mc, non_null(:integer), description: "入账算力（微积分；1 cent = 10,000 mc）")
+    field(:status, non_null(:string), description: "pending | paid | cancelled | expired")
+    field(:expires_at, :datetime)
+    field(:paid_at, :datetime)
+    field(:inserted_at, non_null(:datetime))
+  end
+
+  @desc "创单结果：订单快照 + 渠道凭据（二维码/跳转参数）"
+  object :llm_payment_checkout do
+    field(:order, non_null(:llm_payment_order))
+    field(:credential, :json, description: "渠道凭据；幂等重放原样返回")
+  end
+
   object :llm_gateway_queries do
+    @desc "当前用户/购买人读取单笔 LLM 收银台订单"
+    field :llm_payment_order, :llm_payment_order do
+      arg(:id, non_null(:id))
+
+      resolve(fn _, %{id: id}, %{context: context} ->
+        with_actor(context, fn actor ->
+          case PaymentOrders.get_for_actor(actor, id) do
+            {:ok, order} -> {:ok, order}
+            {:error, :not_found} -> {:error, payment_order_error(:not_found)}
+          end
+        end)
+      end)
+    end
+
     @desc "当前用户 LLM 钱包（含活跃授信批次）；未登录 unauthorized"
     field :my_llm_wallet, :llm_wallet_summary do
       resolve(fn _, _, %{context: context} ->
@@ -104,6 +152,33 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
   end
 
   object :llm_gateway_mutations do
+    @desc "创建 LLM 算力收银台订单并返回渠道凭据；同 idempotencyKey 返回原单"
+    field :create_llm_payment_order, :llm_payment_checkout do
+      arg(:order_kind, non_null(:string))
+      arg(:provider, non_null(:string))
+      arg(:amount_cents, non_null(:integer))
+      arg(:workspace_id, :id)
+      arg(:idempotency_key, non_null(:string))
+
+      resolve(fn _, args, %{context: context} ->
+        with_actor(context, fn actor ->
+          case PaymentOrders.create(actor, %{
+                 order_kind: args.order_kind,
+                 provider: args.provider,
+                 amount_cents: args.amount_cents,
+                 workspace_id: args[:workspace_id],
+                 idempotency_key: args.idempotency_key
+               }) do
+            {:ok, order} ->
+              {:ok, %{order: order, credential: order.credential}}
+
+            {:error, reason} ->
+              {:error, payment_order_error(reason)}
+          end
+        end)
+      end)
+    end
+
     @desc "工作台 Owner/Admin 从算力池向当前全部成员派发额度；同 idempotencyKey 幂等"
     field :distribute_workspace_llm_credits, :llm_workspace_grant_result do
       arg(:workspace_id, non_null(:id))
@@ -359,6 +434,25 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
       true ->
         {:error, [message: "forbidden", code: "forbidden"]}
     end
+  end
+
+  defp payment_order_error(reason) do
+    message =
+      case reason do
+        :invalid_kind -> "不支持的算力订单类型"
+        :invalid_provider -> "不支持的支付渠道"
+        :invalid_amount -> "金额必须为正整数（分）"
+        :invalid_workspace -> "工作台参数无效"
+        :invalid_idempotency_key -> "幂等键不能为空或过长"
+        :workspace_required -> "工作台池充值必须指定工作台"
+        :forbidden -> "只有工作台 Owner/Admin 可以充值该工作台"
+        :provider_failed -> "支付渠道下单失败，请稍后重试"
+        :idempotency_conflict -> "订单创建冲突，请重试"
+        :not_found -> "订单不存在"
+        :database_error -> "订单写入失败，请重试"
+      end
+
+    [message: message, code: PaymentOrders.error_code(reason)]
   end
 
   defp ledger_error(:forbidden), do: [message: "forbidden", code: "forbidden"]

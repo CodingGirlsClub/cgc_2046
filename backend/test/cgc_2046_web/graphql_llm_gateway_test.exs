@@ -221,6 +221,128 @@ defmodule Cgc2046Web.GraphqlLlmGatewayTest do
              )
   end
 
+  test "createLlmPaymentOrder: 个人加油包创单、凭据、同 key 幂等、订单查询" do
+    user = Fixtures.register_user("llm-checkout")
+    token = sign_in_token(user)
+    key = "gql-#{Ecto.UUID.generate()}"
+
+    assert %{
+             "createLlmPaymentOrder" => %{
+               "order" => %{
+                 "id" => order_id,
+                 "orderKind" => "llm_credit_pack",
+                 "provider" => "wechat_native",
+                 "outTradeNo" => out_trade_no,
+                 "amountCents" => 100,
+                 "creditsMc" => 1_000_000,
+                 "status" => "pending",
+                 "workspaceId" => nil
+               },
+               "credential" => %{"type" => "jsapi"}
+             }
+           } =
+             data!(graphql(create_payment_order_mutation("wechat_native", 100, key, nil), token))
+
+    assert String.starts_with?(out_trade_no, "LLM_")
+
+    assert %{"llmPaymentOrder" => %{"id" => ^order_id, "outTradeNo" => ^out_trade_no}} =
+             data!(graphql(payment_order_query(order_id), token))
+
+    assert %{
+             "createLlmPaymentOrder" => %{
+               "order" => %{"id" => ^order_id, "outTradeNo" => ^out_trade_no}
+             }
+           } =
+             data!(graphql(create_payment_order_mutation("wechat_native", 100, key, nil), token))
+  after
+    Cgc2046.Payments.Providers.Fake.reset!()
+  end
+
+  test "createLlmPaymentOrder: 工作台充值需 Owner/Admin，普通成员 forbidden" do
+    %{owner: owner, workspace: workspace, member: member} = Fixtures.workspace_with_member()
+
+    assert %{
+             "createLlmPaymentOrder" => %{
+               "order" => %{
+                 "workspaceId" => workspace_id,
+                 "orderKind" => "llm_workspace_pool_topup"
+               }
+             }
+           } =
+             data!(
+               graphql(
+                 create_payment_order_mutation(
+                   "alipay_page",
+                   100,
+                   "gql-pool-#{Ecto.UUID.generate()}",
+                   workspace.id
+                 ),
+                 sign_in_token(owner)
+               )
+             )
+
+    assert workspace_id == workspace.id
+
+    assert %{"errors" => [%{"code" => "llm_payment_order_forbidden"}]} =
+             graphql(
+               create_payment_order_mutation(
+                 "alipay_page",
+                 100,
+                 "gql-pool-member-#{Ecto.UUID.generate()}",
+                 workspace.id
+               ),
+               sign_in_token(member)
+             )
+  after
+    Cgc2046.Payments.Providers.Fake.reset!()
+  end
+
+  defp create_payment_order_mutation(provider, amount_cents, idempotency_key, workspace_id) do
+    order_kind =
+      if workspace_id, do: "llm_workspace_pool_topup", else: "llm_credit_pack"
+
+    workspace_arg =
+      if workspace_id, do: ~s(workspaceId: "#{workspace_id}",), else: ""
+
+    """
+    mutation {
+      createLlmPaymentOrder(
+        orderKind: "#{order_kind}",
+        provider: "#{provider}",
+        amountCents: #{amount_cents},
+        idempotencyKey: "#{idempotency_key}",
+        #{workspace_arg}
+      ) {
+        order {
+          id
+          workspaceId
+          orderKind
+          provider
+          outTradeNo
+          amountCents
+          creditsMc
+          status
+        }
+        credential
+      }
+    }
+    """
+  end
+
+  defp payment_order_query(order_id) do
+    """
+    query {
+      llmPaymentOrder(id: "#{order_id}") {
+        id
+        outTradeNo
+        amountCents
+        creditsMc
+        status
+      }
+    }
+    """
+  end
+
   defp admin_logs(action) do
     AdminActionLog
     |> Ash.Query.filter(action == ^action)
