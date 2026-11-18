@@ -282,6 +282,7 @@ impl NativeAgentView {
                 .session
                 .mark_ready_for_next(self.state.session.generation);
             self.dispatch_queued(cx);
+            self.refresh_wallet(cx);
         }
         cx.notify();
     }

@@ -3,6 +3,7 @@
 mod checkpoint;
 mod execution;
 mod factory;
+mod gateway;
 mod mcp;
 mod operations;
 #[cfg(test)]

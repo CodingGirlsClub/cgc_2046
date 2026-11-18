@@ -298,6 +298,7 @@ mod session;
 mod state;
 mod turn;
 mod view_ops;
+mod wallet;
 mod widgets;
 
 pub use state::NativeThreadState;
@@ -372,6 +373,28 @@ pub struct NativeAgentView {
     /// 最近点了 Copy 的操作栏 key：短暂把复制图标换成 Check。
     copied_actions: Option<SharedString>,
     copied_actions_serial: u64,
+    /// CGC Cloud 钱包摘要（登录态异步刷新；不持久化）。
+    wallet: Option<cgc_platform::gateway::WalletSummary>,
+    wallet_refresh_serial: u64,
+    /// 最近一次流式错误是否为算力不足；驱动 composer 上方的续费卡片。
+    insufficient_quota: bool,
+    quota_checkout: Option<QuotaCheckout>,
+    quota_checkout_serial: u64,
+}
+
+#[derive(Clone)]
+struct QuotaCheckout {
+    state: QuotaCheckoutState,
+    qr: Option<crate::qr::QrMatrix>,
+    price_cents: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum QuotaCheckoutState {
+    Creating,
+    Ready,
+    Paid,
+    Failed(String),
 }
 
 #[cfg(test)]

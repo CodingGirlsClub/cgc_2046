@@ -76,6 +76,9 @@ impl SessionService {
             return Err(AuthError::Storage(format!("cannot persist session: {err}")));
         }
         self.state = SessionState::SignedIn(session);
+        if let SessionState::SignedIn(session) = &self.state {
+            crate::gateway::set_session(Some(session));
+        }
         Ok(())
     }
 
@@ -88,6 +91,7 @@ impl SessionService {
     pub fn sign_out_local(&mut self) -> Option<String> {
         let token = self.signed_in().map(|session| session.token.clone());
         let _ = self.store.clear();
+        crate::gateway::set_session(None);
         self.state = SessionState::SignedOut;
         token
     }
@@ -98,6 +102,9 @@ impl SessionService {
             Some(session) => SessionState::SignedIn(session),
             None => SessionState::SignedOut,
         };
+        if let SessionState::SignedIn(session) = &self.state {
+            crate::gateway::set_session(Some(session));
+        }
         self
     }
 
@@ -130,6 +137,9 @@ impl SessionService {
                     return Err(AuthError::Storage(format!("cannot persist session: {err}")));
                 }
                 self.state = SessionState::SignedIn(session);
+                if let SessionState::SignedIn(session) = &self.state {
+                    crate::gateway::set_session(Some(session));
+                }
                 match &self.state {
                     SessionState::SignedIn(session) => Ok(session),
                     _ => unreachable!("state just set to SignedIn"),

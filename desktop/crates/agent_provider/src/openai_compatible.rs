@@ -37,6 +37,9 @@ pub trait BearerTokenSource: Send + Sync {
     }
 }
 
+/// CGC Cloud logical model selector: maps a selected model + request to the wire model id.
+pub type ModelResolver = Arc<dyn Fn(&Model, &Request) -> String + Send + Sync>;
+
 /// `base_url` 是 API 根（例如 `https://api.deepseek.com/v1`），末尾斜杠可有可无。
 #[derive(Clone)]
 pub struct OpenAiCompatibleConfig {
@@ -45,7 +48,7 @@ pub struct OpenAiCompatibleConfig {
     pub models: Vec<Model>,
     pub extra_headers: Vec<(String, String)>,
     token_source: Option<Arc<dyn BearerTokenSource>>,
-    model_resolver: Option<Arc<dyn Fn(&Model, &Request) -> String + Send + Sync>>,
+    model_resolver: Option<ModelResolver>,
 }
 
 impl std::fmt::Debug for OpenAiCompatibleConfig {
@@ -88,10 +91,7 @@ impl OpenAiCompatibleConfig {
         self
     }
 
-    pub fn with_model_resolver(
-        mut self,
-        resolver: Arc<dyn Fn(&Model, &Request) -> String + Send + Sync>,
-    ) -> Self {
+    pub fn with_model_resolver(mut self, resolver: ModelResolver) -> Self {
         self.model_resolver = Some(resolver);
         self
     }

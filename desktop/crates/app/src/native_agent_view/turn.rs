@@ -154,6 +154,13 @@ impl NativeAgentView {
             self.page_context
                 .observe_event(&self.conversation_scope(), &event);
             if let HostEvent::Error { message } = &event {
+                let lower = message.to_lowercase();
+                if lower.contains("insufficient quota")
+                    || lower.contains("insufficient_quota")
+                    || message.contains("算力余额不足")
+                {
+                    self.insufficient_quota = true;
+                }
                 self.status = format!("错误：{message}");
             }
             if matches!(
@@ -191,6 +198,7 @@ impl NativeAgentView {
                     self.persist_native(&snapshot);
                 }
             }
+            self.refresh_wallet(cx);
         }
         self.dispatch_queued(cx);
         cx.notify();

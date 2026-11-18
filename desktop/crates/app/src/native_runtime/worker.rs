@@ -1,7 +1,7 @@
 use super::*;
 use cgc_agent_checkpoint::CheckpointManager;
 use cgc_agent_core::{Agent, CancelToken};
-use cgc_agent_store::SessionStore;
+use cgc_agent_store::{SessionStore, CGC_CLOUD_PROVIDER_ID};
 use futures::{stream::FuturesUnordered, FutureExt, StreamExt};
 use std::sync::Weak;
 
@@ -199,6 +199,7 @@ impl Owner {
         let model_meta = Arc::new(config.model.clone());
         let workspace_meta = Arc::new(config.context.workspace().to_path_buf());
         let state_meta = Arc::new(factory::state(production.as_ref()));
+        let default_thinking = config.model.provider_id.as_str() != CGC_CLOUD_PROVIDER_ID;
         let display_title = frozen
             .title_override
             .as_deref()
@@ -218,7 +219,7 @@ impl Owner {
             frozen,
             generation: 0,
             revision: 0,
-            thinking_enabled: true,
+            thinking_enabled: default_thinking,
             effort_index: 0,
             prepared: None,
             active: None,
