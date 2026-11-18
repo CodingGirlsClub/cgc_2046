@@ -93,6 +93,18 @@ query LlmPaymentOrder($id: ID!) {
 
 const GATEWAY_TOKEN_NAME: &str = "CGC Desktop Gateway";
 
+const MY_MCP_TOKENS: &str = r#"
+query MyGatewayTerminalTokens {
+  myMcpTokens { id name kind }
+}
+"#;
+
+const REVOKE_MCP_TOKEN: &str = r#"
+mutation RevokeGatewayTerminalToken($id: ID!) {
+  revokeMcpToken(id: $id) { id revokedAt }
+}
+"#;
+
 /// 登录会话快照；由 `SessionService` 在登录/恢复/登出时同步到全局。
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct GatewaySession {
@@ -216,6 +228,31 @@ pub fn signed_in() -> bool {
         .read()
         .map(|slot| slot.is_some())
         .unwrap_or(false)
+}
+
+/// 登出时尽力撤销本机签发的 terminal MCP token（90 天闲置过期前的主动收口）。
+/// 失败只影响服务端 token 生命周期，不阻塞本地登出；调用方用旧 session JWT。
+pub fn revoke_managed_tokens(session_token: &str) -> Result<(), GatewayError> {
+    let client = GraphqlClient::from_env();
+    let value = client.post(Some(session_token), MY_MCP_TOKENS, serde_json::json!({}))?;
+    let tokens = value
+        .get("data")
+        .and_then(|data| data.get("myMcpTokens"))
+        .and_then(Value::as_array)
+        .ok_or_else(|| GatewayError::Graphql {
+            code: None,
+            message: "missing myMcpTokens payload".into(),
+        })?;
+    for token in tokens {
+        if token.get("name").and_then(Value::as_str) != Some(GATEWAY_TOKEN_NAME) {
+            continue;
+        }
+        let Some(id) = token.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        client.post(Some(session_token), REVOKE_MCP_TOKEN, json!({ "id": id }))?;
+    }
+    Ok(())
 }
 
 fn session() -> Option<GatewaySession> {
