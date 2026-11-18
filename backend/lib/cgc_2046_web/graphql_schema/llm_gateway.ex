@@ -1,0 +1,402 @@
+defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
+  @moduledoc """
+  LLM Gateway 读面与管理工作台/个人算力 GraphQL 面（Phase 3A）。
+
+  记账、并发 hold、FIFO 扣费全部收敛在 `Cgc2046.LlmGateway.Ledger`（Phase 1）；
+  本模块只做鉴权、输入校验、金额单位换算与读模型投影，不直接写钱包/批次表。
+
+  - 个人读面：`myLlmWallet`（钱包 + 活跃授信批次 + 剩余额度百分比）
+  - 工作台读面：`workspaceLlmPool`（Owner/Admin 或 PlatformAdmin）
+  - 工作台派发：`distributeWorkspaceLlmCredits`（Owner/Admin；Ledger 按
+    `(workspace_id, idempotency_key)` 幂等）
+  - 平台管理：`adminTopupWorkspaceLlmPool` / `adminGrantUserLlmCredits`
+    （PlatformAdmin；金额写操作与 AdminActionLog 同事务，失败回滚）
+  """
+
+  use Absinthe.Schema.Notation
+
+  import Cgc2046Web.GraphqlSchema.Helpers
+
+  alias Cgc2046.Accounts.AdminActionLog
+  alias Cgc2046.Accounts.MembershipContext
+  alias Cgc2046.Accounts.Policies.PlatformAdmin
+  alias Cgc2046.Accounts.Role
+  alias Cgc2046.Accounts.User
+  alias Cgc2046.LlmGateway.Ledger
+  alias Cgc2046.Repo
+
+  @desc "LLM 钱包内一笔活跃授信（订阅/算力包/工作台派发/管理员赠送）"
+  object :llm_credit_grant_item do
+    field(:id, non_null(:id))
+
+    field(:source_type, non_null(:string),
+      description: "subscription | pack | workspace_grant | admin_gift"
+    )
+
+    field(:initial_mc, non_null(:integer), description: "发放额度（微积分）")
+    field(:remaining_mc, non_null(:integer), description: "当前剩余额度（微积分）")
+    field(:expires_at, :datetime)
+    field(:status, non_null(:string), description: "active | exhausted | expired")
+    field(:inserted_at, non_null(:datetime))
+  end
+
+  @desc "当前用户 LLM 钱包摘要；金额均为微积分（1 CNY = 1,000,000 mc）"
+  object :llm_wallet_summary do
+    field(:wallet_id, non_null(:id))
+    field(:cached_balance_mc, non_null(:integer), description: "缓存总余额（含冻结）")
+    field(:held_mc, non_null(:integer), description: "在途流式请求冻结额度")
+    field(:available_mc, non_null(:integer), description: "可用额度 = cached - held")
+    field(:max_concurrent_streams, non_null(:integer))
+    field(:status, non_null(:string), description: "active | frozen")
+    field(:remaining_percentage, non_null(:integer), description: "活跃授信剩余百分比 0-100")
+    field(:active_grants, non_null(list_of(non_null(:llm_credit_grant_item))))
+  end
+
+  @desc "工作台算力池与最近派发批次"
+  object :llm_workspace_pool_summary do
+    field(:workspace_id, non_null(:id))
+    field(:credit_pool_mc, non_null(:integer), description: "待派发池余额（微积分）")
+    field(:updated_at, non_null(:datetime))
+    field(:recent_batches, non_null(list_of(non_null(:llm_workspace_grant_batch))))
+  end
+
+  @desc "工作台批量派发审计行"
+  object :llm_workspace_grant_batch do
+    field(:id, non_null(:id))
+    field(:actor_user_id, non_null(:id))
+    field(:per_member_mc, non_null(:integer))
+    field(:member_count, non_null(:integer))
+    field(:total_granted_mc, non_null(:integer))
+    field(:expires_at, :datetime)
+    field(:idempotency_key, non_null(:string))
+    field(:inserted_at, non_null(:datetime))
+  end
+
+  @desc "工作台批量派发结果；idempotentReplay=true 表示命中同 key 原批次、未二次扣池"
+  object :llm_workspace_grant_result do
+    field(:id, non_null(:id))
+    field(:per_member_mc, non_null(:integer))
+    field(:member_count, non_null(:integer))
+    field(:total_granted_mc, non_null(:integer))
+    field(:idempotent_replay, non_null(:boolean))
+  end
+
+  object :llm_gateway_queries do
+    @desc "当前用户 LLM 钱包（含活跃授信批次）；未登录 unauthorized"
+    field :my_llm_wallet, :llm_wallet_summary do
+      resolve(fn _, _, %{context: context} ->
+        with_actor(context, fn actor -> build_wallet_summary(actor.id) end)
+      end)
+    end
+
+    @desc "工作台算力池与最近派发记录（Owner/Admin；PlatformAdmin 跨租户可读）"
+    field :workspace_llm_pool, :llm_workspace_pool_summary do
+      arg(:workspace_id, non_null(:id))
+
+      resolve(fn _, %{workspace_id: workspace_id}, %{context: context} ->
+        with_actor(context, fn actor ->
+          with {:ok, ws_id} <- cast_uuid(workspace_id) do
+            with_workspace_admin(actor, ws_id, fn -> build_workspace_pool(ws_id) end)
+          end
+        end)
+      end)
+    end
+  end
+
+  object :llm_gateway_mutations do
+    @desc "工作台 Owner/Admin 从算力池向当前全部成员派发额度；同 idempotencyKey 幂等"
+    field :distribute_workspace_llm_credits, :llm_workspace_grant_result do
+      arg(:workspace_id, non_null(:id))
+      arg(:per_member_mc, non_null(:integer))
+      arg(:idempotency_key, non_null(:string))
+      arg(:expires_at, :datetime)
+
+      resolve(fn _, args, %{context: context} ->
+        with_actor(context, fn actor ->
+          with {:ok, ws_id} <- cast_uuid(args.workspace_id),
+               {:ok, per_member_mc} <- positive_integer(args.per_member_mc),
+               {:ok, idempotency_key} <- nonempty_string(args.idempotency_key) do
+            case Ledger.batch_grant_workspace_members(
+                   actor,
+                   ws_id,
+                   per_member_mc,
+                   idempotency_key,
+                   expires_at: args[:expires_at]
+                 ) do
+              {:ok, batch} ->
+                {:ok,
+                 %{
+                   id: batch.batch_id,
+                   per_member_mc: per_member_mc,
+                   member_count: batch.member_count,
+                   total_granted_mc: batch.total_granted_mc,
+                   idempotent_replay: batch.idempotent_replay?
+                 }}
+
+              {:error, reason} ->
+                {:error, ledger_error(reason)}
+            end
+          end
+        end)
+      end)
+    end
+
+    @desc "PlatformAdmin 向工作台算力池充值；与 AdminActionLog 同事务"
+    field :admin_topup_workspace_llm_pool, :llm_workspace_pool_summary do
+      arg(:workspace_id, non_null(:id))
+      arg(:amount_mc, non_null(:integer))
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn actor ->
+          with {:ok, ws_id} <- cast_uuid(args.workspace_id),
+               {:ok, amount_mc} <- positive_integer(args.amount_mc) do
+            case Repo.transaction(fn ->
+                   case Ledger.topup_workspace_pool(ws_id, amount_mc) do
+                     {:ok, new_pool_mc} ->
+                       AdminActionLog.log!(%{
+                         actor_id: actor.id,
+                         action: :llm_workspace_topup,
+                         target_type: :workspace,
+                         target_id: ws_id,
+                         metadata: %{amount_mc: amount_mc, new_pool_mc: new_pool_mc}
+                       })
+
+                       new_pool_mc
+
+                     {:error, reason} ->
+                       Repo.rollback(reason)
+                   end
+                 end) do
+              {:ok, _new_pool_mc} -> build_workspace_pool(ws_id)
+              {:error, reason} -> {:error, ledger_error(reason)}
+            end
+          end
+        end)
+      end)
+    end
+
+    @desc "PlatformAdmin 向个人钱包赠予算力（source=admin_gift）；与 AdminActionLog 同事务"
+    field :admin_grant_user_llm_credits, :llm_wallet_summary do
+      arg(:user_id, non_null(:id))
+      arg(:amount_mc, non_null(:integer))
+      arg(:expires_at, :datetime)
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn actor ->
+          with {:ok, user_id} <- cast_uuid(args.user_id),
+               {:ok, amount_mc} <- positive_integer(args.amount_mc) do
+            case Ash.get(User, user_id, authorize?: false) do
+              {:ok, nil} ->
+                {:error, [message: "user not found", code: "user_not_found"]}
+
+              {:ok, _user} ->
+                grant_admin_credits(actor, user_id, amount_mc, args[:expires_at])
+
+              {:error, _error} ->
+                {:error, [message: "user not found", code: "user_not_found"]}
+            end
+          end
+        end)
+      end)
+    end
+  end
+
+  defp grant_admin_credits(actor, user_id, amount_mc, expires_at) do
+    case Repo.transaction(fn ->
+           case Ledger.grant_personal_credits(user_id, %{
+                  amount_mc: amount_mc,
+                  source_type: :admin_gift,
+                  expires_at: expires_at,
+                  granted_by_user_id: actor.id
+                }) do
+             {:ok, wallet} ->
+               AdminActionLog.log!(%{
+                 actor_id: actor.id,
+                 action: :llm_user_credit_grant,
+                 target_type: :user,
+                 target_id: user_id,
+                 metadata: %{amount_mc: amount_mc, wallet_id: wallet.id}
+               })
+
+               wallet
+
+             {:error, reason} ->
+               Repo.rollback(reason)
+           end
+         end) do
+      {:ok, _wallet} -> build_wallet_summary(user_id)
+      {:error, reason} -> {:error, ledger_error(reason)}
+    end
+  end
+
+  defp build_wallet_summary(user_id) do
+    wallet = Ledger.ensure_wallet!(user_id)
+
+    {:ok, %{rows: rows}} =
+      Repo.query(
+        """
+        SELECT id, source_type, initial_mc, remaining_mc, expires_at, status, inserted_at
+        FROM llm_credit_grants
+        WHERE wallet_id = $1 AND status = 'active'
+        ORDER BY expires_at ASC NULLS LAST, inserted_at ASC
+        """,
+        [Ecto.UUID.dump!(wallet.id)]
+      )
+
+    active_grants =
+      Enum.map(rows, fn [
+                          id,
+                          source_type,
+                          initial_mc,
+                          remaining_mc,
+                          expires_at,
+                          status,
+                          inserted_at
+                        ] ->
+        %{
+          id: Ecto.UUID.load!(id),
+          source_type: source_type,
+          initial_mc: initial_mc,
+          remaining_mc: remaining_mc,
+          expires_at: expires_at,
+          status: status,
+          inserted_at: inserted_at
+        }
+      end)
+
+    total_active_initial_mc = Enum.sum(Enum.map(active_grants, & &1.initial_mc))
+
+    remaining_percentage =
+      if total_active_initial_mc > 0 do
+        div(wallet.cached_balance_mc * 100, total_active_initial_mc)
+      else
+        0
+      end
+
+    {:ok,
+     %{
+       wallet_id: wallet.id,
+       cached_balance_mc: wallet.cached_balance_mc,
+       held_mc: wallet.held_mc,
+       available_mc: max(wallet.cached_balance_mc - wallet.held_mc, 0),
+       max_concurrent_streams: wallet.max_concurrent_streams,
+       status: wallet.status,
+       remaining_percentage: remaining_percentage,
+       active_grants: active_grants
+     }}
+  end
+
+  defp build_workspace_pool(workspace_id) do
+    case Repo.query(
+           """
+           SELECT id, credit_pool_mc, updated_at
+           FROM workspaces
+           WHERE id = $1
+           """,
+           [Ecto.UUID.dump!(workspace_id)]
+         ) do
+      {:ok, %{rows: [[ws_id, credit_pool_mc, updated_at]]}} ->
+        {:ok,
+         %{
+           workspace_id: Ecto.UUID.load!(ws_id),
+           credit_pool_mc: credit_pool_mc,
+           updated_at: updated_at,
+           recent_batches: workspace_recent_batches(workspace_id)
+         }}
+
+      _ ->
+        {:error, ledger_error(:workspace_not_found)}
+    end
+  end
+
+  defp workspace_recent_batches(workspace_id) do
+    {:ok, %{rows: rows}} =
+      Repo.query(
+        """
+        SELECT id, actor_user_id, per_member_mc, member_count, total_granted_mc,
+               expires_at, idempotency_key, inserted_at
+        FROM llm_workspace_grant_batches
+        WHERE workspace_id = $1
+        ORDER BY inserted_at DESC
+        LIMIT 20
+        """,
+        [Ecto.UUID.dump!(workspace_id)]
+      )
+
+    Enum.map(rows, fn [
+                        id,
+                        actor_user_id,
+                        per_member_mc,
+                        member_count,
+                        total_granted_mc,
+                        expires_at,
+                        idempotency_key,
+                        inserted_at
+                      ] ->
+      %{
+        id: Ecto.UUID.load!(id),
+        actor_user_id: Ecto.UUID.load!(actor_user_id),
+        per_member_mc: per_member_mc,
+        member_count: member_count,
+        total_granted_mc: total_granted_mc,
+        expires_at: expires_at,
+        idempotency_key: idempotency_key,
+        inserted_at: inserted_at
+      }
+    end)
+  end
+
+  defp with_workspace_admin(actor, workspace_id, fun) do
+    cond do
+      PlatformAdmin.platform_admin?(actor) ->
+        fun.()
+
+      actor
+      |> MembershipContext.role_names(workspace_id)
+      |> Enum.any?(&Role.manage_role?/1) ->
+        fun.()
+
+      true ->
+        {:error, [message: "forbidden", code: "forbidden"]}
+    end
+  end
+
+  defp ledger_error(:forbidden), do: [message: "forbidden", code: "forbidden"]
+
+  defp ledger_error(:insufficient_workspace_pool) do
+    [message: "工作台算力池余额不足", code: Ledger.error_code(:insufficient_workspace_pool)]
+  end
+
+  defp ledger_error(:no_workspace_members) do
+    [message: "工作台没有可派发成员", code: Ledger.error_code(:no_workspace_members)]
+  end
+
+  defp ledger_error(:workspace_not_found) do
+    [message: "工作台不存在", code: Ledger.error_code(:workspace_not_found)]
+  end
+
+  defp cast_uuid(value) when is_binary(value) do
+    case Ecto.UUID.cast(value) do
+      {:ok, uuid} -> {:ok, uuid}
+      :error -> {:error, [message: "invalid id", code: "invalid_id"]}
+    end
+  end
+
+  defp cast_uuid(_value), do: {:error, [message: "invalid id", code: "invalid_id"]}
+
+  defp positive_integer(value) when is_integer(value) and value > 0, do: {:ok, value}
+
+  defp positive_integer(_value),
+    do: {:error, [message: "amount_mc must be positive", code: "invalid_amount"]}
+
+  defp nonempty_string(value) when is_binary(value) do
+    if String.trim(value) == "" do
+      {:error, [message: "idempotency_key must not be blank", code: "invalid_idempotency_key"]}
+    else
+      {:ok, value}
+    end
+  end
+
+  defp nonempty_string(_value),
+    do: {:error, [message: "idempotency_key must not be blank", code: "invalid_idempotency_key"]}
+end

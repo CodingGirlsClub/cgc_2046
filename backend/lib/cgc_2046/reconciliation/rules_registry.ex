@@ -5,7 +5,7 @@ defmodule Cgc2046.Reconciliation.RulesRegistry do
   收编四个生产方的全部规则（各 worker 仍是生产者，Finding 产出调用方式
   均不变）：
 
-  - `ReconciliationScanWorker` — Oban cron 每 10 分钟全量拍，15 条
+  - `ReconciliationScanWorker` — Oban cron 每 10 分钟全量拍，16 条
   - `DepositForfeitWorker` — 押金 no-show 结算链回调产出，2 条（KTD7/#545）
   - `PaymentSettlementWorker` — 支付回调落账时单事件拍，1 条（R20）
   - `PaymentReconciliationWorker` — Oban 夜间 T+1 渠道账单对账，1 条（U13）
@@ -164,6 +164,17 @@ defmodule Cgc2046.Reconciliation.RulesRegistry do
           "钱退不出去且无人发现；在途 state = available/scheduled/executing/retryable" <>
           "（Oban :incomplete 的 Postgres 子集），15 分钟宽限纯防御；" <>
           "处置：MCP retry_refund 重入退款链，或订单离开 refunding 后下一拍自消",
+      sweep: :full,
+      producer: ReconciliationScanWorker
+    },
+    %{
+      id: :llm_wallet_balance_mismatch,
+      desc:
+        "LLM 钱包缓存余额与活跃授信余额不一致：cached_balance_mc 应恒等于 " <>
+          "status=active 的 llm_credit_grants.remaining_mc 之和；held_mc 是缓存内的" <>
+          "冻结部分（available = cached - held），不参与该等式，否则所有存在在途 " <>
+          "流式请求的钱包都会被误报。缓存/账本任一写路径漏更新或绕过 Ledger " <>
+          "直改均会命中；修复后下一拍自消",
       sweep: :full,
       producer: ReconciliationScanWorker
     },

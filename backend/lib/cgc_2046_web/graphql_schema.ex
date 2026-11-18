@@ -9,6 +9,7 @@ defmodule Cgc2046Web.GraphqlSchema do
   import_types(Cgc2046Web.GraphqlSchema.Auth.MiniWebLogin)
   import_types(Cgc2046Web.GraphqlSchema.AdminDashboard)
   import_types(Cgc2046Web.GraphqlSchema.Flashback)
+  import_types(Cgc2046Web.GraphqlSchema.LlmGateway)
 
   require Ash.Query
   require Ash.Expr
@@ -261,6 +262,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
     import_fields(:recruitment_queries)
     import_fields(:learning_queries)
+    import_fields(:llm_gateway_queries)
   end
 
   mutation do
@@ -684,6 +686,7 @@ defmodule Cgc2046Web.GraphqlSchema do
     import_fields(:flashback_mutations)
     import_fields(:flashback_wish_mutations)
     import_fields(:recruitment_mutations)
+    import_fields(:llm_gateway_mutations)
   end
 
   # ── RBAC 类型（#66 角色权限矩阵；原 rbac_types.ex 内联，唯一消费者为本 schema） ──

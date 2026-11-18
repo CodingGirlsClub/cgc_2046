@@ -91,7 +91,10 @@ defmodule Cgc2046.Accounts.AdminActionLog do
           # 闪念间触达运营（R1/R2，PlatformAdmin 确认流工具）：批量发送与
           # 单人重发各一行（metadata 带场次/模板/通道/入队计数，非每人一行）
           :flashback_outreach_send,
-          :flashback_outreach_resend
+          :flashback_outreach_resend,
+          # Phase 3A：平台管理员向工作台算力池充值 / 向个人钱包赠予算力
+          :llm_workspace_topup,
+          :llm_user_credit_grant
         ]
       ],
       description: "治理动作类型"

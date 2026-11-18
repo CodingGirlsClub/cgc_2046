@@ -91,6 +91,7 @@
     "initiative_rule_already_exists",
     "initiative_slug_locked",
     "initiative_slug_taken",
+    "insufficient_workspace_pool",
     "invalid_or_expired_code",
     "invalid_password",
     "invalid_phone",
@@ -112,6 +113,7 @@
     "mini_web_login_not_approved",
     "mini_web_login_phone_required",
     "mini_web_login_unavailable",
+    "no_workspace_members",
     "not_platform_admin",
     "operation_cancel_failed",
     "operation_confirm_failed",
@@ -196,6 +198,7 @@
     "volunteer_application_invalid_transition",
     "volunteer_application_rejection_reason_required",
     "volunteer_application_workflow_run_failed",
-    "wechat_login_unavailable"
+    "wechat_login_unavailable",
+    "workspace_not_found"
   ]
 }

@@ -3842,6 +3842,68 @@ export type LearningRunSummary = {
   status: Scalars['String']['output'];
 };
 
+/** LLM 钱包内一笔活跃授信（订阅/算力包/工作台派发/管理员赠送） */
+export type LlmCreditGrantItem = {
+  expiresAt?: Maybe<Scalars['DateTime']['output']>;
+  id: Scalars['ID']['output'];
+  /** 发放额度（微积分） */
+  initialMc: Scalars['Int']['output'];
+  insertedAt: Scalars['DateTime']['output'];
+  /** 当前剩余额度（微积分） */
+  remainingMc: Scalars['Int']['output'];
+  /** subscription | pack | workspace_grant | admin_gift */
+  sourceType: Scalars['String']['output'];
+  /** active | exhausted | expired */
+  status: Scalars['String']['output'];
+};
+
+/** 当前用户 LLM 钱包摘要；金额均为微积分（1 CNY = 1,000,000 mc） */
+export type LlmWalletSummary = {
+  activeGrants: Array<LlmCreditGrantItem>;
+  /** 可用额度 = cached - held */
+  availableMc: Scalars['Int']['output'];
+  /** 缓存总余额（含冻结） */
+  cachedBalanceMc: Scalars['Int']['output'];
+  /** 在途流式请求冻结额度 */
+  heldMc: Scalars['Int']['output'];
+  maxConcurrentStreams: Scalars['Int']['output'];
+  /** 活跃授信剩余百分比 0-100 */
+  remainingPercentage: Scalars['Int']['output'];
+  /** active | frozen */
+  status: Scalars['String']['output'];
+  walletId: Scalars['ID']['output'];
+};
+
+/** 工作台批量派发审计行 */
+export type LlmWorkspaceGrantBatch = {
+  actorUserId: Scalars['ID']['output'];
+  expiresAt?: Maybe<Scalars['DateTime']['output']>;
+  id: Scalars['ID']['output'];
+  idempotencyKey: Scalars['String']['output'];
+  insertedAt: Scalars['DateTime']['output'];
+  memberCount: Scalars['Int']['output'];
+  perMemberMc: Scalars['Int']['output'];
+  totalGrantedMc: Scalars['Int']['output'];
+};
+
+/** 工作台批量派发结果；idempotentReplay=true 表示命中同 key 原批次、未二次扣池 */
+export type LlmWorkspaceGrantResult = {
+  id: Scalars['ID']['output'];
+  idempotentReplay: Scalars['Boolean']['output'];
+  memberCount: Scalars['Int']['output'];
+  perMemberMc: Scalars['Int']['output'];
+  totalGrantedMc: Scalars['Int']['output'];
+};
+
+/** 工作台算力池与最近派发批次 */
+export type LlmWorkspacePoolSummary = {
+  /** 待派发池余额（微积分） */
+  creditPoolMc: Scalars['Int']['output'];
+  recentBatches: Array<LlmWorkspaceGrantBatch>;
+  updatedAt: Scalars['DateTime']['output'];
+  workspaceId: Scalars['ID']['output'];
+};
+
 /** The result of the :mark_notification_read mutation */
 export type MarkNotificationReadResult = {
   /** Any errors generated, if the mutation failed */
@@ -4793,10 +4855,14 @@ export type RootMutationType = {
   adminCloseCourse?: Maybe<AdminCoursePayload>;
   /** 平台管理员：结束活动（open → closed；发 event.ended 信号） */
   adminCloseEvent?: Maybe<AdminEventPayload>;
+  /** PlatformAdmin 向个人钱包赠予算力（source=admin_gift）；与 AdminActionLog 同事务 */
+  adminGrantUserLlmCredits?: Maybe<LlmWalletSummary>;
   /** 平台管理员：发布课程（draft → open；同工作台 launch action 语义） */
   adminLaunchCourse?: Maybe<AdminCoursePayload>;
   /** 平台管理员：发布活动（draft → open；同工作台 launch action 语义） */
   adminLaunchEvent?: Maybe<AdminEventPayload>;
+  /** PlatformAdmin 向工作台算力池充值；与 AdminActionLog 同事务 */
+  adminTopupWorkspaceLlmPool?: Maybe<LlmWorkspacePoolSummary>;
   /** 平台管理员：编辑课程元数据（R5 标准元数据全集；slug 锁与教研内容不放行） */
   adminUpdateCourse?: Maybe<AdminCoursePayload>;
   /** 平台管理员：编辑活动元数据（R5 标准元数据全集；slug 锁与教研内容不放行） */
@@ -4895,6 +4961,8 @@ export type RootMutationType = {
   disableInviteBatch: DisableInviteBatchResult;
   /** 拒绝首公里接入邀请（每次登录弹直到明确拒绝；幂等保留首次拒绝时间戳，仅本人） */
   dismissOnboardingInvitation?: Maybe<User>;
+  /** 工作台 Owner/Admin 从算力池向当前全部成员派发额度；同 idempotencyKey 幂等 */
+  distributeWorkspaceLlmCredits?: Maybe<LlmWorkspaceGrantResult>;
   ensureCourseRetro?: Maybe<CourseNote>;
   /** 愿望留言（R8）：公开愿望可留言讨论 */
   flashbackAddWishComment?: Maybe<FlashbackWishResult>;
@@ -5128,6 +5196,13 @@ export type RootMutationTypeAdminCloseEventArgs = {
 };
 
 
+export type RootMutationTypeAdminGrantUserLlmCreditsArgs = {
+  amountMc: Scalars['Int']['input'];
+  expiresAt?: InputMaybe<Scalars['DateTime']['input']>;
+  userId: Scalars['ID']['input'];
+};
+
+
 export type RootMutationTypeAdminLaunchCourseArgs = {
   id: Scalars['ID']['input'];
 };
@@ -5135,6 +5210,12 @@ export type RootMutationTypeAdminLaunchCourseArgs = {
 
 export type RootMutationTypeAdminLaunchEventArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeAdminTopupWorkspaceLlmPoolArgs = {
+  amountMc: Scalars['Int']['input'];
+  workspaceId: Scalars['ID']['input'];
 };
 
 
@@ -5413,6 +5494,14 @@ export type RootMutationTypeDemoteUserArgs = {
 
 export type RootMutationTypeDisableInviteBatchArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeDistributeWorkspaceLlmCreditsArgs = {
+  expiresAt?: InputMaybe<Scalars['DateTime']['input']>;
+  idempotencyKey: Scalars['String']['input'];
+  perMemberMc: Scalars['Int']['input'];
+  workspaceId: Scalars['ID']['input'];
 };
 
 
@@ -6156,6 +6245,8 @@ export type RootQueryType = {
   myEnrollments?: Maybe<KeysetPageOfEnrollment>;
   /** 当前用户 confirmed 课程报名的学习 run 进度（非成员可读；event 报名不走 objective 学习不返回，已取消课程除外） */
   myLearningRuns: Array<MyLearningRun>;
+  /** 当前用户 LLM 钱包（含活跃授信批次）；未登录 unauthorized */
+  myLlmWallet?: Maybe<LlmWalletSummary>;
   /** 当前用户的 MCP 连接 token 列表（切片 D #44；不含明文，新→旧；policy 仅见本人） */
   myMcpTokens?: Maybe<Array<Maybe<McpToken>>>;
   /** 当前用户订单列表（R14） */
@@ -6211,6 +6302,8 @@ export type RootQueryType = {
   wechatMiniWebLoginStatusForDesktop?: Maybe<MiniWebLoginDesktopResult>;
   /** 工作台创建申请列表（申请人仅见自己；platform_admin 见全部） */
   workspaceApplications?: Maybe<KeysetPageOfWorkspaceApplication>;
+  /** 工作台算力池与最近派发记录（Owner/Admin；PlatformAdmin 跨租户可读） */
+  workspaceLlmPool?: Maybe<LlmWorkspacePoolSummary>;
   /** 工作台成员列表（成员本人仅见自己；Owner/Admin 见全部，供成员管理页） */
   workspaceMembers?: Maybe<KeysetPageOfWorkspaceMembership>;
   /** 工作台订单列表（R24 管理面） */
@@ -6762,6 +6855,11 @@ export type RootQueryTypeWorkspaceApplicationsArgs = {
   first?: InputMaybe<Scalars['Int']['input']>;
   last?: InputMaybe<Scalars['Int']['input']>;
   sort?: InputMaybe<Array<InputMaybe<WorkspaceApplicationSortInput>>>;
+};
+
+
+export type RootQueryTypeWorkspaceLlmPoolArgs = {
+  workspaceId: Scalars['ID']['input'];
 };
 
 

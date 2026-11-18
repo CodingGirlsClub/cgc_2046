@@ -655,6 +655,15 @@ defmodule Cgc2046.LlmGateway.Ledger do
 
   defp authorize_workspace_admin(_, _), do: {:error, :forbidden}
 
+  @doc false
+  # 工作台派发/充值的稳定错误码（GraphQL resolver 经此映射；AST 错误码契约
+  # 扫描 `defp domain_error_code` 子句，新增/改名后必须重跑 generator）。
+  def error_code(reason), do: domain_error_code(reason)
+
+  defp domain_error_code(:insufficient_workspace_pool), do: "insufficient_workspace_pool"
+  defp domain_error_code(:no_workspace_members), do: "no_workspace_members"
+  defp domain_error_code(:workspace_not_found), do: "workspace_not_found"
+
   defp validate_source_type!(source_type) when source_type in @source_types, do: :ok
 
   defp validate_source_type!(source_type) do
