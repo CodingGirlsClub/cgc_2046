@@ -3721,6 +3721,7 @@ impl RootView {
             let _ = this.update(cx, |this, cx| {
                 this.finish_login(result);
                 this.prepare_agent_authorization(cx);
+                this.refresh_native_providers(cx);
                 cx.notify();
             });
         })
@@ -4085,6 +4086,7 @@ impl RootView {
                 }
                 this.finish_login(result);
                 this.prepare_agent_authorization(cx);
+                this.refresh_native_providers(cx);
                 cx.notify();
             });
         })

@@ -12,16 +12,7 @@ struct GatewayTokenSource;
 
 impl BearerTokenSource for GatewayTokenSource {
     fn resolve_token(&self) -> Result<String, ProviderError> {
-        cgc_platform::gateway::resolve_terminal_token().map_err(map_gateway_error)
-    }
-
-    fn refresh_after_unauthorized(
-        &self,
-        rejected_token: &str,
-    ) -> Result<Option<String>, ProviderError> {
-        cgc_platform::gateway::refresh_terminal_token(rejected_token)
-            .map(Some)
-            .map_err(map_gateway_error)
+        cgc_platform::gateway::gateway_token().map_err(map_gateway_error)
     }
 }
 

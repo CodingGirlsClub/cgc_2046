@@ -1,31 +1,20 @@
 //! CGC Cloud managed gateway 客户端（Phase 4）。
 //!
-//! 桌面端不把登录 JWT 直接发给 `/v1/chat/completions`：后端只接受
-//! `mcp_token_kind == :terminal` 的 MCP token。这里通过 GraphQL
-//! `createMcpToken` 签发一个名为 `CGC Desktop Gateway` 的 terminal token，
-//! 明文只保存在 OS keychain（或本次进程内存），供 OpenAI-compatible provider
-//! 作为 Bearer 使用；401 时清掉旧 token 并重签。
+//! `/v1/chat/completions` 使用第一方登录会话 Bearer（`SignedInSession` JWT）。
+//! 这条会话本来就用于同域 GraphQL，`/v1` 与 `/mcp` 鉴权物理隔离：桌面端不再
+//! 自动签发 terminal MCP token，也不会把学习型 `learning_host` lease 带进算力消费。
 //!
-//! 同一模块也承载 `myLlmWallet`、`createLlmPaymentOrder`、`llmPaymentOrder`
-//! 的 GraphQL 读写，供 native agent 状态栏与 402 续费卡使用。
+//! 同一模块承载 `myLlmWallet`、`createLlmPaymentOrder`、`llmPaymentOrder` 的
+//! GraphQL 读写，供 native agent 状态栏与 402 续费卡使用。
 
-use std::sync::{Arc, LazyLock, Mutex, RwLock};
+use std::sync::{LazyLock, RwLock};
 
 use serde_json::{json, Value};
 use url::Url;
 
 use crate::api::{ApiError, GraphqlClient};
 use crate::runtime;
-use crate::session::{KeychainStore, SignedInSession};
-
-const CREATE_MCP_TOKEN: &str = r#"
-mutation CreateGatewayTerminalToken($name: String!) {
-  createMcpToken(name: $name, kind: TERMINAL) {
-    plainToken
-    errors { message code }
-  }
-}
-"#;
+use crate::session::SignedInSession;
 
 const MY_LLM_WALLET: &str = r#"
 query MyLlmWallet {
@@ -91,25 +80,21 @@ query LlmPaymentOrder($id: ID!) {
 }
 "#;
 
-const GATEWAY_TOKEN_NAME: &str = "CGC Desktop Gateway";
-
-const MY_MCP_TOKENS: &str = r#"
-query MyGatewayTerminalTokens {
-  myMcpTokens { id name kind }
-}
-"#;
-
-const REVOKE_MCP_TOKEN: &str = r#"
-mutation RevokeGatewayTerminalToken($id: ID!) {
-  revokeMcpToken(id: $id) { id revokedAt }
-}
-"#;
-
 /// 登录会话快照；由 `SessionService` 在登录/恢复/登出时同步到全局。
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 struct GatewaySession {
     token: String,
     user_id: String,
+}
+
+impl std::fmt::Debug for GatewaySession {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("GatewaySession")
+            .field("token", &"<redacted>")
+            .field("user_id", &self.user_id)
+            .finish()
+    }
 }
 
 /// Gateway 调用的可展示错误分类（不含 token）。
@@ -189,36 +174,18 @@ pub struct PaymentCheckout {
 }
 
 static SESSION: LazyLock<RwLock<Option<GatewaySession>>> = LazyLock::new(|| RwLock::new(None));
-static AUTH: LazyLock<Arc<GatewayAuth>> = LazyLock::new(|| {
-    Arc::new(GatewayAuth {
-        client: GraphqlClient::from_env(),
-        keychain: KeychainStore::from_env(),
-        cached: Mutex::new(None),
-    })
-});
 
 fn session_slot() -> &'static RwLock<Option<GatewaySession>> {
     &SESSION
 }
 
-/// 登录态同步入口；同一用户保留 keychain token，换用户/登出时清掉旧缓存。
+/// 登录态同步入口；只保留当前会话 token，不派生或持久化第二份凭据。
 pub fn set_session(session: Option<&SignedInSession>) {
-    let next = session.map(|session| GatewaySession {
-        token: session.token.clone(),
-        user_id: session.user_id.clone(),
-    });
-    let previous = session_slot()
-        .write()
-        .ok()
-        .and_then(|mut slot| std::mem::replace(&mut *slot, next));
-    if let Some(previous) = previous {
-        let current_user = session_slot()
-            .read()
-            .ok()
-            .and_then(|slot| slot.as_ref().map(|session| session.user_id.clone()));
-        if current_user.as_deref() != Some(previous.user_id.as_str()) {
-            auth().clear_cached_token(&previous.user_id);
-        }
+    if let Ok(mut slot) = session_slot().write() {
+        *slot = session.map(|session| GatewaySession {
+            token: session.token.clone(),
+            user_id: session.user_id.clone(),
+        });
     }
 }
 
@@ -230,33 +197,19 @@ pub fn signed_in() -> bool {
         .unwrap_or(false)
 }
 
-/// 登出时尽力撤销本机签发的 terminal MCP token（90 天闲置过期前的主动收口）。
-/// 失败只影响服务端 token 生命周期，不阻塞本地登出；调用方用旧 session JWT。
-pub fn revoke_managed_tokens(session_token: &str) -> Result<(), GatewayError> {
-    let client = GraphqlClient::from_env();
-    let value = client.post(Some(session_token), MY_MCP_TOKENS, serde_json::json!({}))?;
-    let tokens = value
-        .get("data")
-        .and_then(|data| data.get("myMcpTokens"))
-        .and_then(Value::as_array)
-        .ok_or_else(|| GatewayError::Graphql {
-            code: None,
-            message: "missing myMcpTokens payload".into(),
-        })?;
-    for token in tokens {
-        if token.get("name").and_then(Value::as_str) != Some(GATEWAY_TOKEN_NAME) {
-            continue;
-        }
-        let Some(id) = token.get("id").and_then(Value::as_str) else {
-            continue;
-        };
-        client.post(Some(session_token), REVOKE_MCP_TOKEN, json!({ "id": id }))?;
-    }
-    Ok(())
-}
-
 fn session() -> Option<GatewaySession> {
     session_slot().read().ok().and_then(|slot| slot.clone())
+}
+
+/// `/v1/chat/completions` 的 Bearer：直接复用当前登录会话 JWT。
+pub fn gateway_token() -> Result<String, GatewayError> {
+    session()
+        .map(|session| session.token)
+        .ok_or(GatewayError::Unauthenticated)
+}
+
+fn graphql_client() -> GraphqlClient {
+    GraphqlClient::from_env()
 }
 
 /// CGC Gateway 根地址：`CGC_GATEWAY_BASE_URL` 覆盖，否则由 GraphQL 端点推导并追加 `/v1`。
@@ -269,8 +222,7 @@ pub fn gateway_base_url() -> Option<String> {
             return Some(trimmed.to_string());
         }
     }
-    let api = runtime::api_endpoint();
-    gateway_base_url_from(&api)
+    gateway_base_url_from(&runtime::api_endpoint())
 }
 
 fn gateway_base_url_from(api: &str) -> Option<String> {
@@ -284,22 +236,11 @@ fn gateway_base_url_from(api: &str) -> Option<String> {
     Some(url.to_string().trim_end_matches('/').to_string())
 }
 
-/// 解析 `createMcpToken` 返回的 terminal token。
-pub fn resolve_terminal_token() -> Result<String, GatewayError> {
-    auth().resolve_terminal_token()
-}
-
-/// 401 后刷新 terminal token；调用方用返回的新 token 重发一次。
-pub fn refresh_terminal_token(rejected: &str) -> Result<String, GatewayError> {
-    auth().refresh_terminal_token(rejected)
-}
-
 /// 当前钱包摘要（`myLlmWallet`）。
 pub fn wallet() -> Result<WalletSummary, GatewayError> {
     let session = session().ok_or(GatewayError::Unauthenticated)?;
-    let value = auth()
-        .client
-        .post(Some(&session.token), MY_LLM_WALLET, serde_json::json!({}))?;
+    let value =
+        graphql_client().post(Some(&session.token), MY_LLM_WALLET, serde_json::json!({}))?;
     parse_wallet(&value)
 }
 
@@ -312,7 +253,7 @@ pub fn create_payment_order(
     idempotency_key: &str,
 ) -> Result<PaymentCheckout, GatewayError> {
     let session = session().ok_or(GatewayError::Unauthenticated)?;
-    let value = auth().client.post(
+    let value = graphql_client().post(
         Some(&session.token),
         CREATE_LLM_PAYMENT_ORDER,
         json!({
@@ -343,9 +284,8 @@ pub fn create_payment_order(
 /// 轮询 LLM 收银台订单状态。
 pub fn payment_order(id: &str) -> Result<PaymentOrderSummary, GatewayError> {
     let session = session().ok_or(GatewayError::Unauthenticated)?;
-    let value = auth()
-        .client
-        .post(Some(&session.token), LLM_PAYMENT_ORDER, json!({ "id": id }))?;
+    let value =
+        graphql_client().post(Some(&session.token), LLM_PAYMENT_ORDER, json!({ "id": id }))?;
     let order = value
         .get("data")
         .and_then(|data| data.get("llmPaymentOrder"))
@@ -354,105 +294,6 @@ pub fn payment_order(id: &str) -> Result<PaymentOrderSummary, GatewayError> {
             message: "missing llmPaymentOrder payload".into(),
         })?;
     parse_order(order)
-}
-
-struct GatewayAuth {
-    client: GraphqlClient,
-    keychain: KeychainStore,
-    cached: Mutex<Option<String>>,
-}
-
-fn auth() -> &'static Arc<GatewayAuth> {
-    &AUTH
-}
-
-impl GatewayAuth {
-    fn resolve_terminal_token(&self) -> Result<String, GatewayError> {
-        let session = session().ok_or(GatewayError::Unauthenticated)?;
-        if let Some(token) = self.cached.lock().ok().and_then(|token| token.clone()) {
-            return Ok(token);
-        }
-        let account = token_account(&session.user_id);
-        if let Some(token) = self
-            .keychain
-            .load_secret(&account)
-            .filter(|t| !t.is_empty())
-        {
-            if let Ok(mut cached) = self.cached.lock() {
-                *cached = Some(token.clone());
-            }
-            return Ok(token);
-        }
-        let token = self.issue_token(&session)?;
-        if let Ok(mut cached) = self.cached.lock() {
-            *cached = Some(token.clone());
-        }
-        let _ = self.keychain.save_secret(&account, &token);
-        Ok(token)
-    }
-
-    fn refresh_terminal_token(&self, _rejected: &str) -> Result<String, GatewayError> {
-        let session = session().ok_or(GatewayError::Unauthenticated)?;
-        self.clear_cached_token(&session.user_id);
-        let token = self.issue_token(&session)?;
-        if let Ok(mut cached) = self.cached.lock() {
-            *cached = Some(token.clone());
-        }
-        let _ = self
-            .keychain
-            .save_secret(&token_account(&session.user_id), &token);
-        Ok(token)
-    }
-
-    fn issue_token(&self, session: &GatewaySession) -> Result<String, GatewayError> {
-        let value = self.client.post(
-            Some(&session.token),
-            CREATE_MCP_TOKEN,
-            json!({ "name": GATEWAY_TOKEN_NAME }),
-        )?;
-        let payload = value
-            .get("data")
-            .and_then(|data| data.get("createMcpToken"))
-            .ok_or_else(|| GatewayError::Graphql {
-                code: None,
-                message: "missing createMcpToken payload".into(),
-            })?;
-        if let Some(errors) = payload.get("errors").and_then(Value::as_array) {
-            if let Some(first) = errors.first() {
-                return Err(GatewayError::Graphql {
-                    code: first
-                        .get("code")
-                        .and_then(Value::as_str)
-                        .map(str::to_string),
-                    message: first
-                        .get("message")
-                        .and_then(Value::as_str)
-                        .unwrap_or("createMcpToken failed")
-                        .to_string(),
-                });
-            }
-        }
-        payload
-            .get("plainToken")
-            .and_then(Value::as_str)
-            .filter(|token| !token.is_empty())
-            .map(str::to_string)
-            .ok_or_else(|| GatewayError::Graphql {
-                code: None,
-                message: "createMcpToken returned no plainToken".into(),
-            })
-    }
-
-    fn clear_cached_token(&self, user_id: &str) {
-        if let Ok(mut cached) = self.cached.lock() {
-            *cached = None;
-        }
-        let _ = self.keychain.clear_secret(&token_account(user_id));
-    }
-}
-
-fn token_account(user_id: &str) -> String {
-    format!("gateway_terminal_mcp_token:{user_id}")
 }
 
 fn parse_wallet(value: &Value) -> Result<WalletSummary, GatewayError> {
@@ -581,5 +422,17 @@ mod tests {
         let wallet = parse_wallet(&value).expect("wallet");
         assert_eq!(wallet.available_mc, 90);
         assert_eq!(wallet.active_grants.len(), 1);
+    }
+
+    #[test]
+    fn gateway_session_debug_redacts_login_token() {
+        let token = concat!("dummy", "-", "fixture");
+        let session = GatewaySession {
+            token: token.to_string(),
+            user_id: "user-1".to_string(),
+        };
+        let debug = format!("{session:?}");
+        assert!(!debug.contains(token));
+        assert!(debug.contains("<redacted>"));
     }
 }

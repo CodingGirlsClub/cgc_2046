@@ -7,6 +7,7 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
   alias Cgc2046.LlmGateway.LeaseManager
   alias Cgc2046.LlmGateway.Ledger
   alias Cgc2046.LlmGateway.TokenizerAndPricing
+  alias Cgc2046.Accounts.SignInFlow
   alias Cgc2046.Mcp.Token, as: McpToken
   alias Cgc2046Web.LlmGatewayController
 
@@ -296,7 +297,7 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
   describe "LeaseManager & /v1/chat/completions pre-flight guards" do
     test "returns 402 when the wallet has zero credits" do
       user = register_user("gateway-zero")
-      {:ok, _record, raw_token} = McpToken.issue("gateway-test", user, :terminal)
+      raw_token = desktop_token(user)
 
       conn =
         build_conn()
@@ -311,9 +312,9 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
       assert %{"error" => %{"code" => "insufficient_quota"}} = json_response(conn, 402)
     end
 
-    test "rejects a learning_host token before spending credits" do
-      user = register_user("gateway-learning-token")
-      {:ok, _record, raw_token} = McpToken.issue("gateway-learning", user, :learning_host)
+    test "rejects an MCP token before spending credits" do
+      user = register_user("gateway-mcp-token")
+      {:ok, _record, raw_token} = McpToken.issue("gateway-mcp", user, :terminal)
 
       {:ok, _} =
         Ledger.grant_personal_credits(user.id, %{amount_mc: 500_000, source_type: :pack})
@@ -328,7 +329,7 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
           "messages" => [%{"role" => "user", "content" => "Hello"}]
         })
 
-      assert %{"error" => %{"code" => "forbidden"}} = json_response(conn, 403)
+      assert %{"error" => %{"code" => "unauthorized"}} = json_response(conn, 401)
 
       wallet = Ledger.fetch_wallet!(user.id)
       assert wallet.cached_balance_mc == 500_000
@@ -336,7 +337,7 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
 
     test "returns 429 when concurrent stream slots are exhausted" do
       user = register_user("gateway-concurrent")
-      {:ok, _record, raw_token} = McpToken.issue("gateway-test", user, :terminal)
+      raw_token = desktop_token(user)
 
       {:ok, _} =
         Ledger.grant_personal_credits(user.id, %{amount_mc: 500_000, source_type: :pack})
@@ -364,7 +365,7 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
 
     test "waives the charge when the upstream transport is unreachable" do
       user = register_user("gateway-dead-upstream")
-      {:ok, _record, raw_token} = McpToken.issue("gateway-test", user, :terminal)
+      raw_token = desktop_token(user)
 
       {:ok, _} =
         Ledger.grant_personal_credits(user.id, %{amount_mc: 500_000, source_type: :pack})
@@ -409,5 +410,10 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
       assert wallet.cached_balance_mc == 500_000
       assert wallet.held_mc == 0
     end
+  end
+
+  defp desktop_token(user) do
+    {:ok, signed} = SignInFlow.generate_token(user, :desktop, %{})
+    signed.__metadata__[:token]
   end
 end

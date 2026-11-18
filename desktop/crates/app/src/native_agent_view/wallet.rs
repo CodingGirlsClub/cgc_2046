@@ -27,10 +27,6 @@ impl NativeAgentView {
                 }
                 match result {
                     Ok(wallet) => {
-                        if wallet.available_mc > 0 {
-                            this.insufficient_quota = false;
-                            this.quota_checkout = None;
-                        }
                         this.wallet = Some(wallet);
                     }
                     Err(error) => {
@@ -93,10 +89,22 @@ impl NativeAgentView {
                             .get("code_url")
                             .and_then(serde_json::Value::as_str)
                             .and_then(|code_url| crate::qr::encode(code_url).ok());
+                        let Some(qr) = qr else {
+                            this.quota_checkout = Some(QuotaCheckout {
+                                state: QuotaCheckoutState::Failed(
+                                    "支付渠道未返回可用二维码，请重新创建订单".into(),
+                                ),
+                                qr: None,
+                                price_cents: checkout.order.amount_cents,
+                            });
+                            cx.notify();
+                            return;
+                        };
+                        let server_price_cents = checkout.order.amount_cents;
                         this.quota_checkout = Some(QuotaCheckout {
                             state: QuotaCheckoutState::Ready,
-                            qr,
-                            price_cents,
+                            qr: Some(qr),
+                            price_cents: server_price_cents,
                         });
                         this.poll_quota_order(checkout.order.id, serial, cx);
                     }
@@ -115,7 +123,20 @@ impl NativeAgentView {
     }
 
     fn poll_quota_order(&self, order_id: String, serial: u64, cx: &mut Context<Self>) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(600);
         cx.spawn(async move |this, cx| loop {
+            if std::time::Instant::now() >= deadline {
+                let _ = this.update(cx, |this, cx| {
+                    if this.quota_checkout_serial == serial {
+                        if let Some(checkout) = this.quota_checkout.as_mut() {
+                            checkout.state =
+                                QuotaCheckoutState::Failed("支付确认超时，请重新创建订单".into());
+                            cx.notify();
+                        }
+                    }
+                });
+                break;
+            }
             cx.background_executor()
                 .timer(std::time::Duration::from_secs(2))
                 .await;
@@ -135,8 +156,14 @@ impl NativeAgentView {
                     match result {
                         Ok(order) if order.status == "paid" => {
                             checkout.state = QuotaCheckoutState::Paid;
-                            this.insufficient_quota = false;
+                            checkout.price_cents = order.amount_cents;
                             this.refresh_wallet(cx);
+                            cx.notify();
+                            false
+                        }
+                        Ok(order) if matches!(order.status.as_str(), "expired" | "cancelled") => {
+                            checkout.state =
+                                QuotaCheckoutState::Failed("支付订单已关闭，请重新创建订单".into());
                             cx.notify();
                             false
                         }

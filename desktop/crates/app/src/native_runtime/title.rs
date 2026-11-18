@@ -2,6 +2,7 @@ use super::worker::{Job, Owner, TitleOutcome};
 use super::*;
 use cgc_agent_core::{project_thread, CancelToken, Entry};
 use cgc_agent_provider::{CompletionEvent, Message, Model, Request};
+use cgc_agent_store::CGC_CLOUD_PROVIDER_ID;
 use futures::{FutureExt, StreamExt};
 
 /// 对齐 Zed 的 `SUMMARIZE_THREAD_PROMPT`
@@ -157,9 +158,11 @@ impl Owner {
                 return target;
             }
         }
-        if let Some(production) = &self.production {
-            if let Some(target) = factory::managed_background_model(production) {
-                return target;
+        if self.config.model.provider_id.as_str() == CGC_CLOUD_PROVIDER_ID {
+            if let Some(production) = &self.production {
+                if let Some(target) = factory::managed_background_model(production) {
+                    return target;
+                }
             }
         }
         (self.config.provider.clone(), self.config.model.clone())

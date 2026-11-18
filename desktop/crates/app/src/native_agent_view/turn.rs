@@ -1,5 +1,6 @@
 //! Native UI adapter: commands to the owner, ACP events to the shared client session.
 use super::*;
+use cgc_agent_store::CGC_CLOUD_PROVIDER_ID;
 
 impl NativeAgentView {
     pub(super) fn apply_runtime_event(
@@ -154,10 +155,14 @@ impl NativeAgentView {
             self.page_context
                 .observe_event(&self.conversation_scope(), &event);
             if let HostEvent::Error { message } = &event {
+                let managed_provider = self.snapshot.as_ref().is_some_and(|snapshot| {
+                    snapshot.model.provider_id.as_str() == CGC_CLOUD_PROVIDER_ID
+                });
                 let lower = message.to_lowercase();
-                if lower.contains("insufficient quota")
-                    || lower.contains("insufficient_quota")
-                    || message.contains("算力余额不足")
+                if managed_provider
+                    && (lower.contains("insufficient quota")
+                        || lower.contains("insufficient_quota")
+                        || message.contains("算力余额不足"))
                 {
                     self.insufficient_quota = true;
                 }

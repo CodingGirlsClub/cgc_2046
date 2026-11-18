@@ -91,11 +91,6 @@ impl SessionService {
     pub fn sign_out_local(&mut self) -> Option<String> {
         let token = self.signed_in().map(|session| session.token.clone());
         let _ = self.store.clear();
-        if let Some(token) = token.clone() {
-            std::thread::spawn(move || {
-                let _ = crate::gateway::revoke_managed_tokens(&token);
-            });
-        }
         crate::gateway::set_session(None);
         self.state = SessionState::SignedOut;
         token
@@ -163,6 +158,7 @@ impl SessionService {
             let _ = self.api.revoke(&session.token);
         }
         let _ = self.store.clear();
+        crate::gateway::set_session(None);
         self.state = SessionState::SignedOut;
     }
 }
