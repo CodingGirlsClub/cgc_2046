@@ -221,6 +221,7 @@ impl NativeAgentView {
             self.state.subagents.clear();
             self.expanded_tools.clear();
             self.expanded_thinking.clear();
+            self.thinking_started_at.clear();
             self.editing_user = None;
             self.user_edit_input = None;
             self.edit_serial = self.edit_serial.wrapping_add(1);

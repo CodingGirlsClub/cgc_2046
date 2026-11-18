@@ -152,6 +152,7 @@ impl NativeAgentView {
 
             expanded_tools: Default::default(),
             expanded_thinking: Default::default(),
+            thinking_started_at: HashMap::new(),
             editing_user: None,
             user_edit_input: None,
             edit_serial: 0,
@@ -200,6 +201,7 @@ impl NativeAgentView {
                 self.state.session.thread.status = cgc_agent_ui::conversation::ThreadStatus::Idle;
                 self.state.session.thread.pending_permission = None;
                 self.sent_images.clear();
+                self.thinking_started_at.clear();
                 self.pending_agent_call = None;
                 self.state.session.last_error = None;
                 self.status = "对话显示已清空".to_string();

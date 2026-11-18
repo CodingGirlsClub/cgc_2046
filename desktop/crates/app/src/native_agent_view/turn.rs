@@ -120,6 +120,37 @@ impl NativeAgentView {
             if !self.state.ingest(generation, &event) {
                 continue;
             }
+            match &event {
+                HostEvent::ThoughtDelta(_) => {
+                    if let Some(last_idx) = self.state.session.thread.entries.len().checked_sub(1) {
+                        if matches!(
+                            self.state.session.thread.entries.get(last_idx),
+                            Some(ConversationEntry::Thinking { .. })
+                        ) {
+                            let started = *self
+                                .thinking_started_at
+                                .entry(last_idx)
+                                .or_insert_with(std::time::Instant::now);
+                            self.state.session.thread.set_thinking_duration(
+                                last_idx,
+                                (started.elapsed().as_millis() as u64).max(1),
+                            );
+                        }
+                    }
+                }
+                HostEvent::Delta(_)
+                | HostEvent::ToolCall { .. }
+                | HostEvent::TurnEnd { .. }
+                | HostEvent::Error { .. } => {
+                    for (idx, started) in std::mem::take(&mut self.thinking_started_at) {
+                        self.state.session.thread.set_thinking_duration(
+                            idx,
+                            (started.elapsed().as_millis() as u64).max(1),
+                        );
+                    }
+                }
+                _ => {}
+            }
             self.page_context
                 .observe_event(&self.conversation_scope(), &event);
             if let HostEvent::Error { message } = &event {

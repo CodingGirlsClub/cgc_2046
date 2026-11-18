@@ -245,12 +245,13 @@ fn apply_thread_entries(
             cgc_agent_core::Entry::Assistant { text, .. } if !text.is_empty() => thread
                 .entries
                 .push(ConversationEntry::Assistant { text: text.clone() }),
-            cgc_agent_core::Entry::Thinking { text, .. } => {
-                thread.entries.push(ConversationEntry::Thinking {
-                    text: text.clone(),
-                    expanded: false,
-                })
-            }
+            cgc_agent_core::Entry::Thinking {
+                text, duration_ms, ..
+            } => thread.entries.push(ConversationEntry::Thinking {
+                text: text.clone(),
+                expanded: false,
+                duration_ms: *duration_ms,
+            }),
             cgc_agent_core::Entry::ToolResult {
                 tool_use_id,
                 tool_name,
@@ -343,6 +344,8 @@ pub struct NativeAgentView {
     expanded_tools: std::collections::HashSet<String>,
     /// 已展开的思考折叠块（UI message index）。
     expanded_thinking: std::collections::HashSet<usize>,
+    /// 流式思考块开始时间（UI message index → Instant），用于实时统计与收尾耗时。
+    thinking_started_at: HashMap<usize, std::time::Instant>,
     /// 正在编辑的用户消息（UI message index）。
     editing_user: Option<usize>,
     /// 编辑态输入框；仅在 editing_user 有值时存在。

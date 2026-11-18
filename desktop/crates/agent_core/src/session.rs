@@ -156,6 +156,8 @@ pub struct Agent {
     context_steer_rx: mpsc::Receiver<SteerMessage>,
     reasoning_effort: Option<String>,
     thinking_enabled: Option<bool>,
+    /// 后台压缩（compaction）专用模型；为空时回退当前 turn 的 `model`。
+    background_model: Option<Model>,
     /// 采样温度；`None` = 不下发（provider 默认）。由 app 从用户设置文件解析。
     temperature: Option<f32>,
     /// 下一轮用户消息要携带的图片附件（MIME, base64）；发送一次后清空。
@@ -185,6 +187,7 @@ impl Agent {
             context_steer_rx,
             reasoning_effort: None,
             thinking_enabled: None,
+            background_model: None,
             temperature: None,
             pending_images: Vec::new(),
             pending_user_display: None,
@@ -266,6 +269,11 @@ impl Agent {
 
     pub fn set_thinking_enabled(&mut self, enabled: bool) {
         self.thinking_enabled = Some(enabled);
+    }
+
+    /// 设置后台压缩（compaction）逻辑模型（如 `cgc-background`）；`None` 表示沿用主对话模型。
+    pub fn set_background_model(&mut self, model: Option<Model>) {
+        self.background_model = model;
     }
 
     /// 用磁盘上最新的 thread 替换当前会话（多视图共享会话）。
@@ -361,12 +369,13 @@ impl Agent {
                     text,
                     thinking,
                     thinking_signature,
+                    thinking_duration_ms,
                     replay_content,
                     usage,
                     stop_reason,
                     tool_calls,
                 } => {
-                    self.record_thinking(thinking, thinking_signature);
+                    self.record_thinking(thinking, thinking_signature, thinking_duration_ms);
                     self.record_turn(text.clone(), tool_calls.clone(), usage, replay_content);
                     // 插话只在 turn 边界生效（对齐 Zed 的 end_turn_at_next_boundary）：
                     // 已产生的文本保留，本轮结果不返回，直接进入下一轮。
@@ -447,27 +456,37 @@ impl Agent {
                     .await?;
                 let stream_outcome =
                     run_stream(provider, model, request, &self.cancel, observer).await?;
-                let (text, thinking, signature, replay, usage, stop_reason, tool_calls) =
-                    match stream_outcome {
-                        StreamOutcome::Finished {
-                            text,
-                            thinking,
-                            thinking_signature,
-                            replay_content,
-                            usage,
-                            stop_reason,
-                            tool_calls,
-                        } => (
-                            text,
-                            thinking,
-                            thinking_signature,
-                            replay_content,
-                            usage,
-                            stop_reason,
-                            tool_calls,
-                        ),
-                    };
-                self.record_thinking(thinking, signature);
+                let (
+                    text,
+                    thinking,
+                    signature,
+                    thinking_duration_ms,
+                    replay,
+                    usage,
+                    stop_reason,
+                    tool_calls,
+                ) = match stream_outcome {
+                    StreamOutcome::Finished {
+                        text,
+                        thinking,
+                        thinking_signature,
+                        thinking_duration_ms,
+                        replay_content,
+                        usage,
+                        stop_reason,
+                        tool_calls,
+                    } => (
+                        text,
+                        thinking,
+                        thinking_signature,
+                        thinking_duration_ms,
+                        replay_content,
+                        usage,
+                        stop_reason,
+                        tool_calls,
+                    ),
+                };
+                self.record_thinking(thinking, signature, thinking_duration_ms);
                 self.record_turn(text.clone(), tool_calls.clone(), usage, replay);
                 observer.on_usage(usage, self.thread.usage_total);
                 all_text.push_str(&text);
@@ -546,9 +565,15 @@ impl Agent {
         Ok(())
     }
 
-    fn record_thinking(&mut self, thinking: String, signature: Option<String>) {
+    fn record_thinking(
+        &mut self,
+        thinking: String,
+        signature: Option<String>,
+        duration_ms: Option<u64>,
+    ) {
         if !thinking.is_empty() {
-            self.thread.push_thinking(thinking);
+            self.thread
+                .push_thinking_with_duration(thinking, duration_ms);
             if let Some(Entry::Thinking {
                 signature: stored, ..
             }) = self.thread.entries.last_mut()

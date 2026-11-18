@@ -48,6 +48,8 @@ pub enum Entry {
         text: String,
         #[serde(default)]
         signature: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        duration_ms: Option<u64>,
         at: i64,
     },
     Assistant {
@@ -143,9 +145,18 @@ impl Thread {
 
     /// 记录一条思考（thinking）内容：只用于历史展示/持久化，不进入 provider messages。
     pub fn push_thinking(&mut self, text: impl Into<String>) {
+        self.push_thinking_with_duration(text, None);
+    }
+
+    pub fn push_thinking_with_duration(
+        &mut self,
+        text: impl Into<String>,
+        duration_ms: Option<u64>,
+    ) {
         self.entries.push(Entry::Thinking {
             text: text.into(),
             signature: None,
+            duration_ms,
             at: now_secs(),
         });
         self.updated_at = now_secs();
