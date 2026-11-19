@@ -26,6 +26,7 @@ defmodule Cgc2046.Reconciliation.RulesRegistry do
   sweep 合法。
   """
 
+  alias Cgc2046.LlmGateway.Workers.LlmPaymentSettlementWorker
   alias Cgc2046.Payments.Workers.DepositForfeitWorker
   alias Cgc2046.Payments.Workers.PaymentReconciliationWorker
   alias Cgc2046.Payments.Workers.PaymentSettlementWorker
@@ -81,8 +82,8 @@ defmodule Cgc2046.Reconciliation.RulesRegistry do
       id: :dead_letter_job,
       desc:
         "死信 job（SignalPublishWorker/NotificationWorker/DeliveryWorker/DepositForfeitWorker/" <>
-          "PaymentRefundWorker——末位为押金结算与退款，资金链任务丢弃必须可见）；" <>
-          "Pruner 7 天窗口内判定：超出 max_age 的 discarded 历史行不报告，" <>
+          "PaymentRefundWorker/LlmPaymentSettlementWorker——末三位为押金结算、退款与 LLM 算力落账，" <>
+          "资金链任务丢弃必须可见）；Pruner 7 天窗口内判定：超出 max_age 的 discarded 历史行不报告，" <>
           "交给 Pruner 清理（E-10；退款死信同规17 成因面，#862）",
       sweep: :full,
       producer: ReconciliationScanWorker
@@ -179,6 +180,24 @@ defmodule Cgc2046.Reconciliation.RulesRegistry do
       producer: ReconciliationScanWorker
     },
     %{
+      id: :llm_wallet_held_mismatch,
+      desc:
+        "LLM 钱包冻结额度（held_mc）与活跃 llm_wallet_holds 之和不一致：w.held_mc 应恒等于 " <>
+          "status=active 的 llm_wallet_holds.hold_mc 之和；漏删 hold 或手改 held_mc 均会命中，" <>
+          "entity = :user，修复后下一拍自消",
+      sweep: :full,
+      producer: ReconciliationScanWorker
+    },
+    %{
+      id: :llm_paid_order_without_grant,
+      desc:
+        "已付个人 LLM 订单（llm_subscription / llm_credit_pack）缺失对应授信批次或授信初始额度与订单 " <>
+          "credits_mc 快照不符：捕获「订单已 paid 但钱包未入账/金额漂移」资金缺口；" <>
+          "entity = :payment_order，补齐并核正后下一拍自消",
+      sweep: :full,
+      producer: ReconciliationScanWorker
+    },
+    %{
       id: :payment_amount_mismatch,
       desc:
         "收款金额与订单不符（R20）：支付回调落账 worker 回查渠道 total ≠ 订单 " <>
@@ -217,6 +236,15 @@ defmodule Cgc2046.Reconciliation.RulesRegistry do
           "unforfeit 救济降到阈值下自动消解（刷新语义删除）；entity = 场（:event）",
       sweep: :full,
       producer: DepositForfeitWorker
+    },
+    %{
+      id: :llm_closed_order_paid,
+      desc:
+        "LLM 独立收银台已关单（cancelled/expired）收到渠道已付回调：拒绝补发算力、" <>
+          "不将订单翻回 paid，落单事件拍 Finding 供人工核对并原路退款（保障钱账一致）；" <>
+          "entity = :payment_order；:one_shot——重复命中刷新 last_seen_at，无全量视图不做 stale 删除",
+      sweep: :one_shot,
+      producer: LlmPaymentSettlementWorker
     }
   ]
 

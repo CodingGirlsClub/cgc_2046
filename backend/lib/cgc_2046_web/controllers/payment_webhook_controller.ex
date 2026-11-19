@@ -119,10 +119,24 @@ defmodule Cgc2046Web.PaymentWebhookController do
     end
   end
 
-  # 独立 LLM 收银台复用同一回调入口：只按商户单号前缀分流。报名支付单为
-  # "CGC..."，LLM 单为 "LLM..."；退款/无 out_trade_no 的通知仍走原 worker。
-  defp llm_order_event?(%{"out_trade_no" => "LLM_" <> _}), do: true
+  # 独立 LLM 收银台复用同一回调入口：按商户单号前缀分流，同时显式排除退款通知。
+  # 报名支付单为 "CGC..."，LLM 单为 "LLM_..."；退款通知（即使携带 LLM_ out_trade_no）
+  # 或无 out_trade_no 的通知不进入 LLM 落账 worker，避免误入支付入账链。
+  defp llm_order_event?(%{"out_trade_no" => "LLM_" <> _} = event), do: not refund_event?(event)
   defp llm_order_event?(_event), do: false
+
+  defp refund_event?(%{"event_type" => "REFUND." <> _}), do: true
+
+  defp refund_event?(event) when is_map(event) do
+    present?(event["out_refund_no"]) or
+      present?(event["refund_id"]) or
+      present?(event["refund_status"]) or
+      present?(event["refund_fee"]) or
+      present?(event["gmt_refund"])
+  end
+
+  defp present?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present?(value), do: not is_nil(value)
 
   # 渠道事件标识：微信 v3 通知体 id；支付宝表单 notify_id；兜底 sha256(raw body)
   # 去重键（两渠道正常路径均有稳定 id）。

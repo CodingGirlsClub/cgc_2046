@@ -6450,13 +6450,13 @@ type RootMutationType {
   ): LlmPaymentCheckout
 
   "工作台 Owner\/Admin 从算力池向当前全部成员派发额度；同 idempotencyKey 幂等"
-  distributeWorkspaceLlmCredits(workspaceId: ID!, perMemberMc: Int!, idempotencyKey: String!, expiresAt: DateTime): LlmWorkspaceGrantResult
+  distributeWorkspaceLlmCredits(workspaceId: ID!, perMemberMc: BigInt!, idempotencyKey: String!, expiresAt: DateTime): LlmWorkspaceGrantResult
 
   "PlatformAdmin 向工作台算力池充值；与 AdminActionLog 同事务"
-  adminTopupWorkspaceLlmPool(workspaceId: ID!, amountMc: Int!): LlmWorkspacePoolSummary
+  adminTopupWorkspaceLlmPool(workspaceId: ID!, amountMc: BigInt!): LlmWorkspacePoolSummary
 
   "PlatformAdmin 向个人钱包赠予算力（source=admin_gift）；与 AdminActionLog 同事务"
-  adminGrantUserLlmCredits(userId: ID!, amountMc: Int!, expiresAt: DateTime): LlmWalletSummary
+  adminGrantUserLlmCredits(userId: ID!, amountMc: BigInt!, expiresAt: DateTime): LlmWalletSummary
 
   "Owner\/Admin 创建一次性工作台邀请小程序码"
   generateMiniProgramCode(workspaceId: ID!, platform: String!): MiniprogramCodeResult
@@ -6640,6 +6640,9 @@ be converted to UTC if there is an offset.
 """
 scalar DateTime
 
+"Signed 64-bit integer (microcredits). Accepts integer or numeric string; serializes as JSON integer."
+scalar BigInt
+
 "LLM 钱包内一笔活跃授信（订阅\/算力包\/工作台派发\/管理员赠送）"
 type LlmCreditGrantItem {
   id: ID!
@@ -6648,10 +6651,10 @@ type LlmCreditGrantItem {
   sourceType: String!
 
   "发放额度（微积分）"
-  initialMc: Int!
+  initialMc: BigInt!
 
   "当前剩余额度（微积分）"
-  remainingMc: Int!
+  remainingMc: BigInt!
 
   expiresAt: DateTime
 
@@ -6666,13 +6669,13 @@ type LlmWalletSummary {
   walletId: ID!
 
   "缓存总余额（含冻结）"
-  cachedBalanceMc: Int!
+  cachedBalanceMc: BigInt!
 
   "在途流式请求冻结额度"
-  heldMc: Int!
+  heldMc: BigInt!
 
-  "可用额度 = cached - held"
-  availableMc: Int!
+  "可用额度（未过期授信与缓存余额取小后扣除冻结）"
+  availableMc: BigInt!
 
   maxConcurrentStreams: Int!
 
@@ -6690,7 +6693,7 @@ type LlmWorkspacePoolSummary {
   workspaceId: ID!
 
   "待派发池余额（微积分）"
-  creditPoolMc: Int!
+  creditPoolMc: BigInt!
 
   updatedAt: DateTime!
 
@@ -6701,9 +6704,9 @@ type LlmWorkspacePoolSummary {
 type LlmWorkspaceGrantBatch {
   id: ID!
   actorUserId: ID!
-  perMemberMc: Int!
+  perMemberMc: BigInt!
   memberCount: Int!
-  totalGrantedMc: Int!
+  totalGrantedMc: BigInt!
   expiresAt: DateTime
   idempotencyKey: String!
   insertedAt: DateTime!
@@ -6712,9 +6715,9 @@ type LlmWorkspaceGrantBatch {
 "工作台批量派发结果；idempotentReplay=true 表示命中同 key 原批次、未二次扣池"
 type LlmWorkspaceGrantResult {
   id: ID!
-  perMemberMc: Int!
+  perMemberMc: BigInt!
   memberCount: Int!
-  totalGrantedMc: Int!
+  totalGrantedMc: BigInt!
   idempotentReplay: Boolean!
 }
 
@@ -6731,7 +6734,7 @@ type LlmPaymentOrder {
   "llm_subscription | llm_credit_pack | llm_workspace_pool_topup"
   orderKind: String!
 
-  "wechat_native | alipay_page | alipay_qr | alipay_wap"
+  "wechat_native | alipay_qr"
   provider: String!
 
   outTradeNo: String!
@@ -6740,7 +6743,7 @@ type LlmPaymentOrder {
   amountCents: Int!
 
   "入账算力（微积分；1 cent = 10,000 mc）"
-  creditsMc: Int!
+  creditsMc: BigInt!
 
   "pending | paid | cancelled | expired"
   status: String!

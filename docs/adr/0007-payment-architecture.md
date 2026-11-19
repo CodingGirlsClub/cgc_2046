@@ -66,3 +66,15 @@
 > 正文与既有补记不改，本节只更正 2026-09-14 补记第 3 条的一处措辞（写法先例见该补记首段）。
 
 2026-09-14 补记第 3 条写的「金额源为报名提交时物化的押金快照」已被 #749 取代，**该句保持原样不动，以本节为准**：押金金额以**活动现值**为权威——`Enrollment.depositAmountCents` / `paymentMode` 是计算字段，每次读都取活动当下配置，`submission_payload` 不再物化也不参与金额（历史预埋的脏键天然免疫）；创单（`createOrder`）时才把金额钉死进订单的 `tier_snapshot`，此后不随活动改价追溯已创建订单。术语：创单前 = 活动现值，创单后 = 订单快照（见 `GLOSSARY.md` §9 易混清单）。落账链、`forfeit` / `start_refund` 的仲裁纪律与第 3 条其余部分不受影响。
+
+---
+
+## 补记（2026-11-19）——LLM 独立收银台（llm_payment_orders）：不占位迟到可入账、已入账算力不退、关单迟付必告警
+
+> 正文与前述补记不改。本节记录 LLM Gateway 算力收银台（`llm_payment_orders` / `LlmPaymentSettlementWorker`）复用平台统一商户号时的资金语义边界，明示其与报名支付（`payments_orders`）的有意差异与钱账一致底线。
+
+1. **共用平台统一商户号，经 `LLM_` 商户单号前缀隔离路由。** LLM 算力订阅、加油包与工作台算力池充值独立落表 `llm_payment_orders`，与报名支付 `payments_orders` / `PaymentSettlementWorker` 零耦合，但共用平台统一微信支付 / 支付宝商户资质与回调入口（`PaymentWebhookController`）。回调入口按 `out_trade_no` 的 `LLM_` 前缀将支付通知分流到 `LlmPaymentSettlementWorker`，并显式排除退款通知（如微信 `REFUND.*` / `out_refund_no` / `refund_id` / `refund_status`、支付宝 `refund_fee` / `gmt_refund`），避免退款通知误入算力入账链。
+
+2. **不占位故 `pending` 迟到可入账；已入账虚拟算力不退。** 算力订单不占用活动名额/库存，`expires_at` 仅作收银台展示截止时间，不挂超时作废 worker——仍处于 `pending` 的订单即使在展示截止后收到渠道已付回调，仍按原订单快照 `credits_mc` 正常 CAS 为 `paid` 并入账。虚拟算力一经入账（`paid`）即不可自助/自动退款（不接入 `RefundCommencement` / `PaymentRefundWorker`），成为本 ADR 下继押金 `forfeited` 之后第二条明确「不自动退款」的合法终态语义。
+
+3. **已关单（`cancelled` / `expired`）收到渠道已付回调必须告警对账，守住钱账一致底线。** 若订单因渠道创单失败已标记为 `cancelled`（或经运维/策略置为 `expired`）后，渠道侧仍完成扣款并送达已付回调，`LlmPaymentSettlementWorker` **禁止**补发算力，亦不得把订单状态翻回 `paid`；必须记录 `Logger.error` 并落单事件拍 `:llm_closed_order_paid` 对账发现（`Finding.apply_rule(..., sweep: :one_shot)`，携带 `order_source`、`out_trade_no`、`status`、`amount_cents`、`transaction_id`），交人工核对后原路退款，确保「渠道已收款而未给算力」不会静默吞没，守住钱账一致硬约束。

@@ -425,6 +425,56 @@ mod tests {
     }
 
     #[test]
+    fn wallet_and_order_payloads_parse_64bit_bigint_fields() {
+        let large_mc: i64 = 5_000_000_000;
+        let half_mc: i64 = 2_500_000_000;
+        assert!(large_mc > i64::from(i32::MAX));
+
+        let wallet_value = json!({
+            "data": {"myLlmWallet": {
+                "walletId": "w-big",
+                "cachedBalanceMc": large_mc,
+                "heldMc": half_mc,
+                "availableMc": half_mc,
+                "maxConcurrentStreams": 3,
+                "status": "active",
+                "remainingPercentage": 100,
+                "activeGrants": [{
+                    "id": "g-big",
+                    "sourceType": "workspace_grant",
+                    "initialMc": large_mc,
+                    "remainingMc": large_mc,
+                    "expiresAt": null,
+                    "status": "active"
+                }]
+            }}
+        });
+        let wallet = parse_wallet(&wallet_value).expect("64-bit wallet");
+        assert_eq!(wallet.cached_balance_mc, large_mc);
+        assert_eq!(wallet.held_mc, half_mc);
+        assert_eq!(wallet.available_mc, half_mc);
+        assert_eq!(wallet.active_grants.len(), 1);
+        assert_eq!(wallet.active_grants[0].initial_mc, large_mc);
+        assert_eq!(wallet.active_grants[0].remaining_mc, large_mc);
+
+        let order_value = json!({
+            "id": "ord-big",
+            "workspaceId": "ws-1",
+            "orderKind": "llm_workspace_pool_topup",
+            "provider": "wechat_native",
+            "outTradeNo": "LLM_0123456789abcdef0123456789ab",
+            "amountCents": 500_000,
+            "creditsMc": large_mc,
+            "status": "pending",
+            "expiresAt": null,
+            "paidAt": null
+        });
+        let order = parse_order(&order_value).expect("64-bit order");
+        assert_eq!(order.amount_cents, 500_000);
+        assert_eq!(order.credits_mc, large_mc);
+    }
+
+    #[test]
     fn gateway_session_debug_redacts_login_token() {
         let token = concat!("dummy", "-", "fixture");
         let session = GatewaySession {

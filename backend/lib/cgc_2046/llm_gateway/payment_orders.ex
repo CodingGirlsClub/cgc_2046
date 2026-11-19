@@ -34,21 +34,27 @@ defmodule Cgc2046.LlmGateway.PaymentOrders do
 
   @providers [
     wechat_native: :wechat_native,
-    alipay_page: :alipay_page,
-    alipay_qr: :alipay_qr,
-    alipay_wap: :alipay_wap
+    alipay_qr: :alipay_qr
   ]
+
+  @default_checkout_skus %{
+    llm_subscription: [2_900, 9_900],
+    llm_credit_pack: [1_000, 5_000, 10_000, 50_000],
+    llm_workspace_pool_topup: 10_000..10_000_000
+  }
 
   @doc """
   创建 pending LLM 订单并调用渠道生成凭据。
 
+  Phase A 在短事务内校验幂等键/落库 pending 订单（`credential: nil`）；
+  Phase B 在事务外调用外部支付渠道生成凭据，避免外呼占住 DB 连接池。
   返回 `{:ok, %PaymentOrder{}}`（`credential` 已落库）或稳定错误 atom。
   """
   @spec create(struct(), map()) :: {:ok, PaymentOrder.t()} | {:error, atom()}
   def create(actor, attrs) when is_map(attrs) do
     with {:ok, kind} <- cast_kind(Map.get(attrs, :order_kind)),
          {:ok, provider} <- cast_provider(Map.get(attrs, :provider)),
-         {:ok, amount_cents} <- cast_amount(Map.get(attrs, :amount_cents)),
+         {:ok, amount_cents} <- cast_amount(kind, Map.get(attrs, :amount_cents)),
          {:ok, idempotency_key} <- cast_idempotency_key(Map.get(attrs, :idempotency_key)),
          {:ok, workspace_id} <- cast_workspace(kind, Map.get(attrs, :workspace_id), actor) do
       credits_mc = amount_cents * @credit_multiplier
@@ -56,11 +62,11 @@ defmodule Cgc2046.LlmGateway.PaymentOrders do
       now = DateTime.utc_now()
       expires_at = DateTime.add(now, @order_window_seconds, :second)
 
-      result =
+      phase_a =
         Repo.transaction(fn ->
           case find_by_idempotency(actor.id, idempotency_key) do
             %PaymentOrder{} = existing ->
-              existing
+              verify_idempotent_replay(existing, kind, provider, amount_cents, workspace_id)
 
             nil ->
               case insert_order!(
@@ -76,26 +82,36 @@ defmodule Cgc2046.LlmGateway.PaymentOrders do
                      now
                    ) do
                 {:new, order} ->
-                  create_channel_credential(
-                    order,
-                    kind,
-                    provider,
-                    amount_cents,
-                    out_trade_no,
-                    now
-                  )
+                  {:new, order}
 
-                {:existing, order} ->
-                  order
+                {:existing, existing} ->
+                  verify_idempotent_replay(existing, kind, provider, amount_cents, workspace_id)
               end
           end
         end)
 
-      case result do
-        {:ok, %PaymentOrder{} = order} -> {:ok, order}
-        {:error, {:provider_error, _reason}} -> {:error, :provider_failed}
-        {:error, :idempotency_conflict} -> {:error, :idempotency_conflict}
-        {:error, _reason} -> {:error, :database_error}
+      case phase_a do
+        {:ok, {:new, %PaymentOrder{} = order}} ->
+          create_channel_credential(order)
+
+        {:ok, {:existing, %PaymentOrder{status: :cancelled}}} ->
+          {:error, :provider_failed}
+
+        {:ok, {:existing, %PaymentOrder{credential: credential} = existing}}
+        when not is_nil(credential) ->
+          {:ok, existing}
+
+        {:ok, {:existing, %PaymentOrder{status: :pending, credential: nil} = existing}} ->
+          create_channel_credential(existing)
+
+        {:ok, {:existing, %PaymentOrder{} = existing}} ->
+          {:ok, existing}
+
+        {:error, :idempotency_conflict} ->
+          {:error, :idempotency_conflict}
+
+        {:error, _reason} ->
+          {:error, :database_error}
       end
     end
   end
@@ -215,33 +231,61 @@ defmodule Cgc2046.LlmGateway.PaymentOrders do
     end
   end
 
-  defp create_channel_credential(order, kind, provider, amount_cents, out_trade_no, now) do
+  defp verify_idempotent_replay(existing, kind, provider, amount_cents, workspace_id) do
+    if matches_idempotent_payload?(existing, kind, provider, amount_cents, workspace_id) do
+      {:existing, existing}
+    else
+      Repo.rollback(:idempotency_conflict)
+    end
+  end
+
+  defp matches_idempotent_payload?(existing, kind, provider, amount_cents, workspace_id) do
+    existing.order_kind == kind and
+      existing.provider == provider and
+      existing.amount_cents == amount_cents and
+      existing.workspace_id == workspace_id
+  end
+
+  defp create_channel_credential(%PaymentOrder{} = order) do
     order_shape = %{
-      provider: provider,
-      out_trade_no: out_trade_no,
-      amount_cents: amount_cents,
-      tier_snapshot: %{"name" => order_description(kind)}
+      provider: order.provider,
+      out_trade_no: order.out_trade_no,
+      amount_cents: order.amount_cents,
+      tier_snapshot: %{"name" => order_description(order.order_kind)}
     }
 
-    case Provider.for(provider).create_payment(order_shape, %{}) do
+    case Provider.for(order.provider).create_payment(order_shape, %{}) do
       {:ok, credential} ->
+        updated_at = DateTime.utc_now()
+
         Repo.query!(
           """
           UPDATE llm_payment_orders
           SET credential = $2, updated_at = $3
-          WHERE id = $1
+          WHERE id = $1 AND status = 'pending'
           """,
-          [Repo.uuid!(order.id), credential, now]
+          [Repo.uuid!(order.id), credential, updated_at]
         )
 
-        %{order | credential: credential}
+        {:ok, %{order | credential: credential}}
 
       {:error, reason} ->
         Logger.warning(
-          "llm payment provider create failed provider=#{provider} reason=#{inspect(reason)}"
+          "llm payment provider create failed provider=#{order.provider} out_trade_no=#{order.out_trade_no} reason=#{inspect(reason)}"
         )
 
-        Repo.rollback({:provider_error, reason})
+        updated_at = DateTime.utc_now()
+
+        Repo.query!(
+          """
+          UPDATE llm_payment_orders
+          SET status = 'cancelled', updated_at = $2
+          WHERE id = $1 AND status = 'pending' AND credential IS NULL
+          """,
+          [Repo.uuid!(order.id), updated_at]
+        )
+
+        {:error, :provider_failed}
     end
   end
 
@@ -271,8 +315,31 @@ defmodule Cgc2046.LlmGateway.PaymentOrders do
 
   defp cast_provider(_provider), do: {:error, :invalid_provider}
 
-  defp cast_amount(amount) when is_integer(amount) and amount > 0, do: {:ok, amount}
-  defp cast_amount(_amount), do: {:error, :invalid_amount}
+  defp cast_amount(kind, amount) when is_integer(amount) and amount > 0 do
+    if amount_allowed?(kind, amount) do
+      {:ok, amount}
+    else
+      {:error, :invalid_amount}
+    end
+  end
+
+  defp cast_amount(_kind, _amount), do: {:error, :invalid_amount}
+
+  defp amount_allowed?(kind, amount) do
+    case Map.get(checkout_skus(), kind) do
+      %Range{} = range -> amount in range
+      tiers when is_list(tiers) -> amount in tiers
+      _ -> false
+    end
+  end
+
+  defp checkout_skus do
+    case Application.get_env(:cgc_2046, :llm_gateway_checkout_skus) do
+      override when is_map(override) -> Map.merge(@default_checkout_skus, override)
+      override when is_list(override) -> Map.merge(@default_checkout_skus, Map.new(override))
+      _ -> @default_checkout_skus
+    end
+  end
 
   defp cast_idempotency_key(key) when is_binary(key) do
     key = String.trim(key)

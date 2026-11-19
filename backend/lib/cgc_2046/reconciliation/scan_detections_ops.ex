@@ -366,6 +366,78 @@ defmodule Cgc2046.Reconciliation.ScanDetectionsOps do
     end)
   end
 
+  # Plan 007：LLM 钱包 held_mc 与活跃 llm_wallet_holds 之和对账。
+  def detect_llm_wallet_held_mismatch do
+    {:ok, %{rows: rows}} =
+      Repo.query("""
+      SELECT w.user_id, w.id, w.held_mc,
+             COALESCE(
+               SUM(h.hold_mc) FILTER (WHERE h.status = 'active'),
+               0
+             )::bigint AS active_holds_mc
+      FROM llm_wallets w
+      LEFT JOIN llm_wallet_holds h ON h.wallet_id = w.id
+      GROUP BY w.id, w.user_id, w.held_mc
+      HAVING w.held_mc <> COALESCE(
+        SUM(h.hold_mc) FILTER (WHERE h.status = 'active'),
+        0
+      )
+      """)
+
+    Enum.map(rows, fn [user_id, wallet_id, held_mc, active_holds_mc] ->
+      %{
+        entity_type: :user,
+        entity_id: Ecto.UUID.load!(user_id),
+        workspace_id: nil,
+        detail: %{
+          "wallet_id" => Ecto.UUID.load!(wallet_id),
+          "held_mc" => held_mc,
+          "active_holds_mc" => active_holds_mc
+        }
+      }
+    end)
+  end
+
+  # Plan 007：已付个人 LLM 订单缺失对应授信批次或 initial_mc 与 credits_mc 快照不符。
+  def detect_llm_paid_order_without_grant do
+    {:ok, %{rows: rows}} =
+      Repo.query("""
+      SELECT o.id, o.user_id, o.workspace_id, o.out_trade_no, o.order_kind,
+             o.credits_mc, g.id AS grant_id, g.initial_mc
+      FROM llm_payment_orders o
+      LEFT JOIN llm_credit_grants g ON g.payment_order_id = o.id
+      WHERE o.status = 'paid'
+        AND o.order_kind IN ('llm_subscription', 'llm_credit_pack')
+        AND (g.id IS NULL OR g.initial_mc <> o.credits_mc)
+      """)
+
+    Enum.map(rows, fn [
+                        order_id,
+                        user_id,
+                        workspace_id,
+                        out_trade_no,
+                        order_kind,
+                        credits_mc,
+                        grant_id,
+                        initial_mc
+                      ] ->
+      %{
+        entity_type: :payment_order,
+        entity_id: Ecto.UUID.load!(order_id),
+        workspace_id: if(workspace_id, do: Ecto.UUID.load!(workspace_id), else: nil),
+        detail: %{
+          "order_source" => "llm_payment_order",
+          "user_id" => Ecto.UUID.load!(user_id),
+          "out_trade_no" => out_trade_no,
+          "order_kind" => order_kind,
+          "credits_mc" => credits_mc,
+          "grant_id" => if(grant_id, do: Ecto.UUID.load!(grant_id), else: nil),
+          "grant_initial_mc" => initial_mc
+        }
+      }
+    end)
+  end
+
   defp fund_burst_config do
     conf = Application.get_env(:cgc_2046, __MODULE__, [])
 
