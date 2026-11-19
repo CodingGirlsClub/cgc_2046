@@ -6,7 +6,7 @@ use cgc_agent_provider::{
     ResponsesCompatibleConfig, ResponsesCompatibleProvider, UnconfiguredProvider,
 };
 use cgc_agent_store::{
-    cgc_cloud_provider, provider_key_account, PrefsStore, CGC_CLOUD_PROVIDER_ID,
+    cgc_cloud_provider, provider_key_account, AgentPrefs, PrefsStore, CGC_CLOUD_PROVIDER_ID,
 };
 use cgc_agent_tools::{
     ActionSink, SandboxPolicy, SubagentEvent, SubagentEventSink, SubagentRunner,
@@ -35,6 +35,28 @@ fn endpoint_url(provider: &ProviderPrefs) -> String {
             provider.base_url.clone()
         }
     }
+}
+
+/// 登录态下的有效 Provider：显式选择的 BYOK 优先；没有可用 BYOK 时默认 CGC Cloud。
+/// 工厂初始化与运行时 refresh 共用，避免登录后两条路径给出不同选择。
+pub(super) fn resolve_active_provider(
+    prefs: &AgentPrefs,
+    managed_available: bool,
+) -> (bool, Option<ProviderPrefs>) {
+    let configured_active = prefs
+        .active_provider()
+        .filter(|provider| provider.has_key || !managed_available)
+        .cloned();
+    let managed = managed_available
+        && configured_active
+            .as_ref()
+            .is_none_or(|provider| provider.id == CGC_CLOUD_PROVIDER_ID);
+    let active = if managed {
+        Some(cgc_cloud_provider())
+    } else {
+        configured_active
+    };
+    (managed, active)
 }
 
 pub(super) struct Production {
@@ -74,19 +96,7 @@ pub(super) fn initialize_with_keychain(
         .map_err(|error| NativeRuntimeError::Storage(error.to_string()))?;
     let prefs = PrefsStore::new(data_root.join("agent_prefs.json")).load();
     let managed_available = cgc_platform::gateway::signed_in();
-    let configured_active = prefs
-        .active_provider()
-        .filter(|provider| provider.has_key || !managed_available)
-        .cloned();
-    let managed = managed_available
-        && configured_active
-            .as_ref()
-            .is_none_or(|provider| provider.id == CGC_CLOUD_PROVIDER_ID);
-    let active = if managed {
-        Some(cgc_cloud_provider())
-    } else {
-        configured_active
-    };
+    let (managed, active) = resolve_active_provider(&prefs, managed_available);
     let protocol = std::env::var("CGC_AGENT_PROTOCOL")
         .ok()
         .map(|value| value.parse::<ProviderProtocol>())

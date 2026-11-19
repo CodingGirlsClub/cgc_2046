@@ -377,19 +377,7 @@ impl Owner {
             .ok_or_else(|| NativeRuntimeError::Configuration("runtime 未配置模型目录".into()))?;
         let prefs = PrefsStore::new(production.data_root.join("agent_prefs.json")).load();
         let managed_available = cgc_platform::gateway::signed_in();
-        let configured_active = prefs
-            .active_provider()
-            .filter(|provider| provider.has_key || !managed_available)
-            .cloned();
-        let managed = managed_available
-            && configured_active
-                .as_ref()
-                .is_none_or(|provider| provider.id == CGC_CLOUD_PROVIDER_ID);
-        let active = if managed {
-            Some(cgc_cloud_provider())
-        } else {
-            configured_active
-        };
+        let (managed, active) = factory::resolve_active_provider(&prefs, managed_available);
         let mut available_providers = prefs.providers.clone();
         if managed
             && !available_providers

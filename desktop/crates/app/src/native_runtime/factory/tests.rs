@@ -325,3 +325,41 @@ fn endpoint_url_follows_protocol() {
     provider.anthropic_url = None;
     assert_eq!(super::endpoint_url(&provider), "https://openai.example/v1");
 }
+
+#[test]
+fn login_defaults_to_managed_provider_without_byok() {
+    let prefs = AgentPrefs::default();
+    let (managed, active) = resolve_active_provider(&prefs, true);
+    assert!(managed);
+    assert_eq!(active.expect("managed provider").id, CGC_CLOUD_PROVIDER_ID);
+}
+
+#[test]
+fn login_keeps_configured_byok_provider() {
+    let mut prefs = AgentPrefs::default();
+    prefs.providers.push(ProviderPrefs {
+        id: "deepseek".into(),
+        name: "DeepSeek".into(),
+        has_key: true,
+        enabled: true,
+        ..Default::default()
+    });
+    let (managed, active) = resolve_active_provider(&prefs, true);
+    assert!(!managed);
+    assert_eq!(active.expect("BYOK provider").id, "deepseek");
+}
+
+#[test]
+fn login_requires_a_key_before_byok_wins() {
+    let mut prefs = AgentPrefs::default();
+    prefs.providers.push(ProviderPrefs {
+        id: "deepseek".into(),
+        name: "DeepSeek".into(),
+        has_key: false,
+        enabled: true,
+        ..Default::default()
+    });
+    let (managed, active) = resolve_active_provider(&prefs, true);
+    assert!(managed);
+    assert_eq!(active.expect("managed provider").id, CGC_CLOUD_PROVIDER_ID);
+}
