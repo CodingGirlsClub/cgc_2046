@@ -77,7 +77,10 @@ defmodule Cgc2046.Reconciliation.Finding do
     :refunding_without_refund_job,
     # Phase 3A：钱包缓存余额与活跃授信余额不一致——缓存写路径漏更新/绕过
     # Ledger 直改的漂移看护；held_mc 是缓存内的冻结部分，不参与该等式
-    :llm_wallet_balance_mismatch
+    :llm_wallet_balance_mismatch,
+    # Plan 005：LLM 独立收银台已关单（cancelled/expired）收到渠道已付回调，
+    # 拒绝入账并落单事件拍告警供人工原路退款核对
+    :llm_closed_order_paid
   ]
   # 合法规则枚举的对外读面（admin_list_reconciliation_findings 过滤校验消费；
   # @doc false public 先例同 Runs.fetch_learning_definition）

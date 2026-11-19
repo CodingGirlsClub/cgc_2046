@@ -10,6 +10,7 @@ defmodule Cgc2046.Reconciliation.RulesRegistryTest do
 
   use ExUnit.Case, async: true
 
+  alias Cgc2046.LlmGateway.Workers.LlmPaymentSettlementWorker
   alias Cgc2046.Payments.Workers.DepositForfeitWorker
   alias Cgc2046.Payments.Workers.PaymentReconciliationWorker
   alias Cgc2046.Payments.Workers.PaymentSettlementWorker
@@ -21,7 +22,8 @@ defmodule Cgc2046.Reconciliation.RulesRegistryTest do
     ReconciliationScanWorker,
     DepositForfeitWorker,
     PaymentSettlementWorker,
-    PaymentReconciliationWorker
+    PaymentReconciliationWorker,
+    LlmPaymentSettlementWorker
   ]
 
   describe "注册表 = Finding 枚举全集" do

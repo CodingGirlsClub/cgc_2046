@@ -26,6 +26,8 @@ defmodule Cgc2046.Payments.ReplaySettlement do
 
   require Ash.Query
 
+  alias Cgc2046.LlmGateway.PaymentOrders, as: LlmPaymentOrders
+  alias Cgc2046.LlmGateway.Workers.LlmPaymentSettlementWorker
   alias Cgc2046.Payments.Provider
   alias Cgc2046.Payments.{Order, WebhookEvent}
   alias Cgc2046.Payments.Workers.PaymentSettlementWorker
@@ -33,18 +35,39 @@ defmodule Cgc2046.Payments.ReplaySettlement do
   @doc """
   按商户单号收敛落账。返回 `{:ok, %{event_id: …, job_id: …}}`；订单不存在
   返回 `{:error, :order_not_found}`（渠道侧无此单时无从收敛，先查单核实）。
+
+  `LLM_` 前缀单号从 `llm_payment_orders` 查单并入队 `LlmPaymentSettlementWorker`；
+  其余单号走原报名支付 `Order` / `PaymentSettlementWorker`。
   """
+  def run("LLM_" <> _ = out_trade_no) do
+    with {:ok, order} <- fetch_llm_order(out_trade_no) do
+      enqueue_replay(order, LlmPaymentSettlementWorker)
+    end
+  end
+
   def run(out_trade_no) when is_binary(out_trade_no) do
     with {:ok, order} <- fetch_order(out_trade_no) do
-      event = ensure_event(order)
+      enqueue_replay(order, PaymentSettlementWorker)
+    end
+  end
 
-      case Oban.insert(PaymentSettlementWorker.new(%{"webhook_event_id" => event.id})) do
-        {:ok, job} ->
-          {:ok, %{event_id: event.id, job_id: job.id}}
+  defp enqueue_replay(order, worker) do
+    event = ensure_event(order)
 
-        {:error, reason} ->
-          {:error, {:enqueue_failed, reason}}
-      end
+    case Oban.insert(worker.new(%{"webhook_event_id" => event.id})) do
+      {:ok, job} ->
+        {:ok, %{event_id: event.id, job_id: job.id}}
+
+      {:error, reason} ->
+        {:error, {:enqueue_failed, reason}}
+    end
+  end
+
+  defp fetch_llm_order(out_trade_no) do
+    case LlmPaymentOrders.find_by_out_trade_no(out_trade_no) do
+      {:ok, order} -> {:ok, order}
+      {:error, :not_found} -> {:error, :order_not_found}
+      {:error, reason} -> {:error, reason}
     end
   end
 

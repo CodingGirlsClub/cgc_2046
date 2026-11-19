@@ -26,6 +26,7 @@ defmodule Cgc2046.Reconciliation.RulesRegistry do
   sweep 合法。
   """
 
+  alias Cgc2046.LlmGateway.Workers.LlmPaymentSettlementWorker
   alias Cgc2046.Payments.Workers.DepositForfeitWorker
   alias Cgc2046.Payments.Workers.PaymentReconciliationWorker
   alias Cgc2046.Payments.Workers.PaymentSettlementWorker
@@ -217,6 +218,15 @@ defmodule Cgc2046.Reconciliation.RulesRegistry do
           "unforfeit 救济降到阈值下自动消解（刷新语义删除）；entity = 场（:event）",
       sweep: :full,
       producer: DepositForfeitWorker
+    },
+    %{
+      id: :llm_closed_order_paid,
+      desc:
+        "LLM 独立收银台已关单（cancelled/expired）收到渠道已付回调：拒绝补发算力、" <>
+          "不将订单翻回 paid，落单事件拍 Finding 供人工核对并原路退款（保障钱账一致）；" <>
+          "entity = :payment_order；:one_shot——重复命中刷新 last_seen_at，无全量视图不做 stale 删除",
+      sweep: :one_shot,
+      producer: LlmPaymentSettlementWorker
     }
   ]
 

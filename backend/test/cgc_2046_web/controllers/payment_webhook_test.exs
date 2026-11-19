@@ -48,6 +48,44 @@ defmodule Cgc2046Web.PaymentWebhookTest do
       assert [] = all_enqueued(worker: PaymentSettlementWorker)
     end
 
+    test "支付宝 LLM_ 支付回调分流到独立 LLM 结算 worker" do
+      body =
+        ~s({"notify_id":"ali-llm-pay-1","trade_status":"TRADE_SUCCESS","total_amount":"29.00","out_trade_no":"LLM_ali_pay_test"})
+
+      conn = post_alipay(body)
+      assert conn.status == 200
+      assert conn.resp_body == "success"
+
+      assert_enqueued(
+        worker: LlmPaymentSettlementWorker,
+        args: %{"webhook_event_id" => fetch_event_id("ali-llm-pay-1")}
+      )
+
+      assert [] = all_enqueued(worker: PaymentSettlementWorker)
+    end
+
+    test "携带 LLM_ out_trade_no 的退款回调不进入 LlmPaymentSettlementWorker" do
+      wechat_refund_envelope =
+        ~s({"id":"evt-llm-ref-1","event_type":"REFUND.SUCCESS","out_trade_no":"LLM_ref_env"})
+
+      assert json_response(post_wechat(wechat_refund_envelope), 200)
+
+      wechat_refund_resource =
+        ~s({"id":"evt-llm-ref-2","out_trade_no":"LLM_ref_res","out_refund_no":"RF_001","refund_status":"SUCCESS"})
+
+      assert json_response(post_wechat(wechat_refund_resource), 200)
+
+      alipay_refund =
+        ~s({"notify_id":"ali-llm-ref-1","out_trade_no":"LLM_ali_ref","refund_fee":"29.00","gmt_refund":"2026-11-19 15:00:00"})
+
+      conn = post_alipay(alipay_refund)
+      assert conn.status == 200
+      assert conn.resp_body == "success"
+
+      assert [] = all_enqueued(worker: LlmPaymentSettlementWorker)
+      assert length(all_enqueued(worker: PaymentSettlementWorker)) == 3
+    end
+
     test "同 (provider, event_id) 重放：200 + 不再入队 + 单行事件" do
       body = ~s({"id":"evt-replay","event_type":"TRANSACTION.SUCCESS"})
 
@@ -98,6 +136,12 @@ defmodule Cgc2046Web.PaymentWebhookTest do
     build_conn()
     |> put_req_header("content-type", "application/json")
     |> post("/api/payments/webhooks/wechat", body)
+  end
+
+  defp post_alipay(body) do
+    build_conn()
+    |> put_req_header("content-type", "application/json")
+    |> post("/api/payments/webhooks/alipay", body)
   end
 
   defp fetch_event_id(event_id) do

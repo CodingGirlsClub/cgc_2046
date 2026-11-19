@@ -88,15 +88,75 @@ defmodule Cgc2046.LlmGateway.Workers.LlmPaymentSettlementWorker do
             :settled
 
           [] ->
-            :already_processed
+            case current_order_status(order.id) do
+              "paid" -> :already_processed
+              status when status in ["cancelled", "expired"] -> {:closed_order_paid, status}
+              other -> {:unexpected_status, other}
+            end
         end
       end)
 
     case result do
-      {:ok, :settled} -> mark_processed(event)
-      {:ok, :already_processed} -> mark_processed(event)
-      {:error, reason} -> {:error, reason}
+      {:ok, :settled} ->
+        mark_processed(event)
+
+      {:ok, :already_processed} ->
+        mark_processed(event)
+
+      {:ok, {:closed_order_paid, current_status}} ->
+        report_closed_order_paid(event, order, current_status, transaction_id)
+
+      {:ok, {:unexpected_status, other}} ->
+        Logger.error(
+          "llm settlement unexpected order status: out_trade_no=#{order.out_trade_no} " <>
+            "status=#{inspect(other)}"
+        )
+
+        mark_processed(event)
+
+      {:error, reason} ->
+        {:error, reason}
     end
+  end
+
+  defp current_order_status(order_id) do
+    case Repo.query!(
+           "SELECT status FROM llm_payment_orders WHERE id = $1",
+           [Repo.uuid!(order_id)]
+         ).rows do
+      [[status]] -> status
+      [] -> nil
+    end
+  end
+
+  defp report_closed_order_paid(event, order, current_status, transaction_id) do
+    Logger.error(
+      "llm settlement closed order paid: out_trade_no=#{order.out_trade_no} " <>
+        "status=#{current_status} amount_cents=#{order.amount_cents} " <>
+        "transaction_id=#{transaction_id}"
+    )
+
+    Finding.apply_rule(
+      :llm_closed_order_paid,
+      [
+        %{
+          entity_type: :payment_order,
+          entity_id: order.id,
+          workspace_id: order.workspace_id,
+          detail: %{
+            "order_source" => "llm_payment_order",
+            "out_trade_no" => order.out_trade_no,
+            "status" => current_status,
+            "amount_cents" => order.amount_cents,
+            "transaction_id" => transaction_id
+          }
+        }
+      ],
+      sweep: :one_shot,
+      log_prefix: "llm_payment"
+    )
+
+    mark_processed(event)
   end
 
   defp grant_order(%{order_kind: :llm_subscription} = order) do
@@ -146,6 +206,8 @@ defmodule Cgc2046.LlmGateway.Workers.LlmPaymentSettlementWorker do
           entity_id: order.id,
           workspace_id: order.workspace_id,
           detail: %{
+            "order_source" => "llm_payment_order",
+            "expected_cents" => order.amount_cents,
             "channel_cents" => channel_cents,
             "local_cents" => order.amount_cents
           }

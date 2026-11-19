@@ -4,6 +4,7 @@ defmodule Cgc2046.LlmGateway.PaymentOrdersTest do
   """
 
   use Cgc2046.DataCase, async: false
+  use Oban.Testing, repo: Cgc2046.Repo
 
   require Ash.Query
 
@@ -12,8 +13,10 @@ defmodule Cgc2046.LlmGateway.PaymentOrdersTest do
   alias Cgc2046.LlmGateway.PaymentOrder
   alias Cgc2046.LlmGateway.PaymentOrders
   alias Cgc2046.LlmGateway.Workers.LlmPaymentSettlementWorker
-  alias Cgc2046.Payments.Providers.Fake
+  alias Cgc2046.Payments.Providers.{DevFake, Fake}
+  alias Cgc2046.Payments.ReplaySettlement
   alias Cgc2046.Payments.WebhookEvent
+  alias Cgc2046.Payments.Workers.PaymentSettlementWorker
   alias Cgc2046.Reconciliation.Finding
   alias Cgc2046.Repo
 
@@ -331,8 +334,115 @@ defmodule Cgc2046.LlmGateway.PaymentOrdersTest do
       |> Ash.Query.filter(rule == :payment_amount_mismatch and entity_id == ^order.id)
       |> Ash.read_one!(authorize?: false)
 
+    assert finding.detail["order_source"] == "llm_payment_order"
+    assert finding.detail["expected_cents"] == 1_000
     assert finding.detail["channel_cents"] == 999
     assert finding.detail["local_cents"] == 1_000
+  after
+    Fake.reset!()
+  end
+
+  test "已取消/已过期 LLM 订单收到迟到已付回调：不入账、不翻 paid、落 :llm_closed_order_paid Finding" do
+    user = Fixtures.register_user("llm-settle-closed")
+    with_tx_probe_provider()
+    Fake.script!(create_payment: {:error, :channel_create_failed})
+
+    assert {:error, :provider_failed} =
+             PaymentOrders.create(user, %{
+               order_kind: "llm_credit_pack",
+               provider: "wechat_native",
+               amount_cents: 1_000,
+               idempotency_key: "closed-late-paid"
+             })
+
+    assert_receive {:create_payment_called, false, out_trade_no}
+    {:ok, cancelled_order} = PaymentOrders.find_by_out_trade_no(out_trade_no)
+    assert cancelled_order.status == :cancelled
+
+    event = webhook_event(out_trade_no)
+
+    Fake.script!(
+      fetch_transaction:
+        {:ok, %{status: :paid, amount_cents: 1_000, transaction_id: "txn-late-cancelled"}}
+    )
+
+    assert :ok = settle(event)
+
+    {:ok, reloaded} = PaymentOrders.find_by_out_trade_no(out_trade_no)
+    assert reloaded.status == :cancelled
+    assert Ledger.ensure_wallet!(user.id).cached_balance_mc == 0
+    assert Ash.get!(WebhookEvent, event.id, authorize?: false).status == :processed
+
+    finding =
+      Finding
+      |> Ash.Query.filter(rule == :llm_closed_order_paid and entity_id == ^cancelled_order.id)
+      |> Ash.read_one!(authorize?: false)
+
+    assert finding.entity_type == :payment_order
+    assert finding.workspace_id == nil
+
+    assert finding.detail == %{
+             "order_source" => "llm_payment_order",
+             "out_trade_no" => out_trade_no,
+             "status" => "cancelled",
+             "amount_cents" => 1_000,
+             "transaction_id" => "txn-late-cancelled"
+           }
+  after
+    Fake.reset!()
+  end
+
+  test "ReplaySettlement.run/1 与 DevFake.fetch_transaction/1 支持 LLM_ 订单收敛" do
+    user = Fixtures.register_user("llm-ops-replay")
+
+    {:ok, order} =
+      PaymentOrders.create(user, %{
+        order_kind: "llm_credit_pack",
+        provider: "alipay_qr",
+        amount_cents: 5_000,
+        idempotency_key: "ops-replay-001"
+      })
+
+    assert {:ok,
+            %{
+              status: :paid,
+              amount_cents: 5_000,
+              transaction_id: "dev-fake-" <> txn_suffix
+            }} = DevFake.fetch_transaction(order.out_trade_no)
+
+    assert txn_suffix == order.out_trade_no
+    assert {:error, :order_not_found} = DevFake.fetch_transaction("LLM_missing_dev_fake")
+
+    assert {:error, :order_not_found} = ReplaySettlement.run("LLM_missing_replay")
+
+    assert {:ok, %{event_id: event_id, job_id: job_id}} = ReplaySettlement.run(order.out_trade_no)
+    assert is_binary(event_id) and is_integer(job_id)
+
+    # 重复 run 幂等复用同一事件
+    assert {:ok, %{event_id: ^event_id, job_id: ^job_id}} =
+             ReplaySettlement.run(order.out_trade_no)
+
+    event = Ash.get!(WebhookEvent, event_id, authorize?: false)
+    assert event.provider == :alipay
+    assert event.event_id == "replay-" <> order.out_trade_no
+    assert event.payload == %{"out_trade_no" => order.out_trade_no}
+
+    assert_enqueued(
+      worker: LlmPaymentSettlementWorker,
+      args: %{"webhook_event_id" => event_id}
+    )
+
+    assert [] = all_enqueued(worker: PaymentSettlementWorker)
+
+    Fake.script!(
+      fetch_transaction:
+        {:ok, %{status: :paid, amount_cents: 5_000, transaction_id: "txn-replay-llm"}}
+    )
+
+    assert :ok = perform_job(LlmPaymentSettlementWorker, %{"webhook_event_id" => event_id})
+    {:ok, paid} = PaymentOrders.find_by_out_trade_no(order.out_trade_no)
+    assert paid.status == :paid
+    assert Ledger.fetch_wallet!(user.id).cached_balance_mc == 50_000_000
   after
     Fake.reset!()
   end
