@@ -27,6 +27,7 @@ export type NavSection =
 	| "settings-invitations"
 	| "settings-sponsorship"
 	| "settings-payments"
+	| "llm-pool"
 	| "settings-account-profile"
 	| "settings-account-preferences"
 	| "settings-integrations-agents"
@@ -107,6 +108,14 @@ export const SETTINGS_NAV: NavDestination[] = [
 		ability: "manage_members",
 		active: "settings-payments",
 		icon: "community",
+	},
+	{
+		key: "llm-pool",
+		labelKey: "llmPool",
+		href: (s) => `/w/${s}/llm-pool`,
+		ability: "manage_members",
+		active: "llm-pool",
+		icon: "activity",
 	},
 	{
 		key: "invitations",
