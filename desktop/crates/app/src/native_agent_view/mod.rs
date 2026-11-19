@@ -387,6 +387,7 @@ struct QuotaCheckout {
     state: QuotaCheckoutState,
     qr: Option<crate::qr::QrMatrix>,
     price_cents: i64,
+    provider: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

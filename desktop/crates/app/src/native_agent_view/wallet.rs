@@ -4,7 +4,15 @@
 
 use super::*;
 
-const QUOTA_PACK_CENTS: i64 = 1000;
+const QUOTA_PACKS: [(i64, &str); 2] = [(1000, "¥10 加油包"), (5000, "¥50 加油包")];
+
+fn provider_label(provider: &str) -> &'static str {
+    match provider {
+        "wechat_native" => "微信",
+        "alipay_qr" => "支付宝",
+        _ => "支付渠道",
+    }
+}
 
 impl NativeAgentView {
     /// 登录成功 / 每轮结束后异步刷新 `myLlmWallet`；失败不阻塞对话。
@@ -57,20 +65,25 @@ impl NativeAgentView {
         )
     }
 
-    fn start_quota_checkout(&mut self, cx: &mut Context<Self>) {
+    fn start_quota_checkout(
+        &mut self,
+        price_cents: i64,
+        provider: &'static str,
+        cx: &mut Context<Self>,
+    ) {
         self.quota_checkout_serial = self.quota_checkout_serial.wrapping_add(1);
         let serial = self.quota_checkout_serial;
-        let price_cents = QUOTA_PACK_CENTS;
         self.quota_checkout = Some(QuotaCheckout {
             state: QuotaCheckoutState::Creating,
             qr: None,
             price_cents,
+            provider: provider.to_string(),
         });
         let task = cx.background_executor().spawn(async move {
             let idempotency_key = format!("desktop-quota-{}", uuid::Uuid::new_v4());
             cgc_platform::gateway::create_payment_order(
                 "llm_credit_pack",
-                "alipay_qr",
+                provider,
                 price_cents,
                 None,
                 &idempotency_key,
@@ -96,6 +109,7 @@ impl NativeAgentView {
                                 ),
                                 qr: None,
                                 price_cents: checkout.order.amount_cents,
+                                provider: checkout.order.provider,
                             });
                             cx.notify();
                             return;
@@ -105,6 +119,7 @@ impl NativeAgentView {
                             state: QuotaCheckoutState::Ready,
                             qr: Some(qr),
                             price_cents: server_price_cents,
+                            provider: checkout.order.provider,
                         });
                         this.poll_quota_order(checkout.order.id, serial, cx);
                     }
@@ -113,6 +128,7 @@ impl NativeAgentView {
                             state: QuotaCheckoutState::Failed(error.diagnostic()),
                             qr: None,
                             price_cents,
+                            provider: provider.to_string(),
                         });
                     }
                 }
@@ -212,12 +228,17 @@ impl NativeAgentView {
 
         match self.quota_checkout.as_ref().map(|checkout| &checkout.state) {
             Some(QuotaCheckoutState::Creating) => {
-                card = card.child(
-                    div()
-                        .text_size(px(11.0))
-                        .text_color(palette.ink_3)
-                        .child("正在创建支付宝订单…"),
-                );
+                card = card.child(div().text_size(px(11.0)).text_color(palette.ink_3).child(
+                    format!(
+                            "正在创建{}订单…",
+                            provider_label(
+                                self.quota_checkout
+                                    .as_ref()
+                                    .map(|checkout| checkout.provider.as_str())
+                                    .unwrap_or("alipay_qr")
+                            )
+                        ),
+                ));
             }
             Some(QuotaCheckoutState::Ready) => {
                 if let Some(qr) = self.quota_checkout.as_ref().and_then(|c| c.qr.as_ref()) {
@@ -230,7 +251,13 @@ impl NativeAgentView {
                 }
                 card = card.child(div().text_size(px(11.0)).text_color(palette.ink_3).child(
                     format!(
-                            "支付宝扫码支付 ¥{}；到账后会自动刷新。",
+                            "{}扫码支付 ¥{}；到账后会自动刷新。",
+                            provider_label(
+                                self.quota_checkout
+                                    .as_ref()
+                                    .map(|checkout| checkout.provider.as_str())
+                                    .unwrap_or("alipay_qr")
+                            ),
                             self.quota_checkout
                                 .as_ref()
                                 .map(|checkout| checkout.price_cents / 100)
@@ -257,6 +284,7 @@ impl NativeAgentView {
             None => {}
         }
 
+        let paid_retry = retry.clone();
         let button = match self.quota_checkout.as_ref().map(|checkout| &checkout.state) {
             Some(QuotaCheckoutState::Ready | QuotaCheckoutState::Creating) => None,
             Some(QuotaCheckoutState::Paid) => Some(
@@ -265,7 +293,7 @@ impl NativeAgentView {
                     .primary()
                     .small()
                     .on_click(move |_, _, cx| {
-                        let _ = retry.update(cx, |this, cx| {
+                        let _ = paid_retry.update(cx, |this, cx| {
                             this.quota_checkout = None;
                             this.insufficient_quota = false;
                             this.status = "算力已到账，继续生成".into();
@@ -274,19 +302,57 @@ impl NativeAgentView {
                         });
                     }),
             ),
-            _ => Some(
-                Button::new("native-agent-quota-topup")
-                    .label("支付宝扫码充值 ¥10")
-                    .primary()
-                    .small()
-                    .on_click(move |_, _, cx| {
-                        let _ = retry.update(cx, |this, cx| this.start_quota_checkout(cx));
-                    }),
-            ),
+            _ => None,
         };
         if let Some(button) = button {
             card = card.child(button);
         }
+        if matches!(
+            self.quota_checkout.as_ref().map(|checkout| &checkout.state),
+            None | Some(QuotaCheckoutState::Failed(_))
+        ) {
+            card = card.child(self.render_topup_options(retry));
+        }
         Some(card.into_any_element())
+    }
+
+    fn render_topup_options(&self, retry: gpui::WeakEntity<Self>) -> AnyElement {
+        let mut options = div().flex().flex_col().gap(px(6.0));
+        for (price_cents, label) in QUOTA_PACKS {
+            let mut row = div()
+                .flex()
+                .items_center()
+                .gap(px(6.0))
+                .child(div().text_size(px(11.0)).child(label));
+            for (provider, provider_name) in [("alipay_qr", "支付宝"), ("wechat_native", "微信")]
+            {
+                let retry = retry.clone();
+                row = row.child(
+                    Button::new(format!("native-agent-quota-{provider}-{price_cents}"))
+                        .label(provider_name)
+                        .small()
+                        .on_click(move |_, _, cx| {
+                            let _ = retry.update(cx, |this, cx| {
+                                this.start_quota_checkout(price_cents, provider, cx)
+                            });
+                        }),
+                );
+            }
+            options = options.child(row);
+        }
+        options.into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{provider_label, QUOTA_PACKS};
+
+    #[test]
+    fn checkout_offers_both_qr_providers_and_two_packs() {
+        assert_eq!(QUOTA_PACKS, [(1000, "¥10 加油包"), (5000, "¥50 加油包")]);
+        assert_eq!(provider_label("alipay_qr"), "支付宝");
+        assert_eq!(provider_label("wechat_native"), "微信");
+        assert_eq!(provider_label("unknown"), "支付渠道");
     }
 }
