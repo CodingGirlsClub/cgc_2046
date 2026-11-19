@@ -9,6 +9,7 @@ defmodule Cgc2046.LlmGateway.PaymentOrdersTest do
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.LlmGateway.Ledger
+  alias Cgc2046.LlmGateway.PaymentOrder
   alias Cgc2046.LlmGateway.PaymentOrders
   alias Cgc2046.LlmGateway.Workers.LlmPaymentSettlementWorker
   alias Cgc2046.Payments.Providers.Fake
@@ -225,6 +226,30 @@ defmodule Cgc2046.LlmGateway.PaymentOrdersTest do
 
     assert {:error, :workspace_required} =
              PaymentOrders.create(user, %{base | order_kind: "llm_workspace_pool_topup"})
+  end
+
+  test "PaymentOrder Ash 资源仅暴露读面，不接受调用方经 Ash action 直接写单" do
+    actions = Ash.Resource.Info.actions(PaymentOrder)
+    assert actions != []
+    assert Enum.all?(actions, &(&1.type == :read))
+    assert Ash.Resource.Info.action(PaymentOrder, :create) == nil
+
+    user = Fixtures.register_user("llm-order-ash-create")
+
+    assert_raise ArgumentError, ~r/No such create action/, fn ->
+      PaymentOrder
+      |> Ash.Changeset.for_create(:create, %{
+        user_id: user.id,
+        order_kind: :llm_credit_pack,
+        provider: :wechat_native,
+        out_trade_no: "LLM_forged_12345678901234567890",
+        amount_cents: 100,
+        credits_mc: 999_999_999,
+        status: :paid,
+        idempotency_key: "forged-001"
+      })
+      |> Ash.create(actor: user)
+    end
   end
 
   defp settle(event) do

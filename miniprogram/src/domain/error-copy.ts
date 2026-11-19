@@ -140,7 +140,22 @@ export const COPY: Record<string, string> = {
   resume_profile_not_found: '请先完善简历档案，再上传简历文件。',
   resume_profile_file_type_invalid: '简历仅支持 PDF 或 Word（.pdf / .doc / .docx）文件。',
   resume_profile_file_too_large: '简历文件超过 5MB，请压缩后重试。',
-  resume_profile_file_content_invalid: '简历文件内容无法识别，请重新选择文件。'
+  resume_profile_file_content_invalid: '简历文件内容无法识别，请重新选择文件。',
+  // LLM 算力收银台与工作台算力池派发（Phase 3A/3B；与 web messages errors 同文案互指）
+  llm_payment_order_invalid_kind: '不支持的算力订单类型，请重新选择。',
+  llm_payment_order_invalid_provider: '不支持的支付渠道，请重新选择。',
+  llm_payment_order_invalid_amount: '支付金额必须为正整数，请检查后重试。',
+  llm_payment_order_invalid_workspace: '工作台参数无效，请刷新后重试。',
+  llm_payment_order_invalid_idempotency_key: '请求标识无效，请刷新页面后重试。',
+  llm_payment_order_workspace_required: '工作台算力池充值必须指定工作台。',
+  llm_payment_order_forbidden: '只有工作台 Owner 或 Admin 可以为该工作台充值。',
+  llm_payment_order_provider_failed: '支付渠道下单失败，请稍后重试或更换支付方式。',
+  llm_payment_order_idempotency_conflict: '订单创建冲突，请稍后重试。',
+  llm_payment_order_not_found: '算力订单不存在或无权查看。',
+  llm_payment_order_database_error: '订单写入失败，请稍后重试。',
+  insufficient_workspace_pool: '工作台算力池余额不足，请先充值后再派发。',
+  no_workspace_members: '工作台当前没有可派发的成员。',
+  workspace_not_found: '工作台不存在。'
 }
 
 /**
