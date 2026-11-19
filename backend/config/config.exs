@@ -29,7 +29,8 @@ config :cgc_2046,
     Cgc2046.Recruitment,
     Cgc2046.Sponsorship,
     Cgc2046.Workflows,
-    Cgc2046.Initiatives
+    Cgc2046.Initiatives,
+    Cgc2046.LlmGateway
   ],
   generators: [timestamp_type: :utc_datetime, binary_id: true]
 
@@ -257,7 +258,10 @@ config :cgc_2046, Oban,
        # 押金制 U8（R8/R9、KTD7）：no-show 结算——活动正常结束（ends_at）满 48h
        # 的 paid 押金单逐笔 CAS 为 forfeited；10 分钟粒度相对 48h 窗口足够，
        # 兜底（worker 死信/停机）由下一拍自愈。
-       {"*/10 * * * *", Cgc2046.Payments.Workers.DepositForfeitWorker}
+       {"*/10 * * * *", Cgc2046.Payments.Workers.DepositForfeitWorker},
+       # LLM Gateway Phase 1：到期额度批次清理（release 未用余额 + 标记 expired）。
+       # 分钟级粒度对订阅额度足够；SKIP LOCKED 保证多实例重入安全。
+       {"*/5 * * * *", Cgc2046.LlmGateway.Workers.CreditExpiryWorker}
      ]}
   ]
 
