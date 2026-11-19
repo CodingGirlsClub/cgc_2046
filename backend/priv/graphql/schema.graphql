@@ -6455,8 +6455,10 @@ type RootMutationType {
     orderKind: String!, provider: String!, amountCents: Int!, workspaceId: ID, idempotencyKey: String!
   ): LlmPaymentCheckout
 
-  "工作台 Owner\/Admin 从算力池向当前全部成员派发额度；同 idempotencyKey 幂等"
-  distributeWorkspaceLlmCredits(workspaceId: ID!, perMemberMc: BigInt!, idempotencyKey: String!, expiresAt: DateTime): LlmWorkspaceGrantResult
+  "工作台 Owner\/Admin 从算力池向目标成员（默认全部，可按成员 ID\/角色筛选）派发额度；同 idempotencyKey 幂等"
+  distributeWorkspaceLlmCredits(
+    workspaceId: ID!, perMemberMc: BigInt!, idempotencyKey: String!, expiresAt: DateTime, targetUserIds: [ID!], targetRoles: [String!]
+  ): LlmWorkspaceGrantResult
 
   "PlatformAdmin 向工作台算力池充值；与 AdminActionLog 同事务"
   adminTopupWorkspaceLlmPool(workspaceId: ID!, amountMc: BigInt!): LlmWorkspacePoolSummary
@@ -6704,6 +6706,27 @@ type LlmWorkspacePoolSummary {
   updatedAt: DateTime!
 
   recentBatches: [LlmWorkspaceGrantBatch!]!
+
+  recentPoolEntries: [LlmWorkspacePoolEntry!]!
+}
+
+"工作台算力池追加账本流水行"
+type LlmWorkspacePoolEntry {
+  id: ID!
+
+  "order_topup | admin_topup | batch_grant_debit | migration_baseline"
+  entryType: String!
+
+  "变动微积分（充值正数，派发负数）"
+  deltaMc: BigInt!
+
+  paymentOrderId: ID
+
+  workspaceBatchId: ID
+
+  actorUserId: ID
+
+  insertedAt: DateTime!
 }
 
 "工作台批量派发审计行"

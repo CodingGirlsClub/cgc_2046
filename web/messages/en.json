@@ -154,6 +154,7 @@
     "llm_payment_order_database_error": "Failed to save the order. Please try again later.",
     "insufficient_workspace_pool": "Insufficient workspace credit pool balance. Top up before distributing.",
     "no_workspace_members": "This workspace has no eligible members to distribute credits to.",
+    "invalid_target_members": "One or more selected users are not members of this workspace.",
     "workspace_not_found": "Workspace not found."
   },
   "auth": {

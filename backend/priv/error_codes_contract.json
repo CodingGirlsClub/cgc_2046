@@ -96,6 +96,7 @@
     "invalid_password",
     "invalid_phone",
     "invalid_reset_token",
+    "invalid_target_members",
     "join_request_invite_only",
     "join_request_not_found",
     "join_request_open",

@@ -103,6 +103,22 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
     field(:credit_pool_mc, non_null(:bigint), description: "待派发池余额（微积分）")
     field(:updated_at, non_null(:datetime))
     field(:recent_batches, non_null(list_of(non_null(:llm_workspace_grant_batch))))
+    field(:recent_pool_entries, non_null(list_of(non_null(:llm_workspace_pool_entry))))
+  end
+
+  @desc "工作台算力池追加账本流水行"
+  object :llm_workspace_pool_entry do
+    field(:id, non_null(:id))
+
+    field(:entry_type, non_null(:string),
+      description: "order_topup | admin_topup | batch_grant_debit | migration_baseline"
+    )
+
+    field(:delta_mc, non_null(:bigint), description: "变动微积分（充值正数，派发负数）")
+    field(:payment_order_id, :id)
+    field(:workspace_batch_id, :id)
+    field(:actor_user_id, :id)
+    field(:inserted_at, non_null(:datetime))
   end
 
   @desc "工作台批量派发审计行"
@@ -267,12 +283,14 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
       end)
     end
 
-    @desc "工作台 Owner/Admin 从算力池向当前全部成员派发额度；同 idempotencyKey 幂等"
+    @desc "工作台 Owner/Admin 从算力池向目标成员（默认全部，可按成员 ID/角色筛选）派发额度；同 idempotencyKey 幂等"
     field :distribute_workspace_llm_credits, :llm_workspace_grant_result do
       arg(:workspace_id, non_null(:id))
       arg(:per_member_mc, non_null(:bigint))
       arg(:idempotency_key, non_null(:string))
       arg(:expires_at, :datetime)
+      arg(:target_user_ids, list_of(non_null(:id)))
+      arg(:target_roles, list_of(non_null(:string)))
 
       resolve(fn _, args, %{context: context} ->
         with_actor(context, fn actor ->
@@ -284,7 +302,9 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
                    ws_id,
                    per_member_mc,
                    idempotency_key,
-                   expires_at: args[:expires_at]
+                   expires_at: args[:expires_at],
+                   target_user_ids: args[:target_user_ids],
+                   target_roles: args[:target_roles]
                  ) do
               {:ok, batch} ->
                 {:ok,
@@ -314,7 +334,10 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
           with {:ok, ws_id} <- cast_uuid(args.workspace_id),
                {:ok, amount_mc} <- positive_integer(args.amount_mc) do
             case Repo.transaction(fn ->
-                   case Ledger.topup_workspace_pool(ws_id, amount_mc) do
+                   case Ledger.topup_workspace_pool(ws_id, amount_mc,
+                          entry_type: :admin_topup,
+                          actor_user_id: actor.id
+                        ) do
                      {:ok, new_pool_mc} ->
                        AdminActionLog.log!(%{
                          actor_id: actor.id,
@@ -472,14 +495,53 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
          %{
            workspace_id: Ecto.UUID.load!(ws_id),
            credit_pool_mc: credit_pool_mc,
-           updated_at: updated_at,
-           recent_batches: workspace_recent_batches(workspace_id)
+           updated_at: to_utc_datetime(updated_at),
+           recent_batches: workspace_recent_batches(workspace_id),
+           recent_pool_entries: workspace_recent_pool_entries(workspace_id)
          }}
 
       _ ->
         {:error, ledger_error(:workspace_not_found)}
     end
   end
+
+  defp workspace_recent_pool_entries(workspace_id) do
+    {:ok, %{rows: rows}} =
+      Repo.query(
+        """
+        SELECT id, entry_type, delta_mc, payment_order_id, workspace_batch_id,
+               actor_user_id, inserted_at
+        FROM llm_workspace_pool_entries
+        WHERE workspace_id = $1
+        ORDER BY inserted_at DESC
+        LIMIT 20
+        """,
+        [Ecto.UUID.dump!(workspace_id)]
+      )
+
+    Enum.map(rows, fn [
+                        id,
+                        entry_type,
+                        delta_mc,
+                        payment_order_id,
+                        workspace_batch_id,
+                        actor_user_id,
+                        inserted_at
+                      ] ->
+      %{
+        id: Ecto.UUID.load!(id),
+        entry_type: entry_type,
+        delta_mc: delta_mc,
+        payment_order_id: maybe_load_uuid(payment_order_id),
+        workspace_batch_id: maybe_load_uuid(workspace_batch_id),
+        actor_user_id: maybe_load_uuid(actor_user_id),
+        inserted_at: to_utc_datetime(inserted_at)
+      }
+    end)
+  end
+
+  defp maybe_load_uuid(nil), do: nil
+  defp maybe_load_uuid(bin), do: Ecto.UUID.load!(bin)
 
   defp workspace_recent_batches(workspace_id) do
     {:ok, %{rows: rows}} =
@@ -693,6 +755,10 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
 
   defp ledger_error(:workspace_not_found) do
     [message: "工作台不存在", code: Ledger.error_code(:workspace_not_found)]
+  end
+
+  defp ledger_error(:invalid_target_members) do
+    [message: "包含非本工作台成员，无法派发", code: Ledger.error_code(:invalid_target_members)]
   end
 
   defp cast_uuid(value) when is_binary(value) do

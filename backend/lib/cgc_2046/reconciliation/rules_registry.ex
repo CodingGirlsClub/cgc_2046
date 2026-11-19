@@ -198,6 +198,15 @@ defmodule Cgc2046.Reconciliation.RulesRegistry do
       producer: ReconciliationScanWorker
     },
     %{
+      id: :llm_workspace_pool_mismatch,
+      desc:
+        "工作台算力池余额（workspaces.credit_pool_mc）与 llm_workspace_pool_entries 追加账本 " <>
+          "SUM(delta_mc) 不一致：捕获绕过 Ledger 直改池余额或漏写账本行的资金漂移；" <>
+          "entity = :workspace，修复后下一拍自消",
+      sweep: :full,
+      producer: ReconciliationScanWorker
+    },
+    %{
       id: :payment_amount_mismatch,
       desc:
         "收款金额与订单不符（R20）：支付回调落账 worker 回查渠道 total ≠ 订单 " <>

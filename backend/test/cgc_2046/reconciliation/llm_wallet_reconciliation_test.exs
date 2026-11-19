@@ -176,6 +176,47 @@ defmodule Cgc2046.Reconciliation.LlmWalletReconciliationTest do
     assert finding(:llm_paid_order_without_grant, pack_order.id) == nil
   end
 
+  test "llm_workspace_pool_mismatch: 工作台池余额与追加账本之和漂移命中，修复后自消" do
+    %{owner: owner, workspace: workspace} = Fixtures.workspace_with_member()
+
+    {:ok, 50_000} =
+      Ledger.topup_workspace_pool(workspace.id, 50_000,
+        entry_type: :admin_topup,
+        actor_user_id: owner.id
+      )
+
+    {:ok, _batch} =
+      Ledger.batch_grant_workspace_members(owner, workspace.id, 10_000, "recon-pool-batch")
+
+    ReconciliationScanWorker.perform(%Oban.Job{})
+    assert finding(:llm_workspace_pool_mismatch, workspace.id) == nil
+
+    # 绕过 Ledger 篡改 workspaces.credit_pool_mc
+    Repo.query!(
+      "UPDATE workspaces SET credit_pool_mc = credit_pool_mc + 777 WHERE id = $1",
+      [Ecto.UUID.dump!(workspace.id)]
+    )
+
+    ReconciliationScanWorker.perform(%Oban.Job{})
+
+    f = finding(:llm_workspace_pool_mismatch, workspace.id)
+    assert f.rule == :llm_workspace_pool_mismatch
+    assert f.entity_type == :workspace
+    assert f.entity_id == workspace.id
+    assert f.workspace_id == workspace.id
+    assert f.detail["credit_pool_mc"] == 30_777
+    assert f.detail["entries_sum_mc"] == 30_000
+
+    # 修复后下一拍自消
+    Repo.query!(
+      "UPDATE workspaces SET credit_pool_mc = 30000 WHERE id = $1",
+      [Ecto.UUID.dump!(workspace.id)]
+    )
+
+    ReconciliationScanWorker.perform(%Oban.Job{})
+    assert finding(:llm_workspace_pool_mismatch, workspace.id) == nil
+  end
+
   defp finding(rule \\ :llm_wallet_balance_mismatch) do
     Finding
     |> Ash.Query.filter(rule == ^rule)

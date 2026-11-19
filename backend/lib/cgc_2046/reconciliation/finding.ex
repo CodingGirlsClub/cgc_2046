@@ -82,6 +82,8 @@ defmodule Cgc2046.Reconciliation.Finding do
     :llm_wallet_held_mismatch,
     # Plan 007：已付个人 LLM 订单缺失授信批次或入账额度与订单快照不一致
     :llm_paid_order_without_grant,
+    # Plan 010：工作台算力池余额与 llm_workspace_pool_entries 追加账本之和漂移看护
+    :llm_workspace_pool_mismatch,
     # Plan 005：LLM 独立收银台已关单（cancelled/expired）收到渠道已付回调，
     # 拒绝入账并落单事件拍告警供人工原路退款核对
     :llm_closed_order_paid
@@ -225,7 +227,9 @@ defmodule Cgc2046.Reconciliation.Finding do
     # 规13 的操作人（actor）实体
     :user,
     # 规15 的通知投递行（notification_deliveries）
-    :notification_delivery
+    :notification_delivery,
+    # Plan 010：工作台算力池对账实体（workspaces）
+    :workspace
   ]
 
   attributes do

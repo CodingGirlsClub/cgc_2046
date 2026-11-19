@@ -701,6 +701,134 @@ defmodule Cgc2046Web.GraphqlLlmGatewayTest do
            ] = rows
   end
 
+  test "distributeWorkspaceLlmCredits 支持 targetUserIds/targetRoles 并通过 workspaceLlmPool.recentPoolEntries 暴露账本" do
+    %{owner: owner, workspace: workspace, member: member} =
+      Fixtures.workspace_with_member(member_roles: [:learner])
+
+    outsider = Fixtures.register_user("gql-target-outsider")
+    admin = Fixtures.platform_admin("gql-pool-entries-admin")
+
+    admin_token = sign_in_token(admin)
+    owner_token = sign_in_token(owner)
+    member_token = sign_in_token(member)
+
+    assert %{"adminTopupWorkspaceLlmPool" => %{"creditPoolMc" => 100_000_000}} =
+             data!(
+               graphql(
+                 """
+                 mutation {
+                   adminTopupWorkspaceLlmPool(
+                     workspaceId: "#{workspace.id}",
+                     amountMc: 100000000
+                   ) {
+                     creditPoolMc
+                   }
+                 }
+                 """,
+                 admin_token
+               )
+             )
+
+    # 非成员 targetUserIds 返回 invalid_target_members
+    assert %{"errors" => [%{"code" => "invalid_target_members"}]} =
+             graphql(
+               """
+               mutation DistributeTargeted($wsId: ID!, $ids: [ID!], $roles: [String!], $key: String!) {
+                 distributeWorkspaceLlmCredits(
+                   workspaceId: $wsId,
+                   perMemberMc: 10000000,
+                   idempotencyKey: $key,
+                   targetUserIds: $ids,
+                   targetRoles: $roles
+                 ) {
+                   id
+                   memberCount
+                   totalGrantedMc
+                 }
+               }
+               """,
+               owner_token,
+               %{
+                 "wsId" => workspace.id,
+                 "ids" => [outsider.id],
+                 "roles" => nil,
+                 "key" => "gql-target-bad"
+               }
+             )
+
+    # 按角色仅派发给 learner（1 人）
+    assert %{
+             "distributeWorkspaceLlmCredits" => %{
+               "id" => batch_id,
+               "memberCount" => 1,
+               "totalGrantedMc" => 10_000_000
+             }
+           } =
+             data!(
+               graphql(
+                 """
+                 mutation DistributeByRole($wsId: ID!, $roles: [String!], $key: String!) {
+                   distributeWorkspaceLlmCredits(
+                     workspaceId: $wsId,
+                     perMemberMc: 10000000,
+                     idempotencyKey: $key,
+                     targetRoles: $roles
+                   ) {
+                     id
+                     memberCount
+                     totalGrantedMc
+                   }
+                 }
+                 """,
+                 owner_token,
+                 %{"wsId" => workspace.id, "roles" => ["learner"], "key" => "gql-role-learner"}
+               )
+             )
+
+    assert %{"myLlmWallet" => %{"cachedBalanceMc" => 10_000_000}} =
+             data!(graphql(wallet_query(), member_token))
+
+    assert %{"myLlmWallet" => %{"cachedBalanceMc" => 0}} =
+             data!(graphql(wallet_query(), owner_token))
+
+    assert %{
+             "workspaceLlmPool" => %{
+               "creditPoolMc" => 90_000_000,
+               "recentPoolEntries" => entries
+             }
+           } =
+             data!(
+               graphql(
+                 """
+                 query {
+                   workspaceLlmPool(workspaceId: "#{workspace.id}") {
+                     creditPoolMc
+                     recentPoolEntries {
+                       id
+                       entryType
+                       deltaMc
+                       paymentOrderId
+                       workspaceBatchId
+                       actorUserId
+                       insertedAt
+                     }
+                   }
+                 }
+                 """,
+                 owner_token
+               )
+             )
+
+    assert length(entries) == 2
+
+    by_type = Map.new(entries, &{&1["entryType"], &1})
+    assert by_type["admin_topup"]["deltaMc"] == 100_000_000
+    assert by_type["admin_topup"]["actorUserId"] == admin.id
+    assert by_type["batch_grant_debit"]["deltaMc"] == -10_000_000
+    assert by_type["batch_grant_debit"]["workspaceBatchId"] == batch_id
+    assert by_type["batch_grant_debit"]["actorUserId"] == owner.id
+  end
+
   defp insert_usage_log!(wallet_id, user_id, attrs) do
     id = Ecto.UUID.generate()
 

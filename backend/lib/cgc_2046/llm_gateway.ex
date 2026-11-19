@@ -13,6 +13,7 @@ defmodule Cgc2046.LlmGateway do
   resources do
     resource(Cgc2046.LlmGateway.Wallet)
     resource(Cgc2046.LlmGateway.WorkspaceGrantBatch)
+    resource(Cgc2046.LlmGateway.WorkspacePoolEntry)
     resource(Cgc2046.LlmGateway.CreditGrant)
     resource(Cgc2046.LlmGateway.UsageLog)
     resource(Cgc2046.LlmGateway.PaymentOrder)
