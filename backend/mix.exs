@@ -73,6 +73,9 @@ defmodule Cgc2046.MixProject do
       {:anubis_mcp, "~> 2.0"},
       {:cors_plug, "~> 3.0"},
       {:oban, "~> 2.20"},
+      # LLM Gateway Phase 2：上游渠道熔断器（fuse 已在 lock 中作为 jido_signal/
+      # tesla 的传递依赖，此处提升为直接依赖，零新增下载）。
+      {:fuse, "~> 2.5"},
       # LLM Gateway Phase 2：上游转发 / 模型目录 / 精确计费。
       # 版本钉在 zoi 0.18 兼容线：req_llm 1.30 要求 zoi 0.19 + req 0.7，
       # 与 jido 2.x/3.x beta（zoi ~> 0.18.11）不兼容；1.29 是最后一个兼容版本。

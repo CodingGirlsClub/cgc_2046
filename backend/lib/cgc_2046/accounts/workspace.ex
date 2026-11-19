@@ -81,6 +81,17 @@ defmodule Cgc2046.Accounts.Workspace do
       description: "工作台简介（公开展示文案，可空）"
     )
 
+    # LLM Gateway Phase 1：工作台算力池（Owner/Admin 可向成员批量派发）。
+    # 仅由 `Cgc2046.LlmGateway.Ledger` 的原子 SQL 写入；public? false 避免进入
+    # GraphQL 读面（SDL 与小程序 codegen 无须联动）。
+    attribute(:credit_pool_mc, :integer,
+      allow_nil?: false,
+      default: 0,
+      public?: false,
+      writable?: false,
+      constraints: [min: 0]
+    )
+
     create_timestamp(:inserted_at)
     update_timestamp(:updated_at)
   end
