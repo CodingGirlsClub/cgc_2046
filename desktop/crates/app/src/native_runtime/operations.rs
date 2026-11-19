@@ -437,7 +437,7 @@ impl Owner {
         };
         let (provider, model) = factory::select_model(production, &active.id, &model_id)?;
         let entering_managed =
-            managed && self.config.model.provider_id.as_str() != CGC_CLOUD_PROVIDER_ID;
+            resets_thinking_on_managed_entry(managed, self.config.model.provider_id.as_str());
         self.config.provider = provider;
         self.config.context_size = model.limits.context_window as u64;
         self.config.model = model.clone();
@@ -472,6 +472,10 @@ impl Owner {
     }
 }
 
+fn resets_thinking_on_managed_entry(managed: bool, current_provider_id: &str) -> bool {
+    managed && current_provider_id != CGC_CLOUD_PROVIDER_ID
+}
+
 fn model_is_available(active: &cgc_agent_store::ProviderPrefs, model_id: &str) -> bool {
     active.models.iter().any(|id| id == model_id) && active.model_config(model_id).enabled
 }
@@ -484,7 +488,7 @@ fn thread_for_model_switch(current: &Thread, selected: SelectedModel) -> Thread 
 
 #[cfg(test)]
 mod tests {
-    use super::{model_is_available, thread_for_model_switch};
+    use super::{model_is_available, resets_thinking_on_managed_entry, thread_for_model_switch};
     use cgc_agent_core::{SelectedModel, Thread};
     use cgc_agent_provider::{ModelId, ProviderId};
     use cgc_agent_store::{ModelPrefs, ProviderPrefs};
@@ -519,6 +523,13 @@ mod tests {
         assert!(!model_is_available(&active, "removed"));
         assert!(!model_is_available(&active, "missing"));
         assert!(model_is_available(&active, "available"));
+    }
+
+    #[test]
+    fn entering_managed_cgc_resets_thinking_default() {
+        assert!(resets_thinking_on_managed_entry(true, "custom"));
+        assert!(!resets_thinking_on_managed_entry(true, "cgc-cloud"));
+        assert!(!resets_thinking_on_managed_entry(false, "custom"));
     }
 
     #[test]
