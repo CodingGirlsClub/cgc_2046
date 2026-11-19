@@ -616,4 +616,127 @@ defmodule Cgc2046.LlmGateway.LedgerTest do
       assert grants_after_req1[:pack].remaining_mc == 120
     end
   end
+
+  describe "workspace pool append-only ledger & targeted distribution (Plan 010)" do
+    test "records pool entries on topup/debit and deduplicates order_topup by payment_order_id" do
+      %{owner: owner, workspace: workspace} = workspace_with_member(member_roles: [:learner])
+
+      {:ok, order} =
+        Cgc2046.LlmGateway.PaymentOrders.create(owner, %{
+          order_kind: "llm_workspace_pool_topup",
+          provider: "wechat_native",
+          workspace_id: workspace.id,
+          amount_cents: 10_000,
+          idempotency_key: "ledger-pool-order-idem"
+        })
+
+      assert {:ok, 100_000_000} =
+               Ledger.topup_workspace_pool(workspace.id, order.credits_mc,
+                 entry_type: :order_topup,
+                 payment_order_id: order.id,
+                 actor_user_id: owner.id
+               )
+
+      # 同一 payment_order_id 重复入池走 ON CONFLICT DO NOTHING，余额与账本都不二次增加
+      assert {:ok, 100_000_000} =
+               Ledger.topup_workspace_pool(workspace.id, order.credits_mc,
+                 entry_type: :order_topup,
+                 payment_order_id: order.id,
+                 actor_user_id: owner.id
+               )
+
+      assert {:ok, batch} =
+               Ledger.batch_grant_workspace_members(
+                 owner,
+                 workspace.id,
+                 10_000_000,
+                 "pool-ledger-batch-1"
+               )
+
+      assert batch.total_granted_mc == 20_000_000
+
+      entries =
+        Cgc2046.LlmGateway.WorkspacePoolEntry
+        |> Ash.read!(authorize?: false)
+        |> Enum.filter(&(&1.workspace_id == workspace.id))
+        |> Enum.sort_by(& &1.delta_mc)
+
+      assert [
+               %{
+                 entry_type: :batch_grant_debit,
+                 delta_mc: -20_000_000,
+                 workspace_batch_id: batch_id
+               },
+               %{entry_type: :order_topup, delta_mc: 100_000_000, payment_order_id: order_id}
+             ] = entries
+
+      assert batch_id == batch.batch_id
+      assert order_id == order.id
+    end
+
+    test "supports target_user_ids and target_roles filtering and rejects non-members" do
+      %{owner: owner, member: learner, workspace: workspace} =
+        workspace_with_member(member_roles: [:learner])
+
+      outsider = register_user("ledger-target-outsider")
+
+      assert {:ok, 100_000} = Ledger.topup_workspace_pool(workspace.id, 100_000)
+
+      # 非本工作台成员被拒
+      assert {:error, :invalid_target_members} =
+               Ledger.batch_grant_workspace_members(
+                 owner,
+                 workspace.id,
+                 10_000,
+                 "target-outsider",
+                 target_user_ids: [learner.id, outsider.id]
+               )
+
+      # 空目标列表 -> :no_workspace_members
+      assert {:error, :no_workspace_members} =
+               Ledger.batch_grant_workspace_members(
+                 owner,
+                 workspace.id,
+                 10_000,
+                 "target-empty",
+                 target_user_ids: []
+               )
+
+      # 定向仅派发给 learner（不发给 owner）
+      assert {:ok, %{member_count: 1, total_granted_mc: 10_000}} =
+               Ledger.batch_grant_workspace_members(
+                 owner,
+                 workspace.id,
+                 10_000,
+                 "target-learner-only",
+                 target_user_ids: [learner.id]
+               )
+
+      assert Ledger.fetch_wallet!(learner.id).cached_balance_mc == 10_000
+      assert Ledger.ensure_wallet!(owner.id).cached_balance_mc == 0
+
+      # 按角色派发：仅 learner 角色命中
+      assert {:ok, %{member_count: 1, total_granted_mc: 20_000}} =
+               Ledger.batch_grant_workspace_members(
+                 owner,
+                 workspace.id,
+                 20_000,
+                 "target-role-learner",
+                 target_roles: ["learner"]
+               )
+
+      assert Ledger.fetch_wallet!(learner.id).cached_balance_mc == 30_000
+      assert Ledger.ensure_wallet!(owner.id).cached_balance_mc == 0
+
+      # 无匹配角色 -> :no_workspace_members
+      assert {:error, :no_workspace_members} =
+               Ledger.batch_grant_workspace_members(
+                 owner,
+                 workspace.id,
+                 10_000,
+                 "target-role-none",
+                 target_roles: ["tutor"]
+               )
+    end
+  end
 end

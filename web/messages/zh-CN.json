@@ -154,6 +154,7 @@
     "llm_payment_order_database_error": "订单写入失败，请稍后重试。",
     "insufficient_workspace_pool": "工作台算力池余额不足，请先充值后再派发。",
     "no_workspace_members": "工作台当前没有可派发的成员。",
+    "invalid_target_members": "包含非本工作台成员，无法派发算力。",
     "workspace_not_found": "工作台不存在。"
   },
   "auth": {

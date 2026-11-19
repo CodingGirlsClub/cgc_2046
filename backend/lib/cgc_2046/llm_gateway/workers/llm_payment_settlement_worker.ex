@@ -186,7 +186,11 @@ defmodule Cgc2046.LlmGateway.Workers.LlmPaymentSettlementWorker do
   end
 
   defp grant_order(%{order_kind: :llm_workspace_pool_topup} = order) do
-    case Ledger.topup_workspace_pool(order.workspace_id, order.credits_mc) do
+    case Ledger.topup_workspace_pool(order.workspace_id, order.credits_mc,
+           entry_type: :order_topup,
+           payment_order_id: order.id,
+           actor_user_id: order.user_id
+         ) do
       {:ok, _new_pool_mc} -> :ok
       {:error, reason} -> Repo.rollback({:grant_failed, reason})
     end

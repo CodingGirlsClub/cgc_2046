@@ -132,31 +132,73 @@ defmodule Cgc2046.LlmGateway.Ledger do
   end
 
   @doc """
-  给工作台算力池充值（订单结算或平台管理员操作）。
+  给工作台算力池充值（订单结算或平台管理员操作），同时写入 `llm_workspace_pool_entries`
+  追加账本。`payment_order_id` 非空时以部分唯一索引提供数据库级幂等：同单重复入池不二次加余额。
   """
-  def topup_workspace_pool(workspace_id, amount_mc)
-      when is_integer(amount_mc) and amount_mc > 0 do
-    now = DateTime.utc_now()
+  def topup_workspace_pool(workspace_id, amount_mc, opts \\ [])
+      when is_integer(amount_mc) and amount_mc > 0 and is_list(opts) do
+    entry_type = opts |> Keyword.get(:entry_type, :admin_topup) |> normalize_topup_entry_type!()
+    payment_order_id = Keyword.get(opts, :payment_order_id)
+    actor_user_id = Keyword.get(opts, :actor_user_id)
 
-    case Repo.query!(
-           """
-           UPDATE workspaces
-           SET credit_pool_mc = credit_pool_mc + $2, updated_at = $3
-           WHERE id = $1
-           RETURNING credit_pool_mc
-           """,
-           [dump_uuid!(workspace_id), amount_mc, now]
-         ).rows do
-      [[new_pool_mc]] -> {:ok, new_pool_mc}
-      [] -> {:error, :workspace_not_found}
-    end
+    Repo.transaction(fn ->
+      now = DateTime.utc_now()
+      ws_uuid = dump_uuid!(workspace_id)
+
+      case Repo.query!(
+             "SELECT credit_pool_mc FROM workspaces WHERE id = $1 FOR UPDATE",
+             [ws_uuid]
+           ).rows do
+        [] ->
+          Repo.rollback(:workspace_not_found)
+
+        [[current_pool_mc]] ->
+          %{rows: inserted} =
+            Repo.query!(
+              """
+              INSERT INTO llm_workspace_pool_entries (
+                id, workspace_id, entry_type, delta_mc, payment_order_id, actor_user_id, inserted_at
+              )
+              VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6)
+              ON CONFLICT (payment_order_id) WHERE payment_order_id IS NOT NULL DO NOTHING
+              RETURNING id
+              """,
+              [
+                ws_uuid,
+                entry_type,
+                amount_mc,
+                maybe_dump_uuid(payment_order_id),
+                maybe_dump_uuid(actor_user_id),
+                now
+              ]
+            )
+
+          if inserted != [] do
+            %{rows: [[new_pool_mc]]} =
+              Repo.query!(
+                """
+                UPDATE workspaces
+                SET credit_pool_mc = credit_pool_mc + $2, updated_at = $3
+                WHERE id = $1
+                RETURNING credit_pool_mc
+                """,
+                [ws_uuid, amount_mc, now]
+              )
+
+            new_pool_mc
+          else
+            current_pool_mc
+          end
+      end
+    end)
   end
 
   @doc """
-  工作台 Owner/Admin 从工作台算力池向当前全部成员派发额度。
+  工作台 Owner/Admin 从工作台算力池向目标成员（默认全部成员，支持 `target_user_ids` /
+  `target_roles` 筛选）派发额度。
 
   额度进入成员个人钱包后可跨工作台消费。重复 `idempotency_key` 返回原批次，
-  不二次扣池。
+  不二次扣池；同事务写入负值 `batch_grant_debit` 到 `llm_workspace_pool_entries`。
   """
   def batch_grant_workspace_members(
         actor,
@@ -167,6 +209,8 @@ defmodule Cgc2046.LlmGateway.Ledger do
       )
       when is_integer(per_member_mc) and per_member_mc > 0 and is_binary(idempotency_key) do
     expires_at = Keyword.get(opts, :expires_at)
+    target_user_ids = Keyword.get(opts, :target_user_ids)
+    target_roles = Keyword.get(opts, :target_roles)
 
     with :ok <- authorize_workspace_admin(actor, workspace_id) do
       Repo.transaction(fn ->
@@ -188,7 +232,12 @@ defmodule Cgc2046.LlmGateway.Ledger do
                 batch
 
               :not_found ->
-                member_ids = member_user_ids(workspace_id)
+                member_ids =
+                  case resolve_target_member_ids(workspace_id, target_user_ids, target_roles) do
+                    {:ok, ids} -> ids
+                    {:error, reason} -> Repo.rollback(reason)
+                  end
+
                 member_count = length(member_ids)
 
                 if member_count == 0 do
@@ -232,6 +281,16 @@ defmodule Cgc2046.LlmGateway.Ledger do
                     idempotency_key,
                     now
                   ]
+                )
+
+                Repo.query!(
+                  """
+                  INSERT INTO llm_workspace_pool_entries (
+                    id, workspace_id, entry_type, delta_mc, workspace_batch_id, actor_user_id, inserted_at
+                  )
+                  VALUES (gen_random_uuid(), $1, 'batch_grant_debit', $2, $3, $4, $5)
+                  """,
+                  [ws_uuid, -total_required_mc, batch_uuid, dump_uuid!(actor.id), now]
                 )
 
                 Enum.each(member_ids, fn member_id ->
@@ -681,6 +740,101 @@ defmodule Cgc2046.LlmGateway.Ledger do
     end
   end
 
+  defp resolve_target_member_ids(workspace_id, nil, nil), do: {:ok, member_user_ids(workspace_id)}
+
+  defp resolve_target_member_ids(workspace_id, nil, target_roles) when is_list(target_roles) do
+    {:ok, member_user_ids_by_roles(workspace_id, target_roles)}
+  end
+
+  defp resolve_target_member_ids(workspace_id, target_user_ids, target_roles)
+       when is_list(target_user_ids) do
+    with {:ok, requested_ids} <- cast_uuid_list(target_user_ids) do
+      if requested_ids == [] do
+        {:ok, []}
+      else
+        all_members = MapSet.new(member_user_ids(workspace_id))
+
+        if Enum.all?(requested_ids, &MapSet.member?(all_members, &1)) do
+          filtered =
+            case target_roles do
+              nil ->
+                requested_ids
+
+              roles when is_list(roles) ->
+                role_members = MapSet.new(member_user_ids_by_roles(workspace_id, roles))
+                Enum.filter(requested_ids, &MapSet.member?(role_members, &1))
+
+              _ ->
+                []
+            end
+
+          {:ok, Enum.sort(filtered)}
+        else
+          {:error, :invalid_target_members}
+        end
+      end
+    end
+  end
+
+  defp resolve_target_member_ids(_workspace_id, _target_user_ids, _target_roles),
+    do: {:error, :invalid_target_members}
+
+  defp cast_uuid_list(values) do
+    values
+    |> Enum.reduce_while({:ok, []}, fn value, {:ok, acc} ->
+      case value do
+        id when is_binary(id) ->
+          case Ecto.UUID.cast(id) do
+            {:ok, uuid} -> {:cont, {:ok, [uuid | acc]}}
+            :error -> {:halt, {:error, :invalid_target_members}}
+          end
+
+        _ ->
+          {:halt, {:error, :invalid_target_members}}
+      end
+    end)
+    |> case do
+      {:ok, ids} -> {:ok, ids |> Enum.reverse() |> Enum.uniq()}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp member_user_ids_by_roles(workspace_id, roles) do
+    role_names =
+      roles
+      |> Enum.map(&(to_string(&1) |> String.trim()))
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.uniq()
+
+    if role_names == [] do
+      []
+    else
+      Repo.query!(
+        """
+        SELECT DISTINCT wm.user_id
+        FROM workspace_memberships wm
+        JOIN membership_roles mr ON mr.membership_id = wm.id AND mr.workspace_id = wm.workspace_id
+        JOIN roles r ON r.id = mr.role_id AND r.workspace_id = wm.workspace_id
+        WHERE wm.workspace_id = $1
+          AND r.name = ANY($2)
+        ORDER BY wm.user_id
+        """,
+        [dump_uuid!(workspace_id), role_names]
+      ).rows
+      |> Enum.map(fn [user_id] -> Ecto.UUID.load!(user_id) end)
+      |> Enum.uniq()
+    end
+  end
+
+  defp normalize_topup_entry_type!(type) when type in [:order_topup, :admin_topup],
+    do: Atom.to_string(type)
+
+  defp normalize_topup_entry_type!(type) when type in ["order_topup", "admin_topup"], do: type
+
+  defp normalize_topup_entry_type!(type) do
+    raise ArgumentError, "unknown topup entry_type #{inspect(type)}"
+  end
+
   defp member_user_ids(workspace_id) do
     Repo.query!(
       """
@@ -717,6 +871,7 @@ defmodule Cgc2046.LlmGateway.Ledger do
   defp domain_error_code(:insufficient_workspace_pool), do: "insufficient_workspace_pool"
   defp domain_error_code(:no_workspace_members), do: "no_workspace_members"
   defp domain_error_code(:workspace_not_found), do: "workspace_not_found"
+  defp domain_error_code(:invalid_target_members), do: "invalid_target_members"
 
   defp validate_source_type!(source_type) when source_type in @source_types, do: :ok
 

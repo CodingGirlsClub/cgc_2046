@@ -438,6 +438,34 @@ defmodule Cgc2046.Reconciliation.ScanDetectionsOps do
     end)
   end
 
+  # Plan 010：工作台算力池缓存余额 vs llm_workspace_pool_entries 追加账本之和。
+  def detect_llm_workspace_pool_mismatch do
+    {:ok, %{rows: rows}} =
+      Repo.query("""
+      SELECT w.id, w.credit_pool_mc,
+             COALESCE(SUM(e.delta_mc), 0)::bigint AS entries_sum_mc
+      FROM workspaces w
+      LEFT JOIN llm_workspace_pool_entries e ON e.workspace_id = w.id
+      GROUP BY w.id, w.credit_pool_mc
+      HAVING w.credit_pool_mc <> COALESCE(SUM(e.delta_mc), 0)
+      """)
+
+    Enum.map(rows, fn [workspace_id, credit_pool_mc, entries_sum_mc] ->
+      ws_id = Ecto.UUID.load!(workspace_id)
+
+      %{
+        entity_type: :workspace,
+        entity_id: ws_id,
+        workspace_id: ws_id,
+        detail: %{
+          "workspace_id" => ws_id,
+          "credit_pool_mc" => credit_pool_mc,
+          "entries_sum_mc" => entries_sum_mc
+        }
+      }
+    end)
+  end
+
   defp fund_burst_config do
     conf = Application.get_env(:cgc_2046, __MODULE__, [])
 
