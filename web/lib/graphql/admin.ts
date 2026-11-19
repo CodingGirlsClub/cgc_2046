@@ -543,6 +543,7 @@ export const RECONCILIATION_RULE_LABEL: Record<string, string> = {
 	notification_delivery_failed: "labels.reconRule.notification_delivery_failed",
 	deposit_forfeit_batch_alert: "labels.reconRule.deposit_forfeit_batch_alert",
 	refunding_without_refund_job: "labels.reconRule.refunding_without_refund_job",
+	llm_wallet_balance_mismatch: "labels.reconRule.llm_wallet_balance_mismatch",
 };
 
 /** 对账实体类型 → 中文标签 */
