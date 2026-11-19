@@ -189,7 +189,8 @@ defmodule Cgc2046Web.LlmGatewayController do
       channel_id: channel.id,
       logical_model: logical_model,
       upstream_model: upstream_model,
-      pricing_model: AffinityRouter.pricing_model(channel, logical_model)
+      pricing_model: AffinityRouter.pricing_model(channel, logical_model),
+      error_body: []
     })
 
     finch_name = Application.get_env(:cgc_2046, :llm_gateway_finch, Cgc2046.LlmGateway.Finch)
@@ -451,6 +452,21 @@ defmodule Cgc2046Web.LlmGatewayController do
         error_conn = Map.get(state, :conn, conn)
         send_mid_stream_error_frame(error_conn)
 
+      non_retryable_client_error?(reason) ->
+        {:http_error, status, raw_body} = reason
+        update_process_state(%{upstream_error?: true})
+        {http_status, error_code, safe_message} = classify_upstream_client_error(status, raw_body)
+
+        conn
+        |> put_status(http_status)
+        |> json(%{
+          error: %{
+            code: error_code,
+            type: "invalid_request_error",
+            message: safe_message
+          }
+        })
+
       true ->
         update_process_state(%{upstream_error?: true})
 
@@ -483,11 +499,81 @@ defmodule Cgc2046Web.LlmGatewayController do
       }) <> "\n\n"
   end
 
-  defp retryable_failure?({:http_error, status, _}) when status in [408, 429, 500, 502, 503, 504],
-    do: true
+  defp retryable_failure?({:http_error, status, _})
+       when status in [401, 403, 408, 429, 500, 502, 503, 504],
+       do: true
 
   defp retryable_failure?({:transport_error, _}), do: true
   defp retryable_failure?(_), do: false
+
+  defp non_retryable_client_error?({:http_error, status, _})
+       when is_integer(status) and status in 400..499 and status not in [401, 403, 408, 429],
+       do: true
+
+  defp non_retryable_client_error?(_), do: false
+
+  defp classify_upstream_client_error(status, raw_body) do
+    {upstream_code, raw_message} = extract_upstream_error(raw_body)
+
+    context_length_exceeded? =
+      status == 413 or
+        upstream_code == "context_length_exceeded" or
+        (is_binary(raw_message) and
+           Regex.match?(~r/maximum context length|context_length_exceeded/i, raw_message))
+
+    if context_length_exceeded? do
+      safe_message =
+        sanitize_upstream_message(
+          raw_message,
+          "Request exceeds the model's maximum context length."
+        )
+
+      {413, "context_length_exceeded", safe_message}
+    else
+      safe_message =
+        sanitize_upstream_message(raw_message, "Upstream rejected the request parameters.")
+
+      {400, "invalid_request", safe_message}
+    end
+  end
+
+  defp extract_upstream_error(raw_body) when is_binary(raw_body) do
+    case Jason.decode(raw_body) do
+      {:ok, %{"error" => %{} = error}} ->
+        code =
+          case Map.get(error, "code") do
+            value when is_binary(value) -> value
+            _ -> nil
+          end
+
+        message =
+          case Map.get(error, "message") do
+            value when is_binary(value) -> value
+            _ -> nil
+          end
+
+        {code, message}
+
+      _ ->
+        {nil, nil}
+    end
+  end
+
+  defp extract_upstream_error(_), do: {nil, nil}
+
+  defp sanitize_upstream_message(message, fallback) when is_binary(message) do
+    cleaned =
+      message
+      |> String.replace(~r/https?:\/\/\S+/i, "[redacted-url]")
+      |> String.replace(~r/Bearer\s+[A-Za-z0-9._~+\/=-]+/i, "Bearer [redacted]")
+      |> String.replace(~r/\b(?:sk|ark)-[A-Za-z0-9_-]{6,}\b/i, "[redacted-key]")
+      |> String.trim()
+      |> String.slice(0, 500)
+
+    if cleaned == "", do: fallback, else: cleaned
+  end
+
+  defp sanitize_upstream_message(_message, fallback), do: fallback
 
   defp fetch_user(conn) do
     case conn.assigns[:current_user] do

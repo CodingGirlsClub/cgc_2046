@@ -3,9 +3,9 @@ use std::net::TcpListener;
 use std::sync::mpsc;
 
 use cgc_agent_provider::{
-    CompletionEvent, Content, Message, Model, ModelLimits, OpenAiCompatibleConfig,
-    OpenAiCompatibleProvider, Provider, ProviderError, ProviderErrorCategory, ProviderId, Request,
-    Role, StopReason, TokenUsage, ToolUse,
+    openai_compatible::build_body, CompletionEvent, Content, Message, Model, ModelLimits,
+    OpenAiCompatibleConfig, OpenAiCompatibleProvider, Provider, ProviderError,
+    ProviderErrorCategory, ProviderId, Request, Role, StopReason, TokenUsage, ToolUse,
 };
 use futures::StreamExt;
 
@@ -138,6 +138,16 @@ fn sse_orders_reasoning_then_content_then_tool_calls_then_usage_with_affinity() 
                 name: "read_file".into(),
                 args: serde_json::json!({"path": "Cargo.toml"}),
             }),
+            CompletionEvent::ContentBlock(Content::Thinking {
+                text: "先检查目录结构".into(),
+                signature: String::new(),
+            }),
+            CompletionEvent::ContentBlock(Content::Text("我将读取文件。".into())),
+            CompletionEvent::ContentBlock(Content::ToolUse(ToolUse {
+                id: "call_42".into(),
+                name: "read_file".into(),
+                args: serde_json::json!({"path": "Cargo.toml"}),
+            })),
             CompletionEvent::Stop(StopReason::ToolUse),
             CompletionEvent::Usage(TokenUsage {
                 input: 120,
@@ -290,6 +300,58 @@ fn wire_history_strips_reasoning_content_on_assistant_turns() {
     assert_eq!(parsed["messages"][1]["content"], "上一轮结论");
     assert_eq!(
         parsed["messages"][1]["tool_calls"][0]["function"]["name"],
+        "read_file"
+    );
+}
+
+#[test]
+fn build_body_includes_reasoning_content_after_last_user_and_strips_before() {
+    let model = gateway_model();
+    let request = Request::new(vec![
+        Message::user("第一轮问题"),
+        Message::new(
+            Role::Assistant,
+            vec![
+                Content::Thinking {
+                    text: "第一轮思考".into(),
+                    signature: String::new(),
+                },
+                Content::Text("第一轮结论".into()),
+            ],
+        ),
+        Message::user("第二轮问题"),
+        Message::new(
+            Role::Assistant,
+            vec![
+                Content::Thinking {
+                    text: "第二轮步骤一思考".into(),
+                    signature: String::new(),
+                },
+                Content::Text("正在读文件".into()),
+                Content::ToolUse(ToolUse {
+                    id: "call_2".into(),
+                    name: "read_file".into(),
+                    args: serde_json::json!({"path": "Cargo.toml"}),
+                }),
+            ],
+        ),
+        Message::tool_result("call_2", "Cargo.toml 内容", false),
+    ]);
+
+    let body = build_body(&model, &request);
+    assert!(
+        body["messages"][1].get("reasoning_content").is_none(),
+        "assistant message before last Role::User must strip reasoning_content"
+    );
+    assert_eq!(body["messages"][1]["content"], "第一轮结论");
+
+    assert_eq!(
+        body["messages"][3]["reasoning_content"], "第二轮步骤一思考",
+        "assistant message after last Role::User must replay reasoning_content"
+    );
+    assert_eq!(body["messages"][3]["content"], "正在读文件");
+    assert_eq!(
+        body["messages"][3]["tool_calls"][0]["function"]["name"],
         "read_file"
     );
 }

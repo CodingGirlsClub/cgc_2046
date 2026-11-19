@@ -187,9 +187,22 @@ pub fn build_body(model: &Model, request: &Request) -> Value {
 }
 
 fn build_body_with_model(model_id: &str, request: &Request) -> Value {
+    let last_user_idx = request
+        .messages
+        .iter()
+        .rposition(|message| message.role == Role::User);
+    let messages = request
+        .messages
+        .iter()
+        .enumerate()
+        .map(|(idx, message)| {
+            let include_reasoning = last_user_idx.is_some_and(|u| idx > u);
+            message_to_json_with_reasoning(message, include_reasoning)
+        })
+        .collect::<Vec<_>>();
     let mut body = json!({
         "model": model_id,
-        "messages": request.messages.iter().map(message_to_json).collect::<Vec<_>>(),
+        "messages": messages,
         "stream": true,
         "stream_options": { "include_usage": true },
     });
@@ -220,7 +233,12 @@ fn build_body_with_model(model_id: &str, request: &Request) -> Value {
     body
 }
 
+#[cfg(test)]
 fn message_to_json(message: &Message) -> Value {
+    message_to_json_with_reasoning(message, false)
+}
+
+fn message_to_json_with_reasoning(message: &Message, include_reasoning: bool) -> Value {
     match message.role {
         Role::System | Role::User => {
             let images: Vec<Value> = message
@@ -249,9 +267,17 @@ fn message_to_json(message: &Message) -> Value {
             })
         }
         Role::Assistant => {
-            // 历史 assistant 消息只保留 `content` 与 `tool_calls`，显式剥离上一轮
-            // `Thinking` / `RedactedThinking`（DeepSeek Reasoner 回传 reasoning_content 会 400）。
+            // DeepSeek Thinking Mode + Tool Calls 规范：仅在当前用户轮次的工具调用循环内
+            // 回传 `reasoning_content`；上一轮及更早的历史 assistant 消息显式剥离思考内容。
             let text = message.text();
+            let reasoning_text = message
+                .content
+                .iter()
+                .filter_map(|content| match content {
+                    Content::Thinking { text, .. } if !text.is_empty() => Some(text.as_str()),
+                    _ => None,
+                })
+                .collect::<String>();
             let tool_calls: Vec<Value> = message
                 .content
                 .iter()
@@ -271,6 +297,9 @@ fn message_to_json(message: &Message) -> Value {
                 "role": "assistant",
                 "content": if text.is_empty() { Value::Null } else { json!(text) }
             });
+            if include_reasoning && !reasoning_text.is_empty() {
+                json["reasoning_content"] = json!(reasoning_text);
+            }
             if !tool_calls.is_empty() {
                 json["tool_calls"] = json!(tool_calls);
             }
@@ -419,6 +448,9 @@ struct PendingToolCall {
 struct StreamState {
     started: bool,
     stop_sent: bool,
+    replay_emitted: bool,
+    reasoning_buf: String,
+    text_buf: String,
     tool_calls: BTreeMap<u32, PendingToolCall>,
 }
 
@@ -437,12 +469,14 @@ impl StreamState {
                     .reasoning_content
                     .filter(|reasoning| !reasoning.is_empty())
                 {
+                    self.reasoning_buf.push_str(&reasoning);
                     events.push(CompletionEvent::Thinking {
                         text: reasoning,
                         signature: None,
                     });
                 }
                 if let Some(content) = delta.content.filter(|content| !content.is_empty()) {
+                    self.text_buf.push_str(&content);
                     events.push(CompletionEvent::Text(content));
                 }
                 for call in delta.tool_calls.unwrap_or_default() {
@@ -483,6 +517,7 @@ impl StreamState {
 
     fn flush_tool_calls(&mut self) -> Result<Vec<CompletionEvent>, ProviderError> {
         let mut events = Vec::new();
+        let mut flushed_tools = Vec::new();
         for (index, pending) in std::mem::take(&mut self.tool_calls) {
             let name = pending.name.unwrap_or_else(|| format!("tool_{index}"));
             let id = pending.id.unwrap_or_else(|| format!("call_{index}"));
@@ -493,9 +528,32 @@ impl StreamState {
                     ProviderError::invalid_response(format!("tool arguments for {name}: {error}"))
                 })?
             };
-            events.push(CompletionEvent::ToolUse(ToolUse { id, name, args }));
+            let tool_use = ToolUse { id, name, args };
+            events.push(CompletionEvent::ToolUse(tool_use.clone()));
+            flushed_tools.push(tool_use);
         }
+        self.emit_replay_blocks(&mut events, &flushed_tools);
         Ok(events)
+    }
+
+    fn emit_replay_blocks(&mut self, events: &mut Vec<CompletionEvent>, tool_uses: &[ToolUse]) {
+        if self.replay_emitted || self.reasoning_buf.is_empty() {
+            return;
+        }
+        self.replay_emitted = true;
+        events.push(CompletionEvent::ContentBlock(Content::Thinking {
+            text: std::mem::take(&mut self.reasoning_buf),
+            signature: String::new(),
+        }));
+        let text = std::mem::take(&mut self.text_buf);
+        if !text.is_empty() {
+            events.push(CompletionEvent::ContentBlock(Content::Text(text)));
+        }
+        for tool_use in tool_uses {
+            events.push(CompletionEvent::ContentBlock(Content::ToolUse(
+                tool_use.clone(),
+            )));
+        }
     }
 
     fn push_stop(&mut self, events: &mut Vec<CompletionEvent>, reason: Option<String>) {

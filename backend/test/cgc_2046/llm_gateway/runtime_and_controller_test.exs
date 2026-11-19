@@ -755,6 +755,218 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
       assert wallet.cached_balance_mc == 500_000 - log.charged_mc
       assert LeaseManager.active_streams_count(user.id) == 0
     end
+
+    test "returns 413 context_length_exceeded on upstream 400 context overflow without melting fuse and waives billing" do
+      user = register_user("gateway-sse-413-context")
+      raw_token = desktop_token(user)
+      session_id = "sess-sse-413-#{Ecto.UUID.generate()}"
+
+      {:ok, _} =
+        Ledger.grant_personal_credits(user.id, %{amount_mc: 500_000, source_type: :pack})
+
+      server =
+        start_sse_server(fn socket, _request ->
+          send_json_error(socket, 400, "Bad Request", %{
+            "error" => %{
+              "message" =>
+                "This model's maximum context length is 131072 tokens. However, you requested 140000 tokens.",
+              "type" => "invalid_request_error",
+              "code" => "invalid_request_error"
+            }
+          })
+        end)
+
+      configure_local_channels([local_channel("local_413_primary", server.base_url)])
+
+      conn =
+        build_conn()
+        |> put_req_header("authorization", "Bearer #{raw_token}")
+        |> put_req_header("x-session-affinity", session_id)
+        |> put_req_header("content-type", "application/json")
+        |> put_req_header("accept", "text/event-stream")
+        |> post("/v1/chat/completions", %{
+          "model" => "cgc-default",
+          "messages" => [%{"role" => "user", "content" => "Prompt too long"}]
+        })
+
+      assert %{
+               "error" => %{
+                 "code" => "context_length_exceeded",
+                 "type" => "invalid_request_error",
+                 "message" => message
+               }
+             } = json_response(conn, 413)
+
+      assert message =~ "maximum context length is 131072 tokens"
+
+      # 400 client error must NOT melt :fuse: 3 failures stay healthy (4th blows).
+      for _ <- 1..3 do
+        AffinityRouter.report_failure("local_413_primary")
+      end
+
+      assert AffinityRouter.channel_healthy?("local_413_primary")
+
+      wallet = Ledger.fetch_wallet!(user.id)
+      assert wallet.held_mc == 0
+      assert wallet.cached_balance_mc == 500_000
+      assert LeaseManager.active_streams_count(user.id) == 0
+
+      [log] = user_usage_logs(user.id)
+      assert log.billing_mode == :waived_upstream_error
+      assert log.charged_mc == 0
+    end
+
+    test "returns 400 invalid_request with sanitized message on upstream 400 tool schema error and waives billing" do
+      user = register_user("gateway-sse-400-schema")
+      raw_token = desktop_token(user)
+      session_id = "sess-sse-400-#{Ecto.UUID.generate()}"
+
+      {:ok, _} =
+        Ledger.grant_personal_credits(user.id, %{amount_mc: 500_000, source_type: :pack})
+
+      long_suffix = String.duplicate("x", 600)
+
+      server =
+        start_sse_server(fn socket, _request ->
+          send_json_error(socket, 400, "Bad Request", %{
+            "error" => %{
+              "message" =>
+                "Invalid tool schema at https://internal.upstream.local/v1 using sk-secret123456: #{long_suffix}",
+              "code" => "invalid_tool_schema"
+            }
+          })
+        end)
+
+      configure_local_channels([local_channel("local_400_primary", server.base_url)])
+
+      conn =
+        build_conn()
+        |> put_req_header("authorization", "Bearer #{raw_token}")
+        |> put_req_header("x-session-affinity", session_id)
+        |> put_req_header("content-type", "application/json")
+        |> put_req_header("accept", "text/event-stream")
+        |> post("/v1/chat/completions", %{
+          "model" => "cgc-default",
+          "messages" => [%{"role" => "user", "content" => "Bad tool schema"}]
+        })
+
+      assert %{
+               "error" => %{
+                 "code" => "invalid_request",
+                 "type" => "invalid_request_error",
+                 "message" => message
+               }
+             } = json_response(conn, 400)
+
+      assert message =~ "Invalid tool schema"
+      assert String.length(message) <= 500
+      refute message =~ "https://internal.upstream.local"
+      refute message =~ "sk-secret123456"
+
+      for _ <- 1..3 do
+        AffinityRouter.report_failure("local_400_primary")
+      end
+
+      assert AffinityRouter.channel_healthy?("local_400_primary")
+
+      wallet = Ledger.fetch_wallet!(user.id)
+      assert wallet.held_mc == 0
+      assert wallet.cached_balance_mc == 500_000
+      assert LeaseManager.active_streams_count(user.id) == 0
+
+      [log] = user_usage_logs(user.id)
+      assert log.billing_mode == :waived_upstream_error
+      assert log.charged_mc == 0
+    end
+
+    test "fails over from primary HTTP 401 to backup channel, melts primary fuse, and returns 200 SSE" do
+      user = register_user("gateway-sse-401-failover")
+      raw_token = desktop_token(user)
+      session_id = "sess-sse-401-#{Ecto.UUID.generate()}"
+      test_pid = self()
+
+      {:ok, _} =
+        Ledger.grant_personal_credits(user.id, %{amount_mc: 500_000, source_type: :pack})
+
+      primary_server =
+        start_sse_server(fn socket, _request ->
+          send(test_pid, :primary_401_hit)
+
+          send_json_error(socket, 401, "Unauthorized", %{
+            "error" => %{"message" => "Authentication Fails (invalid api key)"}
+          })
+        end)
+
+      usage = %{
+        "prompt_tokens" => 300,
+        "prompt_cache_hit_tokens" => 0,
+        "prompt_cache_miss_tokens" => 300,
+        "completion_tokens" => 80
+      }
+
+      backup_server =
+        start_sse_server(fn socket, _request ->
+          send(test_pid, :backup_401_sse_hit)
+
+          send_sse_chunks(socket, [
+            sse_data_frame(%{
+              "choices" => [%{"delta" => %{"content" => "Recovered on backup after 401."}}]
+            }),
+            sse_data_frame(%{"choices" => [], "usage" => usage}),
+            "data: [DONE]\n\n"
+          ])
+        end)
+
+      configure_local_channels([
+        local_channel("local_401_primary", primary_server.base_url),
+        local_channel("local_401_backup", backup_server.base_url,
+          provider: :volcengine,
+          models: %{
+            "cgc-default" => "ep-v3-backup",
+            "cgc-reasoning" => "ep-r1-backup",
+            "cgc-background" => "ep-v3-backup"
+          }
+        )
+      ])
+
+      conn =
+        build_conn()
+        |> put_req_header("authorization", "Bearer #{raw_token}")
+        |> put_req_header("x-session-affinity", session_id)
+        |> put_req_header("content-type", "application/json")
+        |> put_req_header("accept", "text/event-stream")
+        |> post("/v1/chat/completions", %{
+          "model" => "cgc-default",
+          "messages" => [%{"role" => "user", "content" => "Trigger 401 failover"}]
+        })
+
+      assert_received :primary_401_hit
+      assert_received :backup_401_sse_hit
+
+      assert conn.status == 200
+      assert conn.resp_body =~ "Recovered on backup after 401."
+      assert conn.resp_body =~ "data: [DONE]"
+
+      # 401 must melt :fuse once, so 3 additional failures blow it.
+      assert AffinityRouter.channel_healthy?("local_401_primary")
+
+      for _ <- 1..3 do
+        AffinityRouter.report_failure("local_401_primary")
+      end
+
+      refute AffinityRouter.channel_healthy?("local_401_primary")
+      assert AffinityRouter.channel_healthy?("local_401_backup")
+
+      wallet = Ledger.fetch_wallet!(user.id)
+      assert wallet.held_mc == 0
+      assert LeaseManager.active_streams_count(user.id) == 0
+
+      [log] = user_usage_logs(user.id)
+      assert log.upstream_channel == "local_401_backup"
+      assert log.upstream_model == "ep-v3-backup"
+      assert log.billing_mode == :exact
+      assert log.charged_mc > 0
+    end
   end
 
   defp local_channel(id, base_url, overrides \\ []) do

@@ -99,8 +99,15 @@ fn tool_loop_keeps_session_affinity_strips_reasoning_and_preserves_prefix_bytes(
         "data: [DONE]\n\n"
     )
     .to_string();
+    let step3_sse = concat!(
+        "data: {\"id\":\"cmpl-3\",\"choices\":[{\"delta\":{\"reasoning_content\":\"第二轮再思考\"}}]}\n\n",
+        "data: {\"choices\":[{\"delta\":{\"content\":\"第二轮回复完成。\"},\"finish_reason\":\"stop\"}]}\n\n",
+        "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":160,\"completion_tokens\":10,\"prompt_cache_hit_tokens\":120}}\n\n",
+        "data: [DONE]\n\n"
+    )
+    .to_string();
 
-    let (base_url, captured) = spawn_sse_gateway(vec![step1_sse, step2_sse]);
+    let (base_url, captured) = spawn_sse_gateway(vec![step1_sse, step2_sse, step3_sse]);
     let model = Model::new(
         ProviderId::new("cgc-cloud"),
         "CGC Cloud",
@@ -171,12 +178,20 @@ fn tool_loop_keeps_session_affinity_strips_reasoning_and_preserves_prefix_bytes(
         .to_ascii_lowercase()
         .contains("x-session-affinity: native-session-affinity-001\r\n"));
 
-    // 2. 第二轮历史回传剥离上一轮 reasoning_content，仅保留 assistant content + tool_calls。
-    assert!(!second.body.contains("reasoning_content"));
-    assert!(!second.body.contains("先检查 hello.txt"));
-
     let req1: serde_json::Value = serde_json::from_str(&first.body).expect("json 1");
     let req2: serde_json::Value = serde_json::from_str(&second.body).expect("json 2");
+
+    // 2. 同一用户轮次内的 tool_loop（step 1 -> step 2）必须回传 assistant 的 reasoning_content。
+    let assistant_with_tool_call = req2["messages"]
+        .as_array()
+        .expect("req2 messages array")
+        .iter()
+        .find(|msg| msg["role"] == "assistant" && msg.get("tool_calls").is_some())
+        .expect("assistant message with tool_calls in step 2");
+    assert_eq!(
+        assistant_with_tool_call["reasoning_content"], "先检查 hello.txt",
+        "same-turn tool loop must replay reasoning_content on assistant tool_calls message"
+    );
 
     // 3. System Prompt 与 tools 数组的 JSON 字节序列连续两次完全一致，且 tools 字典序固定。
     assert_eq!(
@@ -188,6 +203,43 @@ fn tool_loop_keeps_session_affinity_strips_reasoning_and_preserves_prefix_bytes(
         serde_json::to_vec(&req1["tools"]).expect("tools 1"),
         serde_json::to_vec(&req2["tools"]).expect("tools 2"),
         "tools JSON bytes must be identical across requests in the same session"
+    );
+
+    // 4. 开启第二个用户轮次：step 3 必须剥离上一用户轮次所有 assistant 的 reasoning_content，
+    //    同时保持 system prompt 与 tools 字节序列 100% 一致。
+    let second_turn = futures::executor::block_on(agent.prompt_with_tools(
+        &provider,
+        &model,
+        "再总结一下刚才的结果",
+        &tools,
+        &context,
+        &AutoApprover,
+    ))
+    .expect("second user turn succeeds");
+    assert!(second_turn.text.contains("第二轮回复完成"));
+
+    let third = captured.recv().expect("step 3 request");
+    assert!(third
+        .headers
+        .to_ascii_lowercase()
+        .contains("x-session-affinity: native-session-affinity-001\r\n"));
+    assert!(
+        !third.body.contains("reasoning_content"),
+        "next user turn must strip reasoning_content from previous turn assistant messages"
+    );
+    assert!(!third.body.contains("先检查 hello.txt"));
+    assert!(!third.body.contains("已拿到文件内容"));
+
+    let req3: serde_json::Value = serde_json::from_str(&third.body).expect("json 3");
+    assert_eq!(
+        serde_json::to_vec(&req1["messages"][0]).expect("sys 1"),
+        serde_json::to_vec(&req3["messages"][0]).expect("sys 3"),
+        "system prompt JSON bytes must stay identical across user turns"
+    );
+    assert_eq!(
+        serde_json::to_vec(&req1["tools"]).expect("tools 1"),
+        serde_json::to_vec(&req3["tools"]).expect("tools 3"),
+        "tools JSON bytes must stay identical across user turns"
     );
 
     let tool_names: Vec<&str> = req1["tools"]
