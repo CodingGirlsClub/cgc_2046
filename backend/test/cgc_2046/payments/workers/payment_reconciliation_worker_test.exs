@@ -336,24 +336,24 @@ defmodule Cgc2046.Payments.Workers.PaymentReconciliationWorkerTest do
       # 1. 已付且金额一致 → 无差异（不能误报 channel_only）
       llm_matched = insert_llm_order(user, :paid, 10_000)
       # 2. 已付但渠道金额不符 → amount_mismatch
-      llm_mismatched = insert_llm_order(user, :paid, 20_000)
+      llm_mismatched = insert_llm_order(user, :paid, 50_000)
       # 3. 昨日已付但账单缺失 → local_paid_missing
-      llm_missing_in_channel = insert_llm_order(user, :paid, 15_000, paid_yesterday: true)
+      llm_missing_in_channel = insert_llm_order(user, :paid, 10_000, paid_yesterday: true)
 
       # 4. 本地仍 pending 但渠道账单已收款（回调丢失）→ channel_only(local_status=pending)
       llm_pending_in_channel = insert_llm_order(user, :pending, 5_000)
       # 5. 本地已 cancelled 但渠道账单有款 → channel_only(local_status=cancelled)
-      llm_cancelled_in_channel = insert_llm_order(user, :cancelled, 8_000)
+      llm_cancelled_in_channel = insert_llm_order(user, :cancelled, 1_000)
 
       # 6. 本地 pending（即使展示过期时间已过）且未出现在账单 → 不报 pending_overdue
-      llm_abandoned_pending = insert_llm_order(user, :pending, 3_000, expire_offset: -7_200)
+      llm_abandoned_pending = insert_llm_order(user, :pending, 1_000, expire_offset: -7_200)
 
       statement =
         statement_for([
           {llm_matched.out_trade_no, 10_000},
           {llm_mismatched.out_trade_no, 9_900},
           {llm_pending_in_channel.out_trade_no, 5_000},
-          {llm_cancelled_in_channel.out_trade_no, 8_000},
+          {llm_cancelled_in_channel.out_trade_no, 1_000},
           {"LLM_unknown_channel_only_001", 6_600}
         ])
 
@@ -372,7 +372,7 @@ defmodule Cgc2046.Payments.Workers.PaymentReconciliationWorkerTest do
 
       assert by_id[llm_mismatched.id].detail["kind"] == "amount_mismatch"
       assert by_id[llm_mismatched.id].detail["channel_cents"] == 9_900
-      assert by_id[llm_mismatched.id].detail["local_cents"] == 20_000
+      assert by_id[llm_mismatched.id].detail["local_cents"] == 50_000
       assert by_id[llm_mismatched.id].detail["order_source"] == "llm_payment_order"
 
       assert by_id[llm_missing_in_channel.id].detail["kind"] == "local_paid_missing"

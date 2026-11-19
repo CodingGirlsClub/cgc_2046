@@ -30,6 +30,46 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
   alias Cgc2046.LlmGateway.PaymentOrders
   alias Cgc2046.Repo
 
+  @min_int64 -9_223_372_036_854_775_808
+  @max_int64 9_223_372_036_854_775_807
+
+  @desc "Signed 64-bit integer (microcredits). Accepts integer or numeric string; serializes as JSON integer."
+  scalar :bigint, name: "BigInt" do
+    parse(&__MODULE__.parse_bigint/1)
+    serialize(&__MODULE__.serialize_bigint/1)
+  end
+
+  @doc false
+  def parse_bigint(%Absinthe.Blueprint.Input.Integer{value: value}), do: coerce_bigint(value)
+  def parse_bigint(%Absinthe.Blueprint.Input.String{value: value}), do: coerce_bigint(value)
+  def parse_bigint(%Absinthe.Blueprint.Input.Null{}), do: {:ok, nil}
+  def parse_bigint(value) when is_integer(value) or is_binary(value), do: coerce_bigint(value)
+  def parse_bigint(_other), do: :error
+
+  @doc false
+  def serialize_bigint(value)
+      when is_integer(value) and value >= @min_int64 and value <= @max_int64 do
+    value
+  end
+
+  def serialize_bigint(value) do
+    raise Absinthe.SerializationError, "Value #{inspect(value)} is not a valid BigInt."
+  end
+
+  defp coerce_bigint(value)
+       when is_integer(value) and value >= @min_int64 and value <= @max_int64 do
+    {:ok, value}
+  end
+
+  defp coerce_bigint(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {int, ""} when int >= @min_int64 and int <= @max_int64 -> {:ok, int}
+      _ -> :error
+    end
+  end
+
+  defp coerce_bigint(_value), do: :error
+
   @desc "LLM 钱包内一笔活跃授信（订阅/算力包/工作台派发/管理员赠送）"
   object :llm_credit_grant_item do
     field(:id, non_null(:id))
@@ -38,8 +78,8 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
       description: "subscription | pack | workspace_grant | admin_gift"
     )
 
-    field(:initial_mc, non_null(:integer), description: "发放额度（微积分）")
-    field(:remaining_mc, non_null(:integer), description: "当前剩余额度（微积分）")
+    field(:initial_mc, non_null(:bigint), description: "发放额度（微积分）")
+    field(:remaining_mc, non_null(:bigint), description: "当前剩余额度（微积分）")
     field(:expires_at, :datetime)
     field(:status, non_null(:string), description: "active | exhausted | expired")
     field(:inserted_at, non_null(:datetime))
@@ -48,9 +88,9 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
   @desc "当前用户 LLM 钱包摘要；金额均为微积分（1 CNY = 1,000,000 mc）"
   object :llm_wallet_summary do
     field(:wallet_id, non_null(:id))
-    field(:cached_balance_mc, non_null(:integer), description: "缓存总余额（含冻结）")
-    field(:held_mc, non_null(:integer), description: "在途流式请求冻结额度")
-    field(:available_mc, non_null(:integer), description: "可用额度 = cached - held")
+    field(:cached_balance_mc, non_null(:bigint), description: "缓存总余额（含冻结）")
+    field(:held_mc, non_null(:bigint), description: "在途流式请求冻结额度")
+    field(:available_mc, non_null(:bigint), description: "可用额度（未过期授信与缓存余额取小后扣除冻结）")
     field(:max_concurrent_streams, non_null(:integer))
     field(:status, non_null(:string), description: "active | frozen")
     field(:remaining_percentage, non_null(:integer), description: "活跃授信剩余百分比 0-100")
@@ -60,7 +100,7 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
   @desc "工作台算力池与最近派发批次"
   object :llm_workspace_pool_summary do
     field(:workspace_id, non_null(:id))
-    field(:credit_pool_mc, non_null(:integer), description: "待派发池余额（微积分）")
+    field(:credit_pool_mc, non_null(:bigint), description: "待派发池余额（微积分）")
     field(:updated_at, non_null(:datetime))
     field(:recent_batches, non_null(list_of(non_null(:llm_workspace_grant_batch))))
   end
@@ -69,9 +109,9 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
   object :llm_workspace_grant_batch do
     field(:id, non_null(:id))
     field(:actor_user_id, non_null(:id))
-    field(:per_member_mc, non_null(:integer))
+    field(:per_member_mc, non_null(:bigint))
     field(:member_count, non_null(:integer))
-    field(:total_granted_mc, non_null(:integer))
+    field(:total_granted_mc, non_null(:bigint))
     field(:expires_at, :datetime)
     field(:idempotency_key, non_null(:string))
     field(:inserted_at, non_null(:datetime))
@@ -80,9 +120,9 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
   @desc "工作台批量派发结果；idempotentReplay=true 表示命中同 key 原批次、未二次扣池"
   object :llm_workspace_grant_result do
     field(:id, non_null(:id))
-    field(:per_member_mc, non_null(:integer))
+    field(:per_member_mc, non_null(:bigint))
     field(:member_count, non_null(:integer))
-    field(:total_granted_mc, non_null(:integer))
+    field(:total_granted_mc, non_null(:bigint))
     field(:idempotent_replay, non_null(:boolean))
   end
 
@@ -96,13 +136,11 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
       description: "llm_subscription | llm_credit_pack | llm_workspace_pool_topup"
     )
 
-    field(:provider, non_null(:string),
-      description: "wechat_native | alipay_page | alipay_qr | alipay_wap"
-    )
+    field(:provider, non_null(:string), description: "wechat_native | alipay_qr")
 
     field(:out_trade_no, non_null(:string))
     field(:amount_cents, non_null(:integer), description: "实付金额（分）")
-    field(:credits_mc, non_null(:integer), description: "入账算力（微积分；1 cent = 10,000 mc）")
+    field(:credits_mc, non_null(:bigint), description: "入账算力（微积分；1 cent = 10,000 mc）")
     field(:status, non_null(:string), description: "pending | paid | cancelled | expired")
     field(:expires_at, :datetime)
     field(:paid_at, :datetime)
@@ -182,7 +220,7 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
     @desc "工作台 Owner/Admin 从算力池向当前全部成员派发额度；同 idempotencyKey 幂等"
     field :distribute_workspace_llm_credits, :llm_workspace_grant_result do
       arg(:workspace_id, non_null(:id))
-      arg(:per_member_mc, non_null(:integer))
+      arg(:per_member_mc, non_null(:bigint))
       arg(:idempotency_key, non_null(:string))
       arg(:expires_at, :datetime)
 
@@ -219,7 +257,7 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
     @desc "PlatformAdmin 向工作台算力池充值；与 AdminActionLog 同事务"
     field :admin_topup_workspace_llm_pool, :llm_workspace_pool_summary do
       arg(:workspace_id, non_null(:id))
-      arg(:amount_mc, non_null(:integer))
+      arg(:amount_mc, non_null(:bigint))
 
       resolve(fn _, args, %{context: context} ->
         with_admin(context, fn actor ->
@@ -253,7 +291,7 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
     @desc "PlatformAdmin 向个人钱包赠予算力（source=admin_gift）；与 AdminActionLog 同事务"
     field :admin_grant_user_llm_credits, :llm_wallet_summary do
       arg(:user_id, non_null(:id))
-      arg(:amount_mc, non_null(:integer))
+      arg(:amount_mc, non_null(:bigint))
       arg(:expires_at, :datetime)
 
       resolve(fn _, args, %{context: context} ->
@@ -306,16 +344,20 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
 
   defp build_wallet_summary(user_id) do
     wallet = Ledger.ensure_wallet!(user_id)
+    now = DateTime.utc_now()
 
     {:ok, %{rows: rows}} =
       Repo.query(
         """
         SELECT id, source_type, initial_mc, remaining_mc, expires_at, status, inserted_at
         FROM llm_credit_grants
-        WHERE wallet_id = $1 AND status = 'active'
+        WHERE wallet_id = $1
+          AND status = 'active'
+          AND remaining_mc > 0
+          AND (expires_at IS NULL OR expires_at > $2)
         ORDER BY expires_at ASC NULLS LAST, inserted_at ASC
         """,
-        [Ecto.UUID.dump!(wallet.id)]
+        [Ecto.UUID.dump!(wallet.id), now]
       )
 
     active_grants =
@@ -339,11 +381,16 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
         }
       end)
 
+    unexpired_remaining_mc = Enum.sum(Enum.map(active_grants, & &1.remaining_mc))
     total_active_initial_mc = Enum.sum(Enum.map(active_grants, & &1.initial_mc))
+    effective_balance_mc = min(unexpired_remaining_mc, wallet.cached_balance_mc)
+    available_mc = max(effective_balance_mc - wallet.held_mc, 0)
 
     remaining_percentage =
       if total_active_initial_mc > 0 do
-        div(wallet.cached_balance_mc * 100, total_active_initial_mc)
+        div(effective_balance_mc * 100, total_active_initial_mc)
+        |> max(0)
+        |> min(100)
       else
         0
       end
@@ -353,7 +400,7 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
        wallet_id: wallet.id,
        cached_balance_mc: wallet.cached_balance_mc,
        held_mc: wallet.held_mc,
-       available_mc: max(wallet.cached_balance_mc - wallet.held_mc, 0),
+       available_mc: available_mc,
        max_concurrent_streams: wallet.max_concurrent_streams,
        status: wallet.status,
        remaining_percentage: remaining_percentage,
