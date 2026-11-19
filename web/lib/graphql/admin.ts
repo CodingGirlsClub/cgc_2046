@@ -546,6 +546,7 @@ export const RECONCILIATION_RULE_LABEL: Record<string, string> = {
 	llm_wallet_balance_mismatch: "labels.reconRule.llm_wallet_balance_mismatch",
 	llm_wallet_held_mismatch: "labels.reconRule.llm_wallet_held_mismatch",
 	llm_paid_order_without_grant: "labels.reconRule.llm_paid_order_without_grant",
+	llm_workspace_pool_mismatch: "labels.reconRule.llm_workspace_pool_mismatch",
 	llm_closed_order_paid: "labels.reconRule.llm_closed_order_paid",
 };
 
@@ -555,6 +556,7 @@ export const RECONCILIATION_ENTITY_LABEL: Record<string, string> = {
 	sponsorship: "labels.reconEntity.sponsorship",
 	join_request: "labels.reconEntity.join_request",
 	workspace_application: "labels.reconEntity.workspace_application",
+	workspace: "labels.reconEntity.workspace",
 	event: "labels.reconEntity.event",
 	course: "labels.reconEntity.course",
 	oban_job: "Oban Job",

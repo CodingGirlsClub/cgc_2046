@@ -2460,6 +2460,7 @@
       "llm_wallet_balance_mismatch": "LLM 钱包缓存余额与授信账本不一致",
       "llm_wallet_held_mismatch": "LLM 钱包冻结额度与在途持仓不一致",
       "llm_paid_order_without_grant": "LLM 已支付订单缺少授信入账",
+      "llm_workspace_pool_mismatch": "工作台算力池余额与追加账本不一致",
       "llm_closed_order_paid": "LLM 已关闭订单收到重复支付回调"
     },
     "reconEntity": {
@@ -2467,6 +2468,7 @@
       "sponsorship": "赞助",
       "join_request": "加入申请",
       "workspace_application": "工作台申请",
+      "workspace": "工作台",
       "event": "活动",
       "course": "课程",
       "payment_order": "支付订单",

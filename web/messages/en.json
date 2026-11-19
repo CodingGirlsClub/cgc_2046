@@ -2460,6 +2460,7 @@
       "llm_wallet_balance_mismatch": "LLM wallet cached balance disagrees with credit ledger",
       "llm_wallet_held_mismatch": "LLM wallet held amount disagrees with active holds",
       "llm_paid_order_without_grant": "Paid LLM order missing credit grant",
+      "llm_workspace_pool_mismatch": "Workspace credit pool disagrees with pool ledger",
       "llm_closed_order_paid": "Closed LLM order received paid callback"
     },
     "reconEntity": {
@@ -2467,6 +2468,7 @@
       "sponsorship": "Sponsorship",
       "join_request": "Join request",
       "workspace_application": "Workspace application",
+      "workspace": "Workspace",
       "event": "Event",
       "course": "Course",
       "payment_order": "Payment order",
