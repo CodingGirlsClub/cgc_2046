@@ -84,6 +84,14 @@ defmodule Cgc2046.LlmGateway.TokenizerAndPricing do
   """
   def estimate_pre_flight_hold_mc(params, pricing_model) do
     prompt_tokens = count_request_prompt_tokens(params)
+    estimate_pre_flight_hold_mc(params, pricing_model, prompt_tokens)
+  end
+
+  @doc """
+  使用已算好的 `prompt_tokens` 估算预授权冻结额，避免重复分词。
+  """
+  def estimate_pre_flight_hold_mc(params, pricing_model, prompt_tokens)
+      when is_integer(prompt_tokens) and prompt_tokens >= 0 do
     rates = rates_for(pricing_model)
 
     output_tokens =

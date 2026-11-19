@@ -21,6 +21,9 @@ servers:
       # ssl:true 时 kamal-proxy 默认丢弃传入 XFF（gem docs proxy.yml:79-80）
       # ——Next rewrite 第二跳带来的真实 client 会被静默重置，限流修复被抵消
       forward_headers: true
+      # LLM Gateway SSE 推理流（如 deepseek-reasoner）首包或长输出易超
+      # kamal-proxy 默认 30s response_timeout；仅设在 web role，避免 ops role 继承
+      response_timeout: 300
   # ops：同一镜像第二个容器，服务主域 /ops/*（浏览器会话唯一归属主域的
   # 架构规则——AshAdmin 等 LiveView 面必须经主域到达，cookie 才随行）。
   # 非 primary role 需显式 proxy map；不 strip prefix（Phoenix 路由本身带 /ops）

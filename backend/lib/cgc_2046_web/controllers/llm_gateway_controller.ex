@@ -19,6 +19,8 @@ defmodule Cgc2046Web.LlmGatewayController do
   alias Cgc2046.LlmGateway.TokenizerAndPricing
 
   @process_state_key :llm_gateway_stream_state
+  @default_receive_timeout_ms 180_000
+  @default_pool_timeout_ms 15_000
 
   def chat_completions(conn, params) do
     session_id = extract_session_affinity(conn, params)
@@ -33,10 +35,14 @@ defmodule Cgc2046Web.LlmGatewayController do
         AffinityRouter.prepare_upstream_payload(params, primary)
 
       initial_pricing_model = AffinityRouter.pricing_model(primary, logical_model)
-      prompt_tokens = TokenizerAndPricing.count_request_prompt_tokens(params)
+      prompt_tokens = TokenizerAndPricing.count_request_prompt_tokens(initial_payload)
 
       hold_mc =
-        TokenizerAndPricing.estimate_pre_flight_hold_mc(initial_payload, initial_pricing_model)
+        TokenizerAndPricing.estimate_pre_flight_hold_mc(
+          initial_payload,
+          initial_pricing_model,
+          prompt_tokens
+        )
 
       case LeaseManager.acquire_slot(user.id, wallet.max_concurrent_streams) do
         :ok ->
@@ -188,6 +194,20 @@ defmodule Cgc2046Web.LlmGatewayController do
 
     finch_name = Application.get_env(:cgc_2046, :llm_gateway_finch, Cgc2046.LlmGateway.Finch)
 
+    receive_timeout =
+      Application.get_env(
+        :cgc_2046,
+        :llm_gateway_receive_timeout_ms,
+        @default_receive_timeout_ms
+      )
+
+    pool_timeout =
+      Application.get_env(
+        :cgc_2046,
+        :llm_gateway_pool_timeout_ms,
+        @default_pool_timeout_ms
+      )
+
     req =
       Req.new(
         url: AffinityRouter.chat_url(channel),
@@ -199,6 +219,8 @@ defmodule Cgc2046Web.LlmGatewayController do
         ],
         body: Jason.encode!(upstream_payload),
         finch: finch_name,
+        receive_timeout: receive_timeout,
+        pool_timeout: pool_timeout,
         retry: false,
         redirect: false,
         decode_body: false,
@@ -422,14 +444,12 @@ defmodule Cgc2046Web.LlmGatewayController do
       committed? ->
         update_process_state(%{upstream_error?: true})
         error_conn = Map.get(state, :conn, conn)
-        _ = Plug.Conn.chunk(error_conn, mid_stream_error_frame())
-        error_conn
+        send_mid_stream_error_frame(error_conn)
 
       Map.get(state, :first_chunk_sent?, false) ->
         update_process_state(%{upstream_error?: true})
         error_conn = Map.get(state, :conn, conn)
-        _ = Plug.Conn.chunk(error_conn, mid_stream_error_frame())
-        error_conn
+        send_mid_stream_error_frame(error_conn)
 
       true ->
         update_process_state(%{upstream_error?: true})
@@ -443,6 +463,13 @@ defmodule Cgc2046Web.LlmGatewayController do
             message: "All upstream LLM channels are temporarily unavailable."
           }
         })
+    end
+  end
+
+  defp send_mid_stream_error_frame(conn) do
+    case Plug.Conn.chunk(conn, mid_stream_error_frame()) do
+      {:ok, next_conn} -> next_conn
+      {:error, _} -> conn
     end
   end
 
