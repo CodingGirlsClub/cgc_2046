@@ -39,6 +39,7 @@ pub(crate) struct ViewTool {
 pub(crate) struct ViewRow {
     pub(crate) role: ViewRole,
     pub(crate) text: String,
+    pub(crate) thinking_duration_ms: Option<u64>,
     pub(crate) tool_call_id: Option<String>,
     pub(crate) tool: Option<ViewTool>,
 }
@@ -49,18 +50,23 @@ impl ViewRow {
             ConversationEntry::User { text } => Self {
                 role: ViewRole::User,
                 text: text.clone(),
+                thinking_duration_ms: None,
                 tool_call_id: None,
                 tool: None,
             },
             ConversationEntry::Assistant { text } => Self {
                 role: ViewRole::Assistant,
                 text: text.clone(),
+                thinking_duration_ms: None,
                 tool_call_id: None,
                 tool: None,
             },
-            ConversationEntry::Thinking { text, .. } => Self {
+            ConversationEntry::Thinking {
+                text, duration_ms, ..
+            } => Self {
                 role: ViewRole::Thinking,
                 text: text.clone(),
+                thinking_duration_ms: *duration_ms,
                 tool_call_id: None,
                 tool: None,
             },
@@ -75,6 +81,7 @@ impl ViewRow {
             } => Self {
                 role: ViewRole::Tool,
                 text: output.clone().unwrap_or_default(),
+                thinking_duration_ms: None,
                 tool_call_id: Some(tool_call_id.clone()),
                 tool: Some(ViewTool {
                     name: name.clone().unwrap_or_else(|| title.clone()),
@@ -99,6 +106,7 @@ impl ViewRow {
                     Some(true) => format!("已允许：{title}"),
                     Some(false) => format!("已拒绝：{title}"),
                 },
+                thinking_duration_ms: None,
                 tool_call_id: None,
                 tool: None,
             },
@@ -109,6 +117,7 @@ impl ViewRow {
                     ViewRole::System
                 },
                 text: text.clone(),
+                thinking_duration_ms: None,
                 tool_call_id: None,
                 tool: None,
             },
@@ -118,6 +127,7 @@ impl ViewRow {
                     Some(summary) => format!("上下文压缩（{status}）：{summary}"),
                     None => format!("上下文压缩（{status}）"),
                 },
+                thinking_duration_ms: None,
                 tool_call_id: None,
                 tool: None,
             },
@@ -392,6 +402,7 @@ mod tests {
             ConversationEntry::Thinking {
                 text: "t".into(),
                 expanded: false,
+                duration_ms: None,
             },
         ];
         assert_eq!(thread_entry_ordinal(&entries, 0), Some(1));

@@ -325,3 +325,79 @@ fn endpoint_url_follows_protocol() {
     provider.anthropic_url = None;
     assert_eq!(super::endpoint_url(&provider), "https://openai.example/v1");
 }
+
+#[test]
+fn login_defaults_to_managed_provider_without_byok() {
+    let prefs = AgentPrefs::default();
+    let (managed, active) = resolve_active_provider(&prefs, true);
+    assert!(managed);
+    assert_eq!(active.expect("managed provider").id, CGC_CLOUD_PROVIDER_ID);
+}
+
+#[test]
+fn login_keeps_configured_byok_provider() {
+    let mut prefs = AgentPrefs::default();
+    prefs.providers.push(ProviderPrefs {
+        id: "deepseek".into(),
+        name: "DeepSeek".into(),
+        has_key: true,
+        enabled: true,
+        ..Default::default()
+    });
+    let (managed, active) = resolve_active_provider(&prefs, true);
+    assert!(!managed);
+    assert_eq!(active.expect("BYOK provider").id, "deepseek");
+}
+
+#[test]
+fn login_requires_a_key_before_byok_wins() {
+    let mut prefs = AgentPrefs::default();
+    prefs.providers.push(ProviderPrefs {
+        id: "deepseek".into(),
+        name: "DeepSeek".into(),
+        has_key: false,
+        enabled: true,
+        ..Default::default()
+    });
+    let (managed, active) = resolve_active_provider(&prefs, true);
+    assert!(managed);
+    assert_eq!(active.expect("managed provider").id, CGC_CLOUD_PROVIDER_ID);
+}
+
+#[test]
+fn login_preserves_saved_managed_model_enablement() {
+    let mut prefs = AgentPrefs::default();
+    let mut managed = cgc_cloud_provider();
+    if let Some(model) = managed
+        .model_params
+        .iter_mut()
+        .find(|model| model.id == "cgc-default")
+    {
+        model.enabled = false;
+    }
+    prefs.upsert_provider(managed);
+    prefs.selected_provider = Some(CGC_CLOUD_PROVIDER_ID.to_string());
+
+    let (is_managed, active) = resolve_active_provider(&prefs, true);
+
+    assert!(is_managed);
+    let active = active.expect("saved managed provider");
+    assert!(!active.model_config("cgc-default").enabled);
+}
+
+#[test]
+fn explicitly_disabled_managed_provider_is_not_recreated() {
+    let mut prefs = AgentPrefs::default();
+    let mut managed = cgc_cloud_provider();
+    managed.enabled = false;
+    prefs.upsert_provider(managed);
+    prefs.selected_provider = Some(CGC_CLOUD_PROVIDER_ID.to_string());
+
+    let (is_managed, active) = resolve_active_provider(&prefs, true);
+
+    assert!(!is_managed);
+    assert!(
+        active.is_none(),
+        "disabled managed provider must stay disabled"
+    );
+}

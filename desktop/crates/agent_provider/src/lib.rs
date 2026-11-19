@@ -29,7 +29,7 @@ pub use error::{ProviderError, ProviderErrorCategory};
 pub use event::{CompletionEvent, StopReason, TokenUsage, ToolUse};
 pub use fake::FakeProvider;
 pub use model::{Model, ModelCapabilities, ModelId, ModelLimits, ProviderId};
-pub use openai_compatible::{OpenAiCompatibleConfig, OpenAiCompatibleProvider};
+pub use openai_compatible::{BearerTokenSource, OpenAiCompatibleConfig, OpenAiCompatibleProvider};
 pub use probe::{
     anthropic_models_url, detect_protocols, list_models, list_models_at, list_unsupported,
     parse_models, responses_url, test_models, test_models_for, ProbeState, RemoteModel,
@@ -37,7 +37,7 @@ pub use probe::{
 pub use protocol::{ProviderProtocol, ThinkingMode};
 pub use provider::{CompletionStream, Provider};
 pub use registry::ProviderRegistry;
-pub use request::{Content, Message, Request, Role, ToolSchema};
+pub use request::{canonicalize_json, Content, Message, Request, Role, ToolSchema};
 pub use responses_compatible::{ResponsesCompatibleConfig, ResponsesCompatibleProvider};
 pub use unconfigured::UnconfiguredProvider;
 pub use validate::validate_credentials;

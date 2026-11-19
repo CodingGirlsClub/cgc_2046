@@ -8,6 +8,7 @@ pub mod acp;
 pub mod agent;
 pub mod api;
 pub mod events;
+pub mod gateway;
 pub mod instance;
 pub mod logging;
 pub mod mcp;

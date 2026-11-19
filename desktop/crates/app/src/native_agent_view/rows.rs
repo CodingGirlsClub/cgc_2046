@@ -153,6 +153,7 @@ impl NativeAgentView {
                         )),
                         markdown: message.text.clone(),
                         expanded,
+                        duration_ms: message.thinking_duration_ms,
                         style: native_message_style(palette),
                         on_toggle: Box::new(move |cx: &mut App| {
                             let _ = toggle_view
@@ -501,6 +502,7 @@ impl NativeAgentView {
                     let row = ViewRow::from_entry(entry);
                     format!("{:?}", row.role).hash(&mut hasher);
                     row.text.len().hash(&mut hasher);
+                    row.thinking_duration_ms.is_some().hash(&mut hasher);
                     self.expanded_thinking.contains(&index).hash(&mut hasher);
                     (self.editing_user == Some(index)).hash(&mut hasher);
                     row.tool_call_id.hash(&mut hasher);

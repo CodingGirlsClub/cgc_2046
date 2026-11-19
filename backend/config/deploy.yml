@@ -82,6 +82,10 @@ env:
     # 静默回落（#934 评审指正）。
     LANG: C.UTF-8
     LC_ALL: C.UTF-8
+    # LLM Gateway 非敏感配置；Key 在 secret 名单
+    DEEPSEEK_BASE_URL: https://api.deepseek.com
+    VOLCENGINE_V3_EP: deepseek-v3-250324
+    VOLCENGINE_R1_EP: deepseek-r1-250120
   secret:
     - DATABASE_URL
     - SECRET_KEY_BASE
@@ -108,6 +112,9 @@ env:
     - WECHAT_PAY_PUBLIC_KEY
     - WECHAT_PAY_PUBLIC_KEY_ID
     - PAYMENTS_WEBHOOK_BASE_URL
+    # LLM Gateway 上游渠道（可选门禁：缺省 /v1 503，不阻塞 boot）
+    - DEEPSEEK_API_KEYS
+    - VOLCENGINE_ARK_API_KEY
     - ALIPAY_APP_ID
     - ALIPAY_PRIVATE_KEY
     - ALIPAY_PUBLIC_KEY

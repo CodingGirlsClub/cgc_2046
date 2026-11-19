@@ -277,6 +277,53 @@ pub fn provider_key_account(provider_id: &str) -> String {
     format!("native_agent_provider_api_key:{provider_id}")
 }
 
+/// 官方托管网关 provider id。登录态下默认使用；用户显式切到 BYOK 后不再覆盖。
+pub const CGC_CLOUD_PROVIDER_ID: &str = "cgc-cloud";
+
+pub fn cgc_cloud_provider() -> ProviderPrefs {
+    let mut provider = ProviderPrefs {
+        id: CGC_CLOUD_PROVIDER_ID.to_string(),
+        name: "CGC Cloud".to_string(),
+        base_url: "https://api.codingirlsclub.com/v1".to_string(),
+        anthropic_url: None,
+        responses_url: None,
+        models_url: None,
+        models: Vec::new(),
+        // 托管模式不需要用户 API key；凭据由登录态动态签发 terminal MCP token。
+        has_key: true,
+        model_params: Vec::new(),
+        enabled: true,
+        builtin: true,
+        protocol: ProviderProtocol::OpenAiCompatible,
+        available_models: Vec::new(),
+        models_fetched_at: 0,
+    };
+
+    for (id, supports_thinking) in [
+        ("cgc-default", true),
+        ("cgc-reasoning", true),
+        ("cgc-background", false),
+    ] {
+        provider.upsert_model(ModelPrefs {
+            id: id.to_string(),
+            context_window: 1_000_000,
+            max_output_tokens: 65_536,
+            supports_thinking,
+            enabled: true,
+            supports_tools: true,
+            supports_images: false,
+            reasoning_efforts: if supports_thinking {
+                vec!["low".into(), "high".into(), "max".into()]
+            } else {
+                Vec::new()
+            },
+            thinking_mode: ThinkingMode::Disabled,
+        });
+    }
+
+    provider
+}
+
 /// 内置 provider 目录：第一次打开设置就能看到的默认配置（不写入用户文件）。
 pub fn builtin_providers() -> Vec<ProviderPrefs> {
     fn provider(id: &str, name: &str, base_url: &str) -> ProviderPrefs {
@@ -396,7 +443,7 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
         thinking_mode: ThinkingMode::Disabled,
     });
 
-    vec![deepseek, moonshot, minimax, zhipu]
+    vec![cgc_cloud_provider(), deepseek, moonshot, minimax, zhipu]
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -656,7 +703,14 @@ mod model_param_tests {
             .iter()
             .map(|provider| provider.id.as_str())
             .collect();
-        assert_eq!(ids, vec!["deepseek", "moonshot", "minimax", "zhipu"]);
+        assert_eq!(
+            ids,
+            vec!["cgc-cloud", "deepseek", "moonshot", "minimax", "zhipu"]
+        );
+        let managed = providers.iter().find(|p| p.id == "cgc-cloud").unwrap();
+        assert!(managed.models.contains(&"cgc-default".to_string()));
+        assert!(managed.models.contains(&"cgc-reasoning".to_string()));
+        assert!(managed.models.contains(&"cgc-background".to_string()));
         assert!(providers.iter().all(|provider| provider.builtin));
         let deepseek = providers.iter().find(|p| p.id == "deepseek").unwrap();
         assert_eq!(

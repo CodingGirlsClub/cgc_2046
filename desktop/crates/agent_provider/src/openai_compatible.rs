@@ -14,9 +14,9 @@ use crate::{
     event::{CompletionEvent, StopReason, TokenUsage, ToolUse},
     model::Model,
     provider::{CompletionStream, Provider},
-    request::{Content, Message, Request, Role},
+    request::{canonicalize_json, Content, Message, Request, Role, ToolSchema},
     sse::{SseDecoder, SseEvent},
-    transport::{map_ureq_error, send_blocking, truncate},
+    transport::{map_ureq_error, parse_openai_error, send_blocking},
 };
 
 /// OpenAI Chat Completions 兼容 Provider 的配置。
@@ -24,13 +24,50 @@ use crate::{
 /// 事件通道容量：足够吸收正常突发，又能在 UI 卡顿时限住内存。
 const DELTA_CAPACITY: usize = 32;
 
+/// 动态 Bearer 令牌解析器：网关模式下每次请求按需读取/签发，遇到 401 时可触发重签。
+pub trait BearerTokenSource: Send + Sync {
+    fn resolve_token(&self) -> Result<String, ProviderError>;
+
+    /// 当前令牌收到 HTTP 401 时由客户端调用一次；返回 `Some(new_token)` 时自动用新令牌重发一次。
+    fn refresh_after_unauthorized(
+        &self,
+        _rejected_token: &str,
+    ) -> Result<Option<String>, ProviderError> {
+        Ok(None)
+    }
+}
+
+/// CGC Cloud logical model selector: maps a selected model + request to the wire model id.
+pub type ModelResolver = Arc<dyn Fn(&Model, &Request) -> String + Send + Sync>;
+
 /// `base_url` 是 API 根（例如 `https://api.deepseek.com/v1`），末尾斜杠可有可无。
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct OpenAiCompatibleConfig {
     pub base_url: String,
     pub api_key: String,
     pub models: Vec<Model>,
     pub extra_headers: Vec<(String, String)>,
+    token_source: Option<Arc<dyn BearerTokenSource>>,
+    model_resolver: Option<ModelResolver>,
+}
+
+impl std::fmt::Debug for OpenAiCompatibleConfig {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("OpenAiCompatibleConfig")
+            .field("base_url", &self.base_url)
+            .field(
+                "api_key",
+                &if self.api_key.is_empty() {
+                    "<dynamic>"
+                } else {
+                    "<redacted>"
+                },
+            )
+            .field("models", &self.models)
+            .field("extra_headers", &self.extra_headers)
+            .finish()
+    }
 }
 
 impl OpenAiCompatibleConfig {
@@ -44,7 +81,19 @@ impl OpenAiCompatibleConfig {
             api_key: api_key.into(),
             models,
             extra_headers: Vec::new(),
+            token_source: None,
+            model_resolver: None,
         }
+    }
+
+    pub fn with_token_source(mut self, token_source: Arc<dyn BearerTokenSource>) -> Self {
+        self.token_source = Some(token_source);
+        self
+    }
+
+    pub fn with_model_resolver(mut self, resolver: ModelResolver) -> Self {
+        self.model_resolver = Some(resolver);
+        self
     }
 
     pub fn with_extra_headers(mut self, headers: Vec<(String, String)>) -> Self {
@@ -97,7 +146,18 @@ impl Provider for OpenAiCompatibleProvider {
         request: Request,
     ) -> future::BoxFuture<'static, Result<CompletionStream, ProviderError>> {
         let config = Arc::clone(&self.config);
-        let body = build_body(model, &request);
+        let wire_model = config
+            .model_resolver
+            .as_ref()
+            .map(|resolve| resolve(model, &request))
+            .unwrap_or_else(|| model.id.as_str().to_string());
+        let session_id = request
+            .session_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .map(str::to_string);
+        let body = build_body_with_model(&wire_model, &request);
         // 有界传送：慢消费者（卡顿的 UI）不能让整段模型输出堆在内存里。
         // worker 是独立 std 线程，阻塞式发送即可产生背压，不会卡住 async runtime。
         let (sender, receiver) =
@@ -106,7 +166,8 @@ impl Provider for OpenAiCompatibleProvider {
             .name("cgc-agent-provider".to_string())
             .spawn(move || {
                 let mut sender = sender;
-                if let Err(error) = run_request(&config, &body, &mut sender) {
+                if let Err(error) = run_request(&config, &body, session_id.as_deref(), &mut sender)
+                {
                     let _ = send_blocking(&mut sender, Err(error));
                 }
             });
@@ -121,9 +182,13 @@ impl Provider for OpenAiCompatibleProvider {
 }
 
 /// 把统一请求映射成 OpenAI Chat Completions 的 JSON body。
-pub(crate) fn build_body(model: &Model, request: &Request) -> Value {
+pub fn build_body(model: &Model, request: &Request) -> Value {
+    build_body_with_model(model.id.as_str(), request)
+}
+
+fn build_body_with_model(model_id: &str, request: &Request) -> Value {
     let mut body = json!({
-        "model": model.id.as_str(),
+        "model": model_id,
         "messages": request.messages.iter().map(message_to_json).collect::<Vec<_>>(),
         "stream": true,
         "stream_options": { "include_usage": true },
@@ -138,15 +203,16 @@ pub(crate) fn build_body(model: &Model, request: &Request) -> Value {
         body["reasoning_effort"] = json!(reasoning_effort);
     }
     if !request.tools.is_empty() {
-        body["tools"] = json!(request
-            .tools
-            .iter()
+        let mut sorted_tools: Vec<&ToolSchema> = request.tools.iter().collect();
+        sorted_tools.sort_by(|left, right| left.name.cmp(&right.name));
+        body["tools"] = json!(sorted_tools
+            .into_iter()
             .map(|tool| json!({
                 "type": "function",
                 "function": {
                     "name": tool.name,
                     "description": tool.description,
-                    "parameters": tool.input_schema,
+                    "parameters": canonicalize_json(&tool.input_schema),
                 }
             }))
             .collect::<Vec<_>>());
@@ -183,6 +249,8 @@ fn message_to_json(message: &Message) -> Value {
             })
         }
         Role::Assistant => {
+            // 历史 assistant 消息只保留 `content` 与 `tool_calls`，显式剥离上一轮
+            // `Thinking` / `RedactedThinking`（DeepSeek Reasoner 回传 reasoning_content 会 400）。
             let text = message.text();
             let tool_calls: Vec<Value> = message
                 .content
@@ -193,13 +261,16 @@ fn message_to_json(message: &Message) -> Value {
                         "type": "function",
                         "function": {
                             "name": tool_use.name,
-                            "arguments": tool_use.args.to_string(),
+                            "arguments": canonicalize_json(&tool_use.args).to_string(),
                         }
                     })),
                     _ => None,
                 })
                 .collect();
-            let mut json = json!({ "role": "assistant", "content": if text.is_empty() { Value::Null } else { json!(text) } });
+            let mut json = json!({
+                "role": "assistant",
+                "content": if text.is_empty() { Value::Null } else { json!(text) }
+            });
             if !tool_calls.is_empty() {
                 json["tool_calls"] = json!(tool_calls);
             }
@@ -229,6 +300,7 @@ fn message_to_json(message: &Message) -> Value {
 fn run_request(
     config: &OpenAiCompatibleConfig,
     body: &Value,
+    session_id: Option<&str>,
     sender: &mut mpsc::Sender<Result<CompletionEvent, ProviderError>>,
 ) -> Result<(), ProviderError> {
     let agent_config = ureq::Agent::config_builder()
@@ -236,19 +308,23 @@ fn run_request(
         .timeout_global(Some(Duration::from_secs(300)))
         .build();
     let agent = ureq::Agent::new_with_config(agent_config);
-    let mut request = agent
-        .post(&config.chat_completions_url())
-        .header("authorization", format!("Bearer {}", config.api_key))
-        .header("accept", "text/event-stream");
-    for (name, value) in &config.extra_headers {
-        request = request.header(name, value);
+    let bearer = match &config.token_source {
+        Some(source) => source.resolve_token()?,
+        None => config.api_key.clone(),
+    };
+    let mut response = send_once(&agent, config, &bearer, session_id, body)?;
+    if response.status().as_u16() == 401 {
+        if let Some(source) = &config.token_source {
+            if let Some(refreshed) = source.refresh_after_unauthorized(&bearer)? {
+                response = send_once(&agent, config, &refreshed, session_id, body)?;
+            }
+        }
     }
-    let response = request.send_json(body).map_err(map_ureq_error)?;
     let status = response.status();
     if !status.is_success() {
         let mut response = response;
         let text = response.body_mut().read_to_string().unwrap_or_default();
-        return Err(ProviderError::api(status.as_u16(), truncate(&text, 500)));
+        return Err(parse_openai_error(Some(status.as_u16()), &text));
     }
 
     let mut reader = BufReader::new(response.into_body().into_reader());
@@ -279,13 +355,37 @@ fn run_request(
     Ok(())
 }
 
+fn send_once(
+    agent: &ureq::Agent,
+    config: &OpenAiCompatibleConfig,
+    bearer: &str,
+    session_id: Option<&str>,
+    body: &Value,
+) -> Result<ureq::http::Response<ureq::Body>, ProviderError> {
+    let mut request = agent
+        .post(&config.chat_completions_url())
+        .header("authorization", format!("Bearer {bearer}"))
+        .header("accept", "text/event-stream");
+    if let Some(session_id) = session_id {
+        request = request.header("x-session-affinity", session_id);
+    }
+    for (name, value) in &config.extra_headers {
+        request = request.header(name, value);
+    }
+    request.send_json(body).map_err(map_ureq_error)
+}
+
 /// 返回 `true` 表示流已结束。
 fn process_sse_event(
     state: &mut StreamState,
     event: SseEvent,
     sender: &mut mpsc::Sender<Result<CompletionEvent, ProviderError>>,
 ) -> Result<bool, ProviderError> {
-    if event.data.trim() == "[DONE]" {
+    let trimmed = event.data.trim();
+    if trimmed.is_empty() {
+        return Ok(false);
+    }
+    if trimmed == "[DONE]" {
         for event in state.finish()? {
             if !send_blocking(sender, Ok(event)) {
                 return Ok(true);
@@ -293,7 +393,12 @@ fn process_sse_event(
         }
         return Ok(true);
     }
-    let chunk: OpenAiChatChunk = serde_json::from_str(&event.data)
+    if let Ok(raw_json) = serde_json::from_str::<Value>(trimmed) {
+        if raw_json.get("error").is_some_and(|err| !err.is_null()) {
+            return Err(parse_openai_error(None, trimmed));
+        }
+    }
+    let chunk: OpenAiChatChunk = serde_json::from_str(trimmed)
         .map_err(|error| ProviderError::invalid_response(format!("chunk: {error}")))?;
     for event in state.on_chunk(chunk)? {
         if !send_blocking(sender, Ok(event)) {
@@ -326,22 +431,8 @@ impl StreamState {
                 message_id: id.clone(),
             });
         }
-        if let Some(usage) = chunk.usage {
-            events.push(CompletionEvent::Usage(TokenUsage {
-                input: usage.prompt_tokens,
-                output: usage.completion_tokens,
-                cache_read: usage
-                    .prompt_tokens_details
-                    .map(|details| details.cached_tokens)
-                    .unwrap_or(0),
-                cache_creation: 0,
-            }));
-        }
         for choice in chunk.choices {
             if let Some(delta) = choice.delta {
-                if let Some(content) = delta.content.filter(|content| !content.is_empty()) {
-                    events.push(CompletionEvent::Text(content));
-                }
                 if let Some(reasoning) = delta
                     .reasoning_content
                     .filter(|reasoning| !reasoning.is_empty())
@@ -350,6 +441,9 @@ impl StreamState {
                         text: reasoning,
                         signature: None,
                     });
+                }
+                if let Some(content) = delta.content.filter(|content| !content.is_empty()) {
+                    events.push(CompletionEvent::Text(content));
                 }
                 for call in delta.tool_calls.unwrap_or_default() {
                     let pending = self.tool_calls.entry(call.index).or_default();
@@ -370,6 +464,19 @@ impl StreamState {
                 events.extend(self.flush_tool_calls()?);
                 self.push_stop(&mut events, Some(reason));
             }
+        }
+        if let Some(usage) = chunk.usage {
+            let cache_read = usage
+                .prompt_tokens_details
+                .map(|details| details.cached_tokens)
+                .or(usage.prompt_cache_hit_tokens)
+                .unwrap_or(0);
+            events.push(CompletionEvent::Usage(TokenUsage {
+                input: usage.prompt_tokens,
+                output: usage.completion_tokens,
+                cache_read,
+                cache_creation: 0,
+            }));
         }
         Ok(events)
     }
@@ -453,6 +560,8 @@ struct OpenAiUsage {
     prompt_tokens: u64,
     completion_tokens: u64,
     prompt_tokens_details: Option<OpenAiPromptTokensDetails>,
+    #[serde(default)]
+    prompt_cache_hit_tokens: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -461,139 +570,4 @@ struct OpenAiPromptTokensDetails {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{model::ModelLimits, request::ToolSchema};
-
-    fn model() -> Model {
-        Model::new(
-            crate::model::ProviderId::new("deepseek"),
-            "DeepSeek",
-            "deepseek-chat",
-            "DeepSeek Chat",
-            ModelLimits::new(64_000, 8_000),
-        )
-    }
-
-    fn chunk(json: &str) -> OpenAiChatChunk {
-        serde_json::from_str(json).expect("chunk json")
-    }
-
-    #[test]
-    fn builds_openai_body_with_tools_and_temperature() {
-        let request = Request::new(vec![Message::user("hi")])
-            .with_temperature(0.2)
-            .with_max_output_tokens(512)
-            .with_tools(vec![ToolSchema::new(
-                "read_file",
-                "read a file",
-                serde_json::json!({"type": "object"}),
-            )]);
-        let body = build_body(&model(), &request);
-        assert_eq!(body["model"], "deepseek-chat");
-        assert!((body["temperature"].as_f64().expect("temperature") - 0.2).abs() < 1e-6);
-        assert_eq!(body["max_tokens"], 512);
-        assert_eq!(body["messages"][0]["role"], "user");
-        assert_eq!(body["tools"][0]["function"]["name"], "read_file");
-        assert_eq!(body["stream"], true);
-    }
-
-    #[test]
-    fn body_carries_reasoning_effort_when_set() {
-        let request =
-            Request::new(vec![Message::user("hi")]).with_reasoning_effort(Some("high".to_string()));
-        let body = build_body(&model(), &request);
-        assert_eq!(body["reasoning_effort"], "high");
-    }
-
-    #[test]
-    fn body_omits_reasoning_effort_by_default() {
-        let request = Request::new(vec![Message::user("hi")]);
-        let body = build_body(&model(), &request);
-        assert!(body.get("reasoning_effort").is_none());
-    }
-
-    #[test]
-    fn maps_text_chunks_and_stop() {
-        let mut state = StreamState::default();
-        let events = state
-            .on_chunk(chunk(
-                r#"{"id":"c1","choices":[{"delta":{"content":"hel"}}]}"#,
-            ))
-            .unwrap();
-        assert!(
-            matches!(events.as_slice(), [CompletionEvent::StartMessage { .. }, CompletionEvent::Text(text)] if text == "hel")
-        );
-        let events = state
-            .on_chunk(chunk(
-                r#"{"choices":[{"delta":{"content":"lo"},"finish_reason":"stop"}]}"#,
-            ))
-            .unwrap();
-        assert_eq!(events[0], CompletionEvent::Text("lo".into()));
-        assert_eq!(events[1], CompletionEvent::Stop(StopReason::EndTurn));
-    }
-
-    #[test]
-    fn accumulates_tool_call_arguments() {
-        let mut state = StreamState::default();
-        state
-            .on_chunk(chunk(r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"read_file","arguments":"{\"pa"}}]}}]}"#))
-            .unwrap();
-        let events = state
-            .on_chunk(chunk(r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"th\":\"a.txt\"}"}}]},"finish_reason":"tool_calls"}]}"#))
-            .unwrap();
-        let tool_use = events
-            .iter()
-            .find_map(|event| match event {
-                CompletionEvent::ToolUse(tool_use) => Some(tool_use.clone()),
-                _ => None,
-            })
-            .expect("tool use");
-        assert_eq!(tool_use.id, "call_1");
-        assert_eq!(tool_use.name, "read_file");
-        assert_eq!(tool_use.args["path"], "a.txt");
-        assert!(events.contains(&CompletionEvent::Stop(StopReason::ToolUse)));
-    }
-
-    #[test]
-    fn maps_usage_and_thinking() {
-        let mut state = StreamState::default();
-        let events = state
-            .on_chunk(chunk(r#"{"choices":[{"delta":{"reasoning_content":"think"}}],"usage":{"prompt_tokens":10,"completion_tokens":2,"prompt_tokens_details":{"cached_tokens":4}}}"#))
-            .unwrap();
-        assert!(events.iter().any(
-            |event| matches!(event, CompletionEvent::Thinking { text, .. } if text == "think")
-        ));
-        assert!(events.iter().any(|event| matches!(event, CompletionEvent::Usage(usage) if usage.input == 10 && usage.output == 2 && usage.cache_read == 4)));
-    }
-
-    #[test]
-    fn invalid_tool_arguments_surface_as_error() {
-        let mut state = StreamState::default();
-        let result = state.on_chunk(chunk(
-            r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"x","arguments":"not json"}}]},"finish_reason":"tool_calls"}]}"#,
-        ));
-        assert!(result.is_err());
-    }
-}
-
-#[cfg(test)]
-mod image_tests {
-    use super::*;
-
-    #[test]
-    fn user_message_with_image_serializes_multimodal_content() {
-        let mut message = Message::user("看图");
-        message.content.push(Content::Image {
-            mime_type: "image/png".to_string(),
-            data: "AAAA".to_string(),
-        });
-        let json = message_to_json(&message);
-        let parts = json["content"].as_array().expect("multimodal parts");
-        assert_eq!(parts.len(), 2);
-        assert_eq!(parts[0]["type"], "text");
-        assert_eq!(parts[0]["text"], "看图");
-        assert_eq!(parts[1]["type"], "image_url");
-        assert_eq!(parts[1]["image_url"]["url"], "data:image/png;base64,AAAA");
-    }
-}
+mod tests;

@@ -68,7 +68,6 @@ defmodule Cgc2046Web.LlmGatewayController do
     else
       [] -> upstream_unavailable(conn)
       {:error, :unauthorized} -> unauthorized(conn)
-      {:error, :forbidden} -> forbidden(conn)
       {:error, :invalid_request} -> invalid_request(conn)
     end
   end
@@ -464,9 +463,8 @@ defmodule Cgc2046Web.LlmGatewayController do
   defp retryable_failure?(_), do: false
 
   defp fetch_user(conn) do
-    case {conn.assigns[:current_user], conn.assigns[:mcp_token_kind]} do
-      {%{id: _} = user, :terminal} -> {:ok, user}
-      {%{id: _}, _restricted_kind} -> {:error, :forbidden}
+    case conn.assigns[:current_user] do
+      %{id: _} = user -> {:ok, user}
       _ -> {:error, :unauthorized}
     end
   end
@@ -545,20 +543,7 @@ defmodule Cgc2046Web.LlmGatewayController do
       error: %{
         code: "unauthorized",
         type: "authentication_error",
-        message: "A valid MCP bearer token is required."
-      }
-    })
-  end
-
-  defp forbidden(conn) do
-    conn
-    |> put_status(403)
-    |> json(%{
-      error: %{
-        code: "forbidden",
-        type: "authorization_error",
-        message:
-          "This endpoint requires a terminal MCP token; learning-host tokens cannot spend wallet credits."
+        message: "A valid first-party session bearer token is required."
       }
     })
   end

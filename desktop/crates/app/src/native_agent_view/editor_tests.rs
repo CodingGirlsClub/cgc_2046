@@ -589,6 +589,56 @@ fn native_pending_agent_call_clears_when_page_leaves_target(cx: &mut TestAppCont
     .unwrap();
 }
 
+#[gpui_kit::test]
+fn reset_account_state_clears_wallet_and_invalidates_serials(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let (handle, probe) = cx.update(|cx| {
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds {
+                    origin: Default::default(),
+                    size: size(px(360.0), px(500.0)),
+                })),
+                ..Default::default()
+            },
+            cx,
+            |window, cx| NativeComposerProbe::new(window, cx).view,
+        )
+        .unwrap()
+    });
+    let _ = cx.update_window(handle, |_, _window, cx| {
+        probe.update(cx, |view, cx| {
+            view.wallet = Some(cgc_platform::gateway::WalletSummary {
+                wallet_id: "old-account".into(),
+                cached_balance_mc: 100,
+                held_mc: 0,
+                available_mc: 100,
+                max_concurrent_streams: 3,
+                status: "active".into(),
+                remaining_percentage: 100,
+                active_grants: Vec::new(),
+            });
+            view.wallet_refresh_serial = 7;
+            view.insufficient_quota = true;
+            view.quota_checkout = Some(super::QuotaCheckout {
+                state: super::QuotaCheckoutState::Ready,
+                qr: None,
+                price_cents: 1000,
+                provider: "alipay_qr".into(),
+            });
+            view.quota_checkout_serial = 9;
+
+            view.reset_account_state(cx);
+
+            assert!(view.wallet.is_none());
+            assert!(!view.insufficient_quota);
+            assert!(view.quota_checkout.is_none());
+            assert_eq!(view.wallet_refresh_serial, 8);
+            assert_eq!(view.quota_checkout_serial, 10);
+        });
+    });
+}
+
 #[path = "paste_tests.rs"]
 mod paste_tests;
 

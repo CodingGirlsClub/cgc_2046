@@ -1,5 +1,6 @@
 //! Native UI adapter: commands to the owner, ACP events to the shared client session.
 use super::*;
+use cgc_agent_store::CGC_CLOUD_PROVIDER_ID;
 
 impl NativeAgentView {
     pub(super) fn apply_runtime_event(
@@ -116,13 +117,67 @@ impl NativeAgentView {
         let terminal = events
             .iter()
             .any(|event| matches!(event, HostEvent::TurnEnd { .. } | HostEvent::Error { .. }));
+        let had_error = events
+            .iter()
+            .any(|event| matches!(event, HostEvent::Error { .. }));
+        let completed = events.iter().any(|event| {
+            matches!(
+                event,
+                HostEvent::TurnEnd {
+                    cancelled: false,
+                    ..
+                }
+            )
+        });
         for event in events {
             if !self.state.ingest(generation, &event) {
                 continue;
             }
+            match &event {
+                HostEvent::ThoughtDelta(_) => {
+                    if let Some(last_idx) = self.state.session.thread.entries.len().checked_sub(1) {
+                        if matches!(
+                            self.state.session.thread.entries.get(last_idx),
+                            Some(ConversationEntry::Thinking { .. })
+                        ) {
+                            let started = *self
+                                .thinking_started_at
+                                .entry(last_idx)
+                                .or_insert_with(std::time::Instant::now);
+                            self.state.session.thread.set_thinking_duration(
+                                last_idx,
+                                (started.elapsed().as_millis() as u64).max(1),
+                            );
+                        }
+                    }
+                }
+                HostEvent::Delta(_)
+                | HostEvent::ToolCall { .. }
+                | HostEvent::TurnEnd { .. }
+                | HostEvent::Error { .. } => {
+                    for (idx, started) in std::mem::take(&mut self.thinking_started_at) {
+                        self.state.session.thread.set_thinking_duration(
+                            idx,
+                            (started.elapsed().as_millis() as u64).max(1),
+                        );
+                    }
+                }
+                _ => {}
+            }
             self.page_context
                 .observe_event(&self.conversation_scope(), &event);
             if let HostEvent::Error { message } = &event {
+                let managed_provider = self.snapshot.as_ref().is_some_and(|snapshot| {
+                    snapshot.model.provider_id.as_str() == CGC_CLOUD_PROVIDER_ID
+                });
+                let lower = message.to_lowercase();
+                if managed_provider
+                    && (lower.contains("insufficient quota")
+                        || lower.contains("insufficient_quota")
+                        || message.contains("算力余额不足"))
+                {
+                    self.insufficient_quota = true;
+                }
                 self.status = format!("错误：{message}");
             }
             if matches!(
@@ -148,6 +203,9 @@ impl NativeAgentView {
                 self.expanded_thinking.insert(index);
             }
         }
+        if should_clear_quota_state(had_error, completed) {
+            self.clear_quota_state();
+        }
         if self.state.take_learning_state_changed() {
             cx.emit(NativeAgentViewEvent::LearningStateChanged);
         }
@@ -160,6 +218,7 @@ impl NativeAgentView {
                     self.persist_native(&snapshot);
                 }
             }
+            self.refresh_wallet(cx);
         }
         self.dispatch_queued(cx);
         cx.notify();
@@ -277,9 +336,13 @@ fn should_dispatch(queue_empty: bool, idle: bool, model_ready: bool) -> bool {
     !queue_empty && idle && model_ready
 }
 
+fn should_clear_quota_state(had_error: bool, completed: bool) -> bool {
+    completed && !had_error
+}
+
 #[cfg(test)]
 mod tests {
-    use super::should_dispatch;
+    use super::{should_clear_quota_state, should_dispatch};
 
     #[test]
     fn dispatch_requires_queued_work_idle_runtime_and_model() {
@@ -287,5 +350,12 @@ mod tests {
         assert!(!should_dispatch(true, true, true));
         assert!(!should_dispatch(false, false, true));
         assert!(!should_dispatch(false, true, false));
+    }
+
+    #[test]
+    fn successful_retry_clears_stale_quota_state() {
+        assert!(should_clear_quota_state(false, true));
+        assert!(!should_clear_quota_state(true, true));
+        assert!(!should_clear_quota_state(false, false));
     }
 }

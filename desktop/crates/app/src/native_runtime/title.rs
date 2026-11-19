@@ -2,6 +2,7 @@ use super::worker::{Job, Owner, TitleOutcome};
 use super::*;
 use cgc_agent_core::{project_thread, CancelToken, Entry};
 use cgc_agent_provider::{CompletionEvent, Message, Model, Request};
+use cgc_agent_store::CGC_CLOUD_PROVIDER_ID;
 use futures::{FutureExt, StreamExt};
 
 /// 对齐 Zed 的 `SUMMARIZE_THREAD_PROMPT`
@@ -61,6 +62,7 @@ impl Owner {
         // 历史投影与 turn 共用 agent_core（含压缩摘要边界与工具调用/结果）。
         let history = project_thread(agent.thread());
         let thread_id = agent.thread().id.clone();
+        let title_session = thread_id.clone();
         let generation = self.generation;
         // 用户设置文件每次重新读：改 summary model / temperature 后下一次生成即生效。
         let settings = self
@@ -81,7 +83,12 @@ impl Owner {
         let max_output_tokens = 64.min(model.limits.max_output_tokens);
         self.jobs.push(
             async move {
-                let request = title_request(history, temperature, max_output_tokens);
+                let request = title_request(
+                    history,
+                    temperature,
+                    max_output_tokens,
+                    Some(&title_session),
+                );
                 let outcome = if cancel.is_cancelled() {
                     TitleOutcome::Cancelled
                 } else {
@@ -151,6 +158,13 @@ impl Owner {
                 return target;
             }
         }
+        if self.config.model.provider_id.as_str() == CGC_CLOUD_PROVIDER_ID {
+            if let Some(production) = &self.production {
+                if let Some(target) = factory::managed_background_model(production) {
+                    return target;
+                }
+            }
+        }
         (self.config.provider.clone(), self.config.model.clone())
     }
 }
@@ -160,6 +174,7 @@ fn title_request(
     history: Vec<Message>,
     temperature: Option<f32>,
     max_output_tokens: u32,
+    session_id: Option<&str>,
 ) -> Request {
     let mut messages = history;
     for message in &mut messages {
@@ -167,7 +182,9 @@ fn title_request(
     }
     messages.retain(|message| !message.content.is_empty());
     messages.push(Message::user(SUMMARIZE_THREAD_PROMPT));
-    let request = Request::new(messages).with_max_output_tokens(max_output_tokens);
+    let request = Request::new(messages)
+        .with_max_output_tokens(max_output_tokens)
+        .with_optional_session_id(session_id.map(str::to_string));
     match temperature {
         Some(temperature) => request.with_temperature(temperature),
         None => request,
@@ -222,7 +239,7 @@ mod tests {
             Message::user("第二问"),
             Message::assistant_text("第二答"),
         ];
-        let request = title_request(history, Some(0.2), 64);
+        let request = title_request(history, Some(0.2), 64, None);
         assert_eq!(request.messages.len(), 5);
         assert_eq!(request.messages[0].text(), "第一问");
         assert_eq!(request.messages[3].text(), "第二答");
@@ -243,7 +260,7 @@ mod tests {
 
     #[test]
     fn title_request_omits_temperature_when_model_has_none() {
-        let request = title_request(vec![Message::user("hi")], None, 32);
+        let request = title_request(vec![Message::user("hi")], None, 32, None);
         assert_eq!(request.temperature, None);
         assert_eq!(request.max_output_tokens, Some(32));
     }
