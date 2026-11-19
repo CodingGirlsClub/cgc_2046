@@ -380,6 +380,12 @@ defmodule Cgc2046.LlmGateway.LedgerTest do
       assert {:ok, held} = Ledger.acquire_hold(user.id, 500)
 
       past = DateTime.add(DateTime.utc_now(), -60, :second)
+      before_expiry = DateTime.add(past, -60, :second)
+
+      Repo.query!(
+        "UPDATE llm_wallet_holds SET inserted_at = $2 WHERE id = $1",
+        [Ecto.UUID.dump!(held.hold_id), before_expiry]
+      )
 
       Repo.query!(
         "UPDATE llm_credit_grants SET expires_at = $2 WHERE user_id = $1 AND status = 'active'",
@@ -465,6 +471,12 @@ defmodule Cgc2046.LlmGateway.LedgerTest do
       assert {:ok, held} = Ledger.acquire_hold(user.id, 10)
 
       past = DateTime.add(DateTime.utc_now(), -60, :second)
+      before_expiry = DateTime.add(past, -60, :second)
+
+      Repo.query!(
+        "UPDATE llm_wallet_holds SET inserted_at = $2 WHERE id = $1",
+        [Ecto.UUID.dump!(held.hold_id), before_expiry]
+      )
 
       Repo.query!(
         "UPDATE llm_credit_grants SET expires_at = $2 WHERE user_id = $1 AND status = 'active'",
@@ -503,6 +515,105 @@ defmodule Cgc2046.LlmGateway.LedgerTest do
 
       assert grant.remaining_mc == 90
       assert grant.status == :active
+    end
+
+    test "prevents a post-expiry hold from spending an expired grant preserved by an older pre-expiry hold, while the pre-expiry hold can still spend it" do
+      user = register_user("ledger-post-expiry-isolation")
+      future = DateTime.add(DateTime.utc_now(), 3_600, :second)
+
+      # Grant A (subscription, 100 mc) + Grant B (permanent pack, 200 mc)
+      {:ok, _} =
+        Ledger.grant_personal_credits(user.id, %{
+          amount_mc: 100,
+          source_type: :subscription,
+          expires_at: future
+        })
+
+      {:ok, _} =
+        Ledger.grant_personal_credits(user.id, %{
+          amount_mc: 200,
+          source_type: :pack
+        })
+
+      # Request 1 acquires hold BEFORE Grant A expires.
+      assert {:ok, pre_expiry_hold} = Ledger.acquire_hold(user.id, 100)
+
+      # Simulate time advancing past Grant A's expiry:
+      # pre_expiry_hold.inserted_at (now - 120s) < Grant A expires_at (now - 60s) <= now.
+      expired_at = DateTime.add(DateTime.utc_now(), -60, :second)
+      acquired_before_expiry = DateTime.add(expired_at, -60, :second)
+
+      Repo.query!(
+        "UPDATE llm_wallet_holds SET inserted_at = $2 WHERE id = $1",
+        [Ecto.UUID.dump!(pre_expiry_hold.hold_id), acquired_before_expiry]
+      )
+
+      Repo.query!(
+        "UPDATE llm_credit_grants SET expires_at = $2 WHERE user_id = $1 AND source_type = 'subscription'",
+        [Ecto.UUID.dump!(user.id), expired_at]
+      )
+
+      # Request 2 arrives AFTER Grant A already expired (Grant A stays active only because
+      # pre_expiry_hold preserves 100 mc). Request 2 is backed by Grant B (200 mc).
+      assert {:ok, post_expiry_hold} = Ledger.acquire_hold(user.id, 100)
+
+      # Request 2 settles first for 80 mc: MUST deduct from Grant B (pack), NEVER Grant A (expired).
+      assert {:ok, wallet_after_req2} =
+               Ledger.settle_usage(
+                 user.id,
+                 100,
+                 %{
+                   logical_model: "cgc-default",
+                   upstream_channel: "deepseek_official_1",
+                   upstream_model: "deepseek-chat",
+                   billing_mode: :exact,
+                   charged_mc: 80,
+                   upstream_cost_mc: 40
+                 },
+                 hold_id: post_expiry_hold.hold_id
+               )
+
+      assert wallet_after_req2.cached_balance_mc == 220
+      assert wallet_after_req2.held_mc == 100
+
+      grants_after_req2 =
+        CreditGrant
+        |> Ash.read!(authorize?: false)
+        |> Enum.filter(&(&1.user_id == user.id))
+        |> Map.new(&{&1.source_type, &1})
+
+      assert grants_after_req2[:subscription].remaining_mc == 100
+      assert grants_after_req2[:subscription].status == :active
+      assert grants_after_req2[:pack].remaining_mc == 120
+      assert grants_after_req2[:pack].status == :active
+
+      # Request 1 (pre-expiry hold) settles for 90 mc: CAN still spend Grant A (expired mid-stream).
+      assert {:ok, wallet_after_req1} =
+               Ledger.settle_usage(
+                 user.id,
+                 100,
+                 %{
+                   logical_model: "cgc-default",
+                   upstream_channel: "deepseek_official_1",
+                   upstream_model: "deepseek-chat",
+                   billing_mode: :exact,
+                   charged_mc: 90,
+                   upstream_cost_mc: 45
+                 },
+                 hold_id: pre_expiry_hold.hold_id
+               )
+
+      assert wallet_after_req1.cached_balance_mc == 130
+      assert wallet_after_req1.held_mc == 0
+
+      grants_after_req1 =
+        CreditGrant
+        |> Ash.read!(authorize?: false)
+        |> Enum.filter(&(&1.user_id == user.id))
+        |> Map.new(&{&1.source_type, &1})
+
+      assert grants_after_req1[:subscription].remaining_mc == 10
+      assert grants_after_req1[:pack].remaining_mc == 120
     end
   end
 end

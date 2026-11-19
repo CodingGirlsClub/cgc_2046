@@ -17,15 +17,19 @@ defmodule Cgc2046Web.LlmGatewayController do
   alias Cgc2046.LlmGateway.LeaseManager
   alias Cgc2046.LlmGateway.Ledger
   alias Cgc2046.LlmGateway.TokenizerAndPricing
+  alias Cgc2046Web.Plugs.RateLimit
 
   @process_state_key :llm_gateway_stream_state
   @default_receive_timeout_ms 180_000
   @default_pool_timeout_ms 15_000
+  @max_request_messages 500
+  @default_max_prompt_tokens 250_000
 
   def chat_completions(conn, params) do
     session_id = extract_session_affinity(conn, params)
 
     with {:ok, user} <- fetch_user(conn),
+         :ok <- check_user_rate_limit(user.id),
          :ok <- validate_request(params),
          [_ | _] = candidates <- AffinityRouter.candidate_channels(user.id, session_id) do
       primary = hd(candidates)
@@ -37,43 +41,55 @@ defmodule Cgc2046Web.LlmGatewayController do
       initial_pricing_model = AffinityRouter.pricing_model(primary, logical_model)
       prompt_tokens = TokenizerAndPricing.count_request_prompt_tokens(initial_payload)
 
-      hold_mc =
-        TokenizerAndPricing.estimate_pre_flight_hold_mc(
-          initial_payload,
-          initial_pricing_model,
-          prompt_tokens
+      max_prompt_tokens =
+        Application.get_env(
+          :cgc_2046,
+          :llm_gateway_max_prompt_tokens,
+          @default_max_prompt_tokens
         )
 
-      case LeaseManager.acquire_slot(user.id, wallet.max_concurrent_streams) do
-        :ok ->
-          case Ledger.acquire_hold(user.id, hold_mc) do
-            {:ok, held_wallet} ->
-              run_stream(
-                conn,
-                params,
-                user,
-                session_id,
-                candidates,
-                primary,
-                logical_model,
-                initial_upstream_model,
-                initial_pricing_model,
-                prompt_tokens,
-                hold_mc,
-                held_wallet.hold_id
-              )
+      if prompt_tokens > max_prompt_tokens do
+        prompt_too_large_error(conn)
+      else
+        hold_mc =
+          TokenizerAndPricing.estimate_pre_flight_hold_mc(
+            initial_payload,
+            initial_pricing_model,
+            prompt_tokens
+          )
 
-            {:error, reason} ->
-              LeaseManager.release_slot(user.id)
-              hold_error(conn, reason)
-          end
+        case LeaseManager.acquire_slot(user.id, wallet.max_concurrent_streams) do
+          :ok ->
+            case Ledger.acquire_hold(user.id, hold_mc) do
+              {:ok, held_wallet} ->
+                run_stream(
+                  conn,
+                  params,
+                  user,
+                  session_id,
+                  candidates,
+                  primary,
+                  logical_model,
+                  initial_upstream_model,
+                  initial_pricing_model,
+                  prompt_tokens,
+                  hold_mc,
+                  held_wallet.hold_id
+                )
 
-        {:error, :too_many_concurrent_streams} ->
-          concurrency_error(conn)
+              {:error, reason} ->
+                LeaseManager.release_slot(user.id)
+                hold_error(conn, reason)
+            end
+
+          {:error, :too_many_concurrent_streams} ->
+            concurrency_error(conn)
+        end
       end
     else
       [] -> upstream_unavailable(conn)
       {:error, :unauthorized} -> unauthorized(conn)
+      {:error, :rate_limited} -> rate_limit_error(conn)
       {:error, :invalid_request} -> invalid_request(conn)
     end
   end
@@ -612,10 +628,20 @@ defmodule Cgc2046Web.LlmGatewayController do
     end
   end
 
+  defp check_user_rate_limit(user_id) do
+    key = RateLimit.build_key("llm_gateway:user", user_id)
+
+    case RateLimit.check(key, limit: :llm_gateway_user_rpm, window_seconds: 60) do
+      :ok -> :ok
+      :error -> {:error, :rate_limited}
+    end
+  end
+
   defp validate_request(params) when is_map(params) do
     messages = Map.get(params, "messages")
 
-    if is_list(messages) and messages != [] and Enum.all?(messages, &is_map/1) do
+    if is_list(messages) and messages != [] and length(messages) <= @max_request_messages and
+         Enum.all?(messages, &is_map/1) do
       :ok
     else
       {:error, :invalid_request}
@@ -675,6 +701,30 @@ defmodule Cgc2046Web.LlmGatewayController do
         code: "concurrency_limit_exceeded",
         type: "rate_limit_error",
         message: "Too many concurrent active streams. Please wait for current tasks to finish."
+      }
+    })
+  end
+
+  defp rate_limit_error(conn) do
+    conn
+    |> put_status(429)
+    |> json(%{
+      error: %{
+        code: "rate_limit_exceeded",
+        type: "rate_limit_error",
+        message: "Too many LLM requests. Please slow down."
+      }
+    })
+  end
+
+  defp prompt_too_large_error(conn) do
+    conn
+    |> put_status(413)
+    |> json(%{
+      error: %{
+        code: "context_length_exceeded",
+        type: "invalid_request_error",
+        message: "Prompt exceeds maximum allowed token limit."
       }
     })
   end

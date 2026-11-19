@@ -588,6 +588,122 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
       assert Ledger.fetch_wallet!(user.id).held_mc == 0
     end
 
+    test "returns 429 rate_limit_exceeded when user exceeds llm_gateway_user_rpm" do
+      user = register_user("gateway-rpm-limit")
+      raw_token = desktop_token(user)
+
+      previous_limits = Application.get_env(:cgc_2046, :rate_limits, [])
+
+      Application.put_env(
+        :cgc_2046,
+        :rate_limits,
+        Keyword.put(previous_limits, :llm_gateway_user_rpm, 2)
+      )
+
+      on_exit(fn ->
+        Application.put_env(:cgc_2046, :rate_limits, previous_limits)
+        :ets.delete_all_objects(Cgc2046Web.Plugs.RateLimit.table())
+      end)
+
+      :ets.delete_all_objects(Cgc2046Web.Plugs.RateLimit.table())
+
+      # First 2 requests pass the RPM gate (and stop at 402 insufficient_quota).
+      for _ <- 1..2 do
+        conn =
+          build_conn()
+          |> put_req_header("authorization", "Bearer #{raw_token}")
+          |> put_req_header("content-type", "application/json")
+          |> post("/v1/chat/completions", %{
+            "model" => "cgc-default",
+            "messages" => [%{"role" => "user", "content" => "Hello"}]
+          })
+
+        assert %{"error" => %{"code" => "insufficient_quota"}} = json_response(conn, 402)
+      end
+
+      # 3rd request within the 60s window is blocked with 429 rate_limit_exceeded.
+      conn =
+        build_conn()
+        |> put_req_header("authorization", "Bearer #{raw_token}")
+        |> put_req_header("content-type", "application/json")
+        |> post("/v1/chat/completions", %{
+          "model" => "cgc-default",
+          "messages" => [%{"role" => "user", "content" => "Third request"}]
+        })
+
+      assert %{
+               "error" => %{
+                 "code" => "rate_limit_exceeded",
+                 "type" => "rate_limit_error"
+               }
+             } = json_response(conn, 429)
+    end
+
+    test "returns 413 context_length_exceeded when prompt exceeds llm_gateway_max_prompt_tokens without holding or deducting credits" do
+      user = register_user("gateway-max-prompt-tokens")
+      raw_token = desktop_token(user)
+
+      {:ok, _} =
+        Ledger.grant_personal_credits(user.id, %{amount_mc: 500_000, source_type: :pack})
+
+      previous_max = Application.get_env(:cgc_2046, :llm_gateway_max_prompt_tokens)
+      Application.put_env(:cgc_2046, :llm_gateway_max_prompt_tokens, 20)
+
+      on_exit(fn ->
+        if previous_max do
+          Application.put_env(:cgc_2046, :llm_gateway_max_prompt_tokens, previous_max)
+        else
+          Application.delete_env(:cgc_2046, :llm_gateway_max_prompt_tokens)
+        end
+      end)
+
+      conn =
+        build_conn()
+        |> put_req_header("authorization", "Bearer #{raw_token}")
+        |> put_req_header("content-type", "application/json")
+        |> put_req_header("accept", "text/event-stream")
+        |> post("/v1/chat/completions", %{
+          "model" => "cgc-default",
+          "messages" => [
+            %{
+              "role" => "user",
+              "content" => String.duplicate("This prompt is deliberately very long. ", 20)
+            }
+          ]
+        })
+
+      assert %{
+               "error" => %{
+                 "code" => "context_length_exceeded",
+                 "type" => "invalid_request_error"
+               }
+             } = json_response(conn, 413)
+
+      wallet = Ledger.fetch_wallet!(user.id)
+      assert wallet.cached_balance_mc == 500_000
+      assert wallet.held_mc == 0
+      assert LeaseManager.active_streams_count(user.id) == 0
+      assert user_usage_logs(user.id) == []
+    end
+
+    test "returns 400 invalid_request when messages count exceeds 500" do
+      user = register_user("gateway-too-many-messages")
+      raw_token = desktop_token(user)
+
+      messages = for i <- 1..501, do: %{"role" => "user", "content" => "msg #{i}"}
+
+      conn =
+        build_conn()
+        |> put_req_header("authorization", "Bearer #{raw_token}")
+        |> put_req_header("content-type", "application/json")
+        |> post("/v1/chat/completions", %{
+          "model" => "cgc-default",
+          "messages" => messages
+        })
+
+      assert %{"error" => %{"code" => "invalid_request"}} = json_response(conn, 400)
+    end
+
     test "rejects an MCP token before spending credits" do
       user = register_user("gateway-mcp-token")
       {:ok, _record, raw_token} = McpToken.issue("gateway-mcp", user, :terminal)

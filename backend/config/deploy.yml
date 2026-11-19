@@ -15,6 +15,9 @@ servers:
   # strip/ssl 已各踩一次）。api 域流量多为直连（Bearer/webhook），XFF 由
   # proxy append 真实 peer，RemoteIp 从右解析取第一个非信任 IP 即真实值。
   web:
+    # 单节点拓扑约束：LlmGateway.LeaseManager、AffinityStore 与 :fuse 为 BEAM 单节点内存状态。
+    # 将 web 扩容超过 1 台主机前，须把并发流槽位门禁迁移到 llm_wallet_holds 并在 LB 层按
+    # x-session-affinity 配置一致性哈希粘性路由。
     hosts:
       - <SERVER_HOST>
     proxy:

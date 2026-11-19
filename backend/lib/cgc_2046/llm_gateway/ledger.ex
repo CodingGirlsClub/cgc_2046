@@ -394,33 +394,34 @@ defmodule Cgc2046.LlmGateway.Ledger do
             Repo.rollback(:wallet_not_found)
 
           [[wallet_id_bin, current_balance, current_held]] ->
-            hold_to_release_mc =
+            {hold_to_release_mc, hold_acquired_at} =
               case hold_id do
                 nil ->
-                  min(hold_mc, current_held)
+                  {min(hold_mc, current_held), nil}
 
                 id ->
                   case Repo.query!(
                          """
                          DELETE FROM llm_wallet_holds
                          WHERE id = $1 AND wallet_id = $2
-                         RETURNING hold_mc
+                         RETURNING hold_mc, inserted_at
                          """,
                          [dump_uuid!(id), wallet_id_bin]
                        ).rows do
-                    [[held_mc]] -> held_mc
-                    [] -> 0
+                    [[held_mc, inserted_at]] -> {held_mc, inserted_at}
+                    [] -> {0, nil}
                   end
               end
 
-            # 不在此处收口过期 grants：在 hold 有效期内到期的批次仍是本次请求的
-            # 已授权额度，必须可用于扣费；Worker 会按 held_mc 保留它们。
+            # 不在此处收口过期 grants：在本次 hold 签发时尚未过期的批次仍可用于本次结算；
+            # 签发时已经过期的批次（仅因更早的并发 hold 被保活）不得被本次请求扣用。
             available_mc = max(0, current_balance - max(0, current_held - hold_to_release_mc))
             actual_deduct_mc = min(charged_mc, available_mc)
 
             leftover_mc =
               deduct_from_grants_fifo!(wallet_id_bin, actual_deduct_mc, now,
-                expired_budget_mc: hold_to_release_mc
+                expired_budget_mc: hold_to_release_mc,
+                hold_acquired_at: hold_acquired_at
               )
 
             actual_deduct_mc = actual_deduct_mc - leftover_mc
@@ -565,7 +566,6 @@ defmodule Cgc2046.LlmGateway.Ledger do
         """
         UPDATE llm_wallets
         SET cached_balance_mc = GREATEST(0, cached_balance_mc - $2),
-            held_mc = LEAST(held_mc, GREATEST(0, cached_balance_mc - $2)),
             updated_at = $3
         WHERE id = $1
         """,
@@ -581,11 +581,12 @@ defmodule Cgc2046.LlmGateway.Ledger do
   defp deduct_from_grants_fifo!(wallet_id_bin, amount_to_deduct, now, opts)
        when amount_to_deduct > 0 do
     expired_budget_mc = max(0, Keyword.get(opts, :expired_budget_mc, 0))
+    hold_acquired_at = Keyword.get(opts, :hold_acquired_at)
 
     %{rows: grants} =
       Repo.query!(
         """
-        SELECT id, remaining_mc, (expires_at IS NOT NULL AND expires_at <= $2) AS expired
+        SELECT id, remaining_mc, expires_at, (expires_at IS NOT NULL AND expires_at <= $2) AS expired
         FROM llm_credit_grants
         WHERE wallet_id = $1
           AND status = 'active'
@@ -600,15 +601,20 @@ defmodule Cgc2046.LlmGateway.Ledger do
       Enum.reduce_while(
         grants,
         {amount_to_deduct, expired_budget_mc},
-        fn [grant_id_bin, remaining, expired], {left, budget} ->
+        fn [grant_id_bin, remaining, expires_at, expired], {left, budget} ->
           if left <= 0 do
             {:halt, {0, budget}}
           else
             take =
-              if expired do
-                min(remaining, min(left, budget))
-              else
-                min(remaining, left)
+              cond do
+                not expired ->
+                  min(remaining, left)
+
+                valid_at_hold_acquisition?(expires_at, hold_acquired_at) ->
+                  min(remaining, min(left, budget))
+
+                true ->
+                  0
               end
 
             if take > 0 do
@@ -635,6 +641,22 @@ defmodule Cgc2046.LlmGateway.Ledger do
 
     leftover_mc
   end
+
+  defp valid_at_hold_acquisition?(_expires_at, nil), do: true
+
+  defp valid_at_hold_acquisition?(%DateTime{} = exp, %DateTime{} = acquired_at),
+    do: DateTime.compare(exp, acquired_at) == :gt
+
+  defp valid_at_hold_acquisition?(%NaiveDateTime{} = exp, %NaiveDateTime{} = acquired_at),
+    do: NaiveDateTime.compare(exp, acquired_at) == :gt
+
+  defp valid_at_hold_acquisition?(%DateTime{} = exp, %NaiveDateTime{} = acquired_at),
+    do: NaiveDateTime.compare(DateTime.to_naive(exp), acquired_at) == :gt
+
+  defp valid_at_hold_acquisition?(%NaiveDateTime{} = exp, %DateTime{} = acquired_at),
+    do: NaiveDateTime.compare(exp, DateTime.to_naive(acquired_at)) == :gt
+
+  defp valid_at_hold_acquisition?(_, _), do: false
 
   defp fetch_batch(ws_uuid, idempotency_key) do
     case Repo.query!(
