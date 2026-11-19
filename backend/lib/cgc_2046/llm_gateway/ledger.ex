@@ -17,6 +17,7 @@ defmodule Cgc2046.LlmGateway.Ledger do
 
   @source_types ~w(subscription pack workspace_grant admin_gift)
   @billing_modes ~w(exact estimated_abort waived_upstream_error)
+  @hold_ttl_seconds 7_200
 
   @doc """
   确保用户钱包存在并返回其快照（金额为微积分 / microcredit）。
@@ -305,8 +306,8 @@ defmodule Cgc2046.LlmGateway.Ledger do
             Repo.rollback(:wallet_not_found)
 
           [[wallet_id_bin]] ->
-            # 过期批次在 Worker 跑之前仍计入 cached_balance；先在钱包锁内
-            # 收口，否则过期-only 钱包会被错误授权，结算时又因过期无法扣费。
+            # 过期批次的 cached_balance 在 Worker 跑之前仍存在；先在钱包锁内收口，
+            # 否则过期-only 钱包会被错误授权，结算时又因过期无法扣费 → 免费推理。
             {_expired_count, _expired_sum} = expire_wallet_grants!(wallet_id_bin, now)
 
             case Repo.query!(
@@ -321,15 +322,29 @@ defmodule Cgc2046.LlmGateway.Ledger do
                    [wallet_id_bin, hold_mc, now]
                  ).rows do
               [[wallet_id, cached_balance_mc, held_mc]] ->
+                hold_id = Ecto.UUID.generate()
+                hold_expires_at = DateTime.add(now, @hold_ttl_seconds, :second)
+
+                Repo.query!(
+                  """
+                  INSERT INTO llm_wallet_holds (
+                    id, wallet_id, user_id, hold_mc, status, expires_at, inserted_at
+                  )
+                  VALUES ($1, $2, $3, $4, 'active', $5, $6)
+                  """,
+                  [dump_uuid!(hold_id), wallet_id_bin, user_uuid, hold_mc, hold_expires_at, now]
+                )
+
                 {:ok,
                  %{
                    wallet_id: Ecto.UUID.load!(wallet_id),
                    cached_balance_mc: cached_balance_mc,
-                   held_mc: held_mc
+                   held_mc: held_mc,
+                   hold_id: hold_id
                  }}
 
               [] ->
-                # 返回错误而非 rollback：保留过期收口，避免余额缓存继续陈旧。
+                # 返回错误而非 rollback：保留上面的过期收口，避免余额缓存继续陈旧。
                 {:error, :insufficient_quota}
             end
         end
@@ -348,12 +363,13 @@ defmodule Cgc2046.LlmGateway.Ledger do
   实际扣费上限为「余额减去其他并发 hold 占用的部分」，保证结算后仍满足
   `held_mc <= cached_balance_mc`；上游成本突增时宁可少扣，也不破坏账本不变量。
   """
-  def settle_usage(user_id, hold_mc, usage_attrs)
+  def settle_usage(user_id, hold_mc, usage_attrs, opts \\ [])
       when is_integer(hold_mc) and hold_mc >= 0 and is_map(usage_attrs) do
     charged_mc = usage_attrs |> Map.fetch!(:charged_mc) |> max(0)
     upstream_cost_mc = usage_attrs |> Map.fetch!(:upstream_cost_mc) |> max(0)
     billing_mode = usage_attrs |> Map.fetch!(:billing_mode) |> to_string()
     validate_billing_mode!(billing_mode)
+    hold_id = Keyword.get(opts, :hold_id)
 
     Repo.transaction(fn ->
       now = DateTime.utc_now()
@@ -372,9 +388,27 @@ defmodule Cgc2046.LlmGateway.Ledger do
           Repo.rollback(:wallet_not_found)
 
         [[wallet_id_bin, current_balance, current_held]] ->
+          hold_to_release_mc =
+            case hold_id do
+              nil ->
+                min(hold_mc, current_held)
+
+              id ->
+                case Repo.query!(
+                       """
+                       DELETE FROM llm_wallet_holds
+                       WHERE id = $1 AND wallet_id = $2
+                       RETURNING hold_mc
+                       """,
+                       [dump_uuid!(id), wallet_id_bin]
+                     ).rows do
+                  [[held_mc]] -> held_mc
+                  [] -> 0
+                end
+            end
+
           # 不在此处收口过期 grants：在 hold 有效期内到期的批次仍是本次请求的
           # 已授权额度，必须可用于扣费；Worker 会按 held_mc 保留它们。
-          hold_to_release_mc = min(hold_mc, current_held)
           available_mc = max(0, current_balance - max(0, current_held - hold_to_release_mc))
           actual_deduct_mc = min(charged_mc, available_mc)
 

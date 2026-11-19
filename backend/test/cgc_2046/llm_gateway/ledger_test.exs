@@ -4,7 +4,7 @@ defmodule Cgc2046.LlmGateway.LedgerTest do
   import Cgc2046.AccountsFixtures
 
   alias Cgc2046.LlmGateway.{CreditGrant, Ledger, UsageLog}
-  alias Cgc2046.LlmGateway.Workers.CreditExpiryWorker
+  alias Cgc2046.LlmGateway.Workers.{CreditExpiryWorker, HoldReaperWorker}
 
   describe "personal credits & FIFO expiry deduction" do
     test "consumes expiring subscription credits before permanent pack credits" do
@@ -28,17 +28,22 @@ defmodule Cgc2046.LlmGateway.LedgerTest do
       assert held_wallet.held_mc == 8_000
 
       assert {:ok, settled_wallet} =
-               Ledger.settle_usage(user.id, 8_000, %{
-                 logical_model: "cgc-default",
-                 upstream_channel: "deepseek_official_1",
-                 upstream_model: "deepseek-chat",
-                 billing_mode: :exact,
-                 prompt_cache_hit_tokens: 4000,
-                 prompt_cache_miss_tokens: 1000,
-                 completion_tokens: 500,
-                 charged_mc: 7_000,
-                 upstream_cost_mc: 3_500
-               })
+               Ledger.settle_usage(
+                 user.id,
+                 8_000,
+                 %{
+                   logical_model: "cgc-default",
+                   upstream_channel: "deepseek_official_1",
+                   upstream_model: "deepseek-chat",
+                   billing_mode: :exact,
+                   prompt_cache_hit_tokens: 4000,
+                   prompt_cache_miss_tokens: 1000,
+                   completion_tokens: 500,
+                   charged_mc: 7_000,
+                   upstream_cost_mc: 3_500
+                 },
+                 hold_id: held_wallet.hold_id
+               )
 
       assert settled_wallet.cached_balance_mc == 8_000
       assert settled_wallet.held_mc == 0
@@ -114,18 +119,23 @@ defmodule Cgc2046.LlmGateway.LedgerTest do
       user = register_user("ledger-invariant")
       {:ok, _} = Ledger.grant_personal_credits(user.id, %{amount_mc: 10_000, source_type: :pack})
 
-      assert {:ok, _} = Ledger.acquire_hold(user.id, 6_000)
-      assert {:ok, _} = Ledger.acquire_hold(user.id, 4_000)
+      assert {:ok, six_hold} = Ledger.acquire_hold(user.id, 6_000)
+      assert {:ok, _four_hold} = Ledger.acquire_hold(user.id, 4_000)
 
       assert {:ok, wallet} =
-               Ledger.settle_usage(user.id, 6_000, %{
-                 logical_model: "cgc-default",
-                 upstream_channel: "deepseek_official_1",
-                 upstream_model: "deepseek-chat",
-                 billing_mode: :exact,
-                 charged_mc: 10_000,
-                 upstream_cost_mc: 5_000
-               })
+               Ledger.settle_usage(
+                 user.id,
+                 6_000,
+                 %{
+                   logical_model: "cgc-default",
+                   upstream_channel: "deepseek_official_1",
+                   upstream_model: "deepseek-chat",
+                   billing_mode: :exact,
+                   charged_mc: 10_000,
+                   upstream_cost_mc: 5_000
+                 },
+                 hold_id: six_hold.hold_id
+               )
 
       assert wallet.cached_balance_mc == 4_000
       assert wallet.held_mc == 4_000
@@ -152,17 +162,22 @@ defmodule Cgc2046.LlmGateway.LedgerTest do
           expires_at: past
         })
 
-      assert {:ok, _} = Ledger.acquire_hold(user.id, 5_000)
+      assert {:ok, held_wallet} = Ledger.acquire_hold(user.id, 5_000)
 
       assert {:ok, wallet} =
-               Ledger.settle_usage(user.id, 5_000, %{
-                 logical_model: "cgc-default",
-                 upstream_channel: "deepseek_official_1",
-                 upstream_model: "deepseek-chat",
-                 billing_mode: :exact,
-                 charged_mc: 10_000,
-                 upstream_cost_mc: 5_000
-               })
+               Ledger.settle_usage(
+                 user.id,
+                 5_000,
+                 %{
+                   logical_model: "cgc-default",
+                   upstream_channel: "deepseek_official_1",
+                   upstream_model: "deepseek-chat",
+                   billing_mode: :exact,
+                   charged_mc: 10_000,
+                   upstream_cost_mc: 5_000
+                 },
+                 hold_id: held_wallet.hold_id
+               )
 
       assert wallet.cached_balance_mc == 0
       assert wallet.held_mc == 0
@@ -197,17 +212,22 @@ defmodule Cgc2046.LlmGateway.LedgerTest do
         [Ecto.UUID.dump!(user.id), 5_000]
       )
 
-      assert {:ok, _} = Ledger.acquire_hold(user.id, 5_000)
+      assert {:ok, held_wallet} = Ledger.acquire_hold(user.id, 5_000)
 
       assert {:ok, wallet} =
-               Ledger.settle_usage(user.id, 5_000, %{
-                 logical_model: "cgc-default",
-                 upstream_channel: "deepseek_official_1",
-                 upstream_model: "deepseek-chat",
-                 billing_mode: :exact,
-                 charged_mc: 15_000,
-                 upstream_cost_mc: 7_000
-               })
+               Ledger.settle_usage(
+                 user.id,
+                 5_000,
+                 %{
+                   logical_model: "cgc-default",
+                   upstream_channel: "deepseek_official_1",
+                   upstream_model: "deepseek-chat",
+                   billing_mode: :exact,
+                   charged_mc: 15_000,
+                   upstream_cost_mc: 7_000
+                 },
+                 hold_id: held_wallet.hold_id
+               )
 
       assert wallet.cached_balance_mc == 5_000
       assert wallet.held_mc == 0
@@ -226,6 +246,32 @@ defmodule Cgc2046.LlmGateway.LedgerTest do
         |> Enum.filter(&(&1.user_id == user.id))
 
       assert log.charged_mc == 10_000
+    end
+
+    test "rejects a hold when only expired credits remain" do
+      user = register_user("ledger-expired-hold")
+      past = DateTime.add(DateTime.utc_now(), -60, :second)
+
+      {:ok, _} =
+        Ledger.grant_personal_credits(user.id, %{
+          amount_mc: 5_000,
+          source_type: :subscription,
+          expires_at: past
+        })
+
+      assert {:error, :insufficient_quota} = Ledger.acquire_hold(user.id, 1_000)
+
+      wallet = Ledger.fetch_wallet!(user.id)
+      assert wallet.cached_balance_mc == 0
+      assert wallet.held_mc == 0
+
+      [grant] =
+        CreditGrant
+        |> Ash.read!(authorize?: false)
+        |> Enum.filter(&(&1.user_id == user.id))
+
+      assert grant.status == :expired
+      assert grant.remaining_mc == 0
     end
   end
 
@@ -256,23 +302,53 @@ defmodule Cgc2046.LlmGateway.LedgerTest do
     end
   end
 
-  describe "expired hold guard" do
-    test "rejects a hold when only expired credits remain" do
-      user = register_user("ledger-expired-hold")
-      past = DateTime.add(DateTime.utc_now(), -60, :second)
+  describe "in-flight holds" do
+    test "preserves reserved credits when a grant expires during generation" do
+      user = register_user("ledger-in-flight-expiry")
+      future = DateTime.add(DateTime.utc_now(), 3_600, :second)
 
       {:ok, _} =
         Ledger.grant_personal_credits(user.id, %{
-          amount_mc: 5_000,
+          amount_mc: 1_000,
           source_type: :subscription,
-          expires_at: past
+          expires_at: future
         })
 
-      assert {:error, :insufficient_quota} = Ledger.acquire_hold(user.id, 1_000)
+      assert {:ok, held} = Ledger.acquire_hold(user.id, 500)
+
+      past = DateTime.add(DateTime.utc_now(), -60, :second)
+
+      Repo.query!(
+        "UPDATE llm_credit_grants SET expires_at = $2 WHERE user_id = $1 AND status = 'active'",
+        [Ecto.UUID.dump!(user.id), past]
+      )
+
+      assert :ok = CreditExpiryWorker.perform(%Oban.Job{})
 
       wallet = Ledger.fetch_wallet!(user.id)
-      assert wallet.cached_balance_mc == 0
-      assert wallet.held_mc == 0
+      assert wallet.cached_balance_mc == 500
+      assert wallet.held_mc == 500
+
+      assert {:ok, settled} =
+               Ledger.settle_usage(
+                 user.id,
+                 500,
+                 %{
+                   logical_model: "cgc-default",
+                   upstream_channel: "deepseek_official_1",
+                   upstream_model: "deepseek-chat",
+                   billing_mode: :exact,
+                   charged_mc: 300,
+                   upstream_cost_mc: 150
+                 },
+                 hold_id: held.hold_id
+               )
+
+      assert settled.cached_balance_mc == 200
+      assert settled.held_mc == 0
+
+      assert :ok = CreditExpiryWorker.perform(%Oban.Job{})
+      assert Ledger.fetch_wallet!(user.id).cached_balance_mc == 0
 
       [grant] =
         CreditGrant
@@ -282,84 +358,34 @@ defmodule Cgc2046.LlmGateway.LedgerTest do
       assert grant.status == :expired
       assert grant.remaining_mc == 0
     end
-  end
 
-  describe "in-flight holds" do
-    test "preserves another request's hold when credits expire" do
-      user = register_user("ledger-multi-hold-expiry")
-      future = DateTime.add(DateTime.utc_now(), 3_600, :second)
+    test "reaps an abandoned hold after expiry" do
+      user = register_user("ledger-orphan-hold")
 
       {:ok, _} =
-        Ledger.grant_personal_credits(user.id, %{
-          amount_mc: 100,
-          source_type: :subscription,
-          expires_at: future
-        })
+        Ledger.grant_personal_credits(user.id, %{amount_mc: 10_000, source_type: :pack})
 
-      {:ok, _} =
-        Ledger.grant_personal_credits(user.id, %{amount_mc: 100, source_type: :pack})
-
-      assert {:ok, _hold_a} = Ledger.acquire_hold(user.id, 100)
-      assert {:ok, _hold_b} = Ledger.acquire_hold(user.id, 100)
+      assert {:ok, held} = Ledger.acquire_hold(user.id, 1_000)
 
       past = DateTime.add(DateTime.utc_now(), -60, :second)
 
       Repo.query!(
-        """
-        UPDATE llm_credit_grants
-        SET expires_at = $2
-        WHERE user_id = $1 AND source_type = 'subscription' AND status = 'active'
-        """,
-        [Ecto.UUID.dump!(user.id), past]
+        "UPDATE llm_wallet_holds SET expires_at = $2 WHERE id = $1",
+        [Ecto.UUID.dump!(held.hold_id), past]
       )
 
-      assert {:ok, wallet_a} =
-               Ledger.settle_usage(user.id, 100, %{
-                 logical_model: "cgc-default",
-                 upstream_channel: "deepseek_official_1",
-                 upstream_model: "deepseek-chat",
-                 billing_mode: :waived_upstream_error,
-                 charged_mc: 0,
-                 upstream_cost_mc: 0
-               })
-
-      assert wallet_a.cached_balance_mc == 200
-      assert wallet_a.held_mc == 100
-
-      assert :ok = CreditExpiryWorker.perform(%Oban.Job{})
+      assert :ok = HoldReaperWorker.perform(%Oban.Job{})
 
       wallet = Ledger.fetch_wallet!(user.id)
-      assert wallet.cached_balance_mc == 200
-      assert wallet.held_mc == 100
+      assert wallet.cached_balance_mc == 10_000
+      assert wallet.held_mc == 0
 
-      assert {:ok, _hold_c} = Ledger.acquire_hold(user.id, 100)
-      assert Ledger.fetch_wallet!(user.id).held_mc == 200
+      assert %{rows: [[count]]} =
+               Repo.query!("SELECT count(*) FROM llm_wallet_holds WHERE id = $1", [
+                 Ecto.UUID.dump!(held.hold_id)
+               ])
 
-      assert {:ok, wallet_b} =
-               Ledger.settle_usage(user.id, 100, %{
-                 logical_model: "cgc-default",
-                 upstream_channel: "deepseek_official_1",
-                 upstream_model: "deepseek-chat",
-                 billing_mode: :exact,
-                 charged_mc: 100,
-                 upstream_cost_mc: 50
-               })
-
-      assert wallet_b.cached_balance_mc == 100
-      assert wallet_b.held_mc == 100
-
-      assert {:ok, wallet_c} =
-               Ledger.settle_usage(user.id, 100, %{
-                 logical_model: "cgc-default",
-                 upstream_channel: "deepseek_official_1",
-                 upstream_model: "deepseek-chat",
-                 billing_mode: :exact,
-                 charged_mc: 100,
-                 upstream_cost_mc: 50
-               })
-
-      assert wallet_c.cached_balance_mc == 0
-      assert wallet_c.held_mc == 0
+      assert count == 0
     end
 
     test "limits expired credit consumption to the reserved hold" do
@@ -373,7 +399,7 @@ defmodule Cgc2046.LlmGateway.LedgerTest do
           expires_at: future
         })
 
-      assert {:ok, _} = Ledger.acquire_hold(user.id, 10)
+      assert {:ok, held} = Ledger.acquire_hold(user.id, 10)
 
       past = DateTime.add(DateTime.utc_now(), -60, :second)
 
@@ -383,14 +409,19 @@ defmodule Cgc2046.LlmGateway.LedgerTest do
       )
 
       assert {:ok, wallet} =
-               Ledger.settle_usage(user.id, 10, %{
-                 logical_model: "cgc-default",
-                 upstream_channel: "deepseek_official_1",
-                 upstream_model: "deepseek-chat",
-                 billing_mode: :exact,
-                 charged_mc: 100,
-                 upstream_cost_mc: 50
-               })
+               Ledger.settle_usage(
+                 user.id,
+                 10,
+                 %{
+                   logical_model: "cgc-default",
+                   upstream_channel: "deepseek_official_1",
+                   upstream_model: "deepseek-chat",
+                   billing_mode: :exact,
+                   charged_mc: 100,
+                   upstream_cost_mc: 50
+                 },
+                 hold_id: held.hold_id
+               )
 
       assert wallet.cached_balance_mc == 90
       assert wallet.held_mc == 0
