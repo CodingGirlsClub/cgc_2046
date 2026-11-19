@@ -64,7 +64,7 @@ const GRANT_SOURCE_KEYS: Record<string, string> = {
 const BILLING_MODE_KEYS: Record<string, string> = {
 	exact: "billingExact",
 	estimated_abort: "billingEstimatedAbort",
-	waived: "billingWaived",
+	waived_upstream_error: "billingWaived",
 };
 
 function errorMessage(err: unknown, fallback: string): string {

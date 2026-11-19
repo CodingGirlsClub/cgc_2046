@@ -121,12 +121,17 @@ describe("/settings/llm-wallet 个人 LLM 算力钱包页", () => {
 
 	it("成功加载：渲染余额、冻结、活跃授信与用量流水", async () => {
 		const log0 = makeLog(1, "2026-11-19T06:00:00Z");
+		const waivedLog = {
+			...makeLog(2, "2026-11-19T05:55:00Z"),
+			billingMode: "waived_upstream_error",
+			chargedMc: "0",
+		};
 		queryMock.mockImplementation(({ query }) => {
 			if (query === MY_LLM_WALLET) {
 				return Promise.resolve({ data: { myLlmWallet: WALLET_FIXTURE } });
 			}
 			if (query === MY_LLM_USAGE_LOGS) {
-				return Promise.resolve({ data: { myLlmUsageLogs: [log0] } });
+				return Promise.resolve({ data: { myLlmUsageLogs: [log0, waivedLog] } });
 			}
 			return Promise.resolve({ data: {} });
 		});
@@ -151,7 +156,12 @@ describe("/settings/llm-wallet 个人 LLM 算力钱包页", () => {
 		).toBeInTheDocument();
 
 		const logsTable = screen.getByTestId("usage-logs-table");
-		expect(within(logsTable).getByText("cgc-default")).toBeInTheDocument();
+		expect(within(logsTable).getAllByText("cgc-default")).toHaveLength(2);
+		expect(within(logsTable).getByText("精确结算")).toBeInTheDocument();
+		expect(within(logsTable).getByText("免单")).toBeInTheDocument();
+		expect(
+			within(logsTable).queryByText("waived_upstream_error"),
+		).not.toBeInTheDocument();
 		expect(within(logsTable).getByText("¥0.0125")).toBeInTheDocument();
 		expect(
 			within(logsTable).getByText(formatDateTime(log0.insertedAt)),
