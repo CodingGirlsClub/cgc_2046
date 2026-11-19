@@ -104,6 +104,14 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
         detect: &ScanDetectionsOps.detect_llm_wallet_balance_mismatch/0
       },
       %{
+        id: :llm_wallet_held_mismatch,
+        detect: &ScanDetectionsOps.detect_llm_wallet_held_mismatch/0
+      },
+      %{
+        id: :llm_paid_order_without_grant,
+        detect: &ScanDetectionsOps.detect_llm_paid_order_without_grant/0
+      },
+      %{
         id: :refunding_without_refund_job,
         detect: &ScanDetections.detect_refunding_without_refund_job/0
       }

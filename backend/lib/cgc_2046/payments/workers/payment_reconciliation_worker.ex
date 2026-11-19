@@ -49,6 +49,7 @@ defmodule Cgc2046.Payments.Workers.PaymentReconciliationWorker do
     max_attempts: 3,
     unique: [period: 300, states: :incomplete]
 
+  require Ash.Query
   require Logger
 
   alias Cgc2046.LlmGateway.PaymentOrder, as: LlmPaymentOrder
@@ -110,10 +111,7 @@ defmodule Cgc2046.Payments.Workers.PaymentReconciliationWorker do
       |> Ash.Query.select([:id, :out_trade_no, :status, :amount_cents, :updated_at, :expire_at])
       |> Ash.read!(authorize?: false)
 
-    all_llm_orders =
-      LlmPaymentOrder
-      |> Ash.Query.select([:id, :out_trade_no, :status, :amount_cents, :updated_at, :paid_at])
-      |> Ash.read!(authorize?: false)
+    all_llm_orders = load_scoped_llm_orders(bill_date, Map.keys(statement_entries))
 
     orders = Enum.filter(all_orders, &(&1.status in [:paid, :pending, :refunding]))
     llm_orders = Enum.filter(all_llm_orders, &(&1.status in [:paid, :pending]))
@@ -160,6 +158,35 @@ defmodule Cgc2046.Payments.Workers.PaymentReconciliationWorker do
     :ok = Finding.apply_rule(@rule, candidates, log_prefix: "payment recon", sweep: sweep)
 
     :ok
+  end
+
+  defp load_scoped_llm_orders(bill_date, statement_trade_nos) do
+    paid_from = DateTime.new!(Date.add(bill_date, -7), ~T[00:00:00], "Etc/UTC")
+    paid_to = DateTime.new!(Date.add(bill_date, 2), ~T[23:59:59.999999], "Etc/UTC")
+
+    base =
+      LlmPaymentOrder
+      |> Ash.Query.select([:id, :out_trade_no, :status, :amount_cents, :updated_at, :paid_at])
+
+    query =
+      case statement_trade_nos do
+        [] ->
+          Ash.Query.filter(
+            base,
+            status == :pending or
+              (status == :paid and paid_at >= ^paid_from and paid_at <= ^paid_to)
+          )
+
+        trade_nos ->
+          Ash.Query.filter(
+            base,
+            status == :pending or
+              (status == :paid and paid_at >= ^paid_from and paid_at <= ^paid_to) or
+              out_trade_no in ^trade_nos
+          )
+      end
+
+    Ash.read!(query, authorize?: false)
   end
 
   # ── 账单拉取（失败告警不抛，KTD11）────────────────────────────────────────

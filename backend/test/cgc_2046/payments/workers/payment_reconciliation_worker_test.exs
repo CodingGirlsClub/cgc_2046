@@ -407,6 +407,39 @@ defmodule Cgc2046.Payments.Workers.PaymentReconciliationWorkerTest do
     after
       Fake.reset!()
     end
+
+    test "LLM 算力订单日期窗口裁剪：30 天前历史单不在账单不误报，出现在账单时仍通过单号命中差异" do
+      user = Cgc2046.AccountsFixtures.register_user("recon-llm-scope-" <> uniq())
+      old_paid_at = DateTime.add(DateTime.utc_now(), -30 * 86_400, :second)
+
+      old_unmatched = insert_llm_order(user, :paid, 10_000)
+      old_in_statement = insert_llm_order(user, :paid, 50_000)
+
+      for order <- [old_unmatched, old_in_statement] do
+        {:ok, _} =
+          Cgc2046.Repo.query(
+            "UPDATE llm_payment_orders SET paid_at = $1, updated_at = $1 WHERE id = $2",
+            [old_paid_at, Ecto.UUID.dump!(order.id)]
+          )
+      end
+
+      statement = statement_for([{old_in_statement.out_trade_no, 10_000}])
+      Fake.script!(fetch_statement: {:ok, statement_rows(statement)})
+
+      assert :ok = perform_job(PaymentReconciliationWorker, %{})
+
+      by_id =
+        Ash.read!(Finding, authorize?: false)
+        |> Enum.filter(&(&1.rule == :payment_recon))
+        |> Map.new(&{&1.entity_id, &1})
+
+      refute Map.has_key?(by_id, old_unmatched.id)
+      assert by_id[old_in_statement.id].detail["kind"] == "amount_mismatch"
+      assert by_id[old_in_statement.id].detail["local_cents"] == 50_000
+      assert by_id[old_in_statement.id].detail["channel_cents"] == 10_000
+    after
+      Fake.reset!()
+    end
   end
 
   # ── 布置 ──

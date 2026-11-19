@@ -47,7 +47,8 @@ defmodule Cgc2046Web.Plugs.RateLimit do
     platform_sign_in_ip: 100,
     platform_sign_in_openid: 10,
     notification_consent_actor: 30,
-    sign_in_ip: 30
+    sign_in_ip: 30,
+    llm_gateway_user_rpm: 60
   }
 
   @doc false
