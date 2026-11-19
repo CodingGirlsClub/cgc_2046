@@ -36,7 +36,7 @@ use crate::native_context::{
 use crate::native_panel_host::SubagentCard;
 use crate::native_runtime::{
     ApprovalMode, CheckpointAction, ModelSetup, NativeRuntimeEvent, NativeRuntimeHandle,
-    NativeRuntimeSnapshot, PreparedNativeTurn, RuntimeChange, RuntimePhase,
+    NativeRuntimeSnapshot, NativeTurnErrorKind, PreparedNativeTurn, RuntimeChange, RuntimePhase,
 };
 use crate::native_view_model::{
     build_message_row_kinds, needs_checkpoint_confirm, subagent_cards_for_rows,
@@ -376,6 +376,10 @@ pub struct NativeAgentView {
     /// CGC Cloud 钱包摘要（登录态异步刷新；不持久化）。
     wallet: Option<cgc_platform::gateway::WalletSummary>,
     wallet_refresh_serial: u64,
+    /// 用户主动点击状态栏算力徽章展开的钱包/续费面板开关。
+    wallet_panel_open: bool,
+    /// HTTP 403 / 钱包冻结时的客服提示（不触发充值卡片）。
+    wallet_frozen_notice: Option<String>,
     /// 最近一次流式错误是否为算力不足；驱动 composer 上方的续费卡片。
     insufficient_quota: bool,
     quota_checkout: Option<QuotaCheckout>,

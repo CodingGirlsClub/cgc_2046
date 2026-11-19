@@ -14,7 +14,10 @@ impl Agent {
         crate::thinking::prepare(&mut self.thread, self.system_prompt.as_deref(), &tools);
         let mut plan =
             RequestPlan::select(&self.thread, model, self.system_prompt.as_deref(), &tools)?;
-        let session_id = (!self.thread.id.trim().is_empty()).then(|| self.thread.id.clone());
+        let session_id = self
+            .affinity_session_id
+            .clone()
+            .or_else(|| (!self.thread.id.trim().is_empty()).then(|| self.thread.id.clone()));
         if plan.omitted() > 0 && !plan.preserve_prefix {
             let omitted = plan.omitted();
             let compaction_model = self.background_model.as_ref().unwrap_or(model);

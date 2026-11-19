@@ -28,7 +28,7 @@ pub use events::{
     ToolTurnOutcome, TurnObserver, TurnOutcome,
 };
 use stream::{run_stream, StreamOutcome};
-pub use subagent::run_subagent;
+pub use subagent::{run_subagent, run_subagent_with_affinity};
 
 /// 单轮工具循环的保险丝：正常任务不触发；到上限时优雅收尾而不是报错。
 /// Zed 的 native agent 没有轮次上限（模型不再调工具/用户取消才停）；
@@ -165,6 +165,9 @@ pub struct Agent {
     /// 下一条用户消息的 UI 展示文本（不含注入上下文）；发送一次后清空。
     pending_user_display: Option<String>,
     pending_user_draft: Option<serde_json::Value>,
+    /// 可选覆盖发往 provider 的会话粘性键（`x-session-affinity`）；
+    /// 子 agent 继承父会话 ID，避免碎片化网关 ETS 路由表，同时保持本地 `thread.id` 唯一。
+    affinity_session_id: Option<String>,
 }
 
 impl Agent {
@@ -192,7 +195,15 @@ impl Agent {
             pending_images: Vec::new(),
             pending_user_display: None,
             pending_user_draft: None,
+            affinity_session_id: None,
         }
+    }
+
+    /// 设置发往 provider 的会话粘性 ID（优先于 `thread.id` 写入 `Request.session_id`）。
+    pub fn set_affinity_session_id(&mut self, affinity_session_id: Option<String>) {
+        self.affinity_session_id = affinity_session_id
+            .map(|id| id.trim().to_string())
+            .filter(|id| !id.is_empty());
     }
 
     /// 设置本轮请求的采样温度；`None` 表示不下发 temperature。

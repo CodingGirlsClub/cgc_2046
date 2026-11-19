@@ -619,6 +619,8 @@ fn reset_account_state_clears_wallet_and_invalidates_serials(cx: &mut TestAppCon
                 active_grants: Vec::new(),
             });
             view.wallet_refresh_serial = 7;
+            view.wallet_panel_open = true;
+            view.wallet_frozen_notice = Some("frozen".into());
             view.insufficient_quota = true;
             view.quota_checkout = Some(super::QuotaCheckout {
                 state: super::QuotaCheckoutState::Ready,
@@ -631,12 +633,199 @@ fn reset_account_state_clears_wallet_and_invalidates_serials(cx: &mut TestAppCon
             view.reset_account_state(cx);
 
             assert!(view.wallet.is_none());
+            assert!(!view.wallet_panel_open);
+            assert!(view.wallet_frozen_notice.is_none());
             assert!(!view.insufficient_quota);
             assert!(view.quota_checkout.is_none());
             assert_eq!(view.wallet_refresh_serial, 8);
             assert_eq!(view.quota_checkout_serial, 10);
         });
     });
+}
+
+#[gpui_kit::test]
+fn wallet_badge_toggles_proactive_panel_and_distinguishes_paid_state_from_402(
+    cx: &mut TestAppContext,
+) {
+    cx.update(gpui_kit::init);
+    let (handle, probe) = cx.update(|cx| {
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds {
+                    origin: Default::default(),
+                    size: size(px(440.0), px(640.0)),
+                })),
+                ..Default::default()
+            },
+            cx,
+            |window, cx| cx.new(|cx| NativeComposerProbe::new(window, cx)),
+        )
+        .unwrap()
+    });
+    let sample_wallet = || cgc_platform::gateway::WalletSummary {
+        wallet_id: "w-1".into(),
+        cached_balance_mc: 29_500_000,
+        held_mc: 500_000,
+        available_mc: 29_000_000,
+        max_concurrent_streams: 3,
+        status: "active".into(),
+        remaining_percentage: 80,
+        active_grants: vec![
+            cgc_platform::gateway::WalletGrant {
+                id: "g-sub".into(),
+                source_type: "subscription".into(),
+                initial_mc: 29_000_000,
+                remaining_mc: 20_000_000,
+                expires_at: Some("2026-12-19T00:00:00Z".into()),
+                status: "active".into(),
+            },
+            cgc_platform::gateway::WalletGrant {
+                id: "g-pack".into(),
+                source_type: "pack".into(),
+                initial_mc: 10_000_000,
+                remaining_mc: 9_000_000,
+                expires_at: None,
+                status: "active".into(),
+            },
+        ],
+    };
+
+    cx.update_window(handle, |_, window, cx| {
+        let view = probe.read(cx).view.clone();
+        view.update(cx, |view, cx| {
+            view.wallet = Some(sample_wallet());
+            cx.notify();
+        });
+        window.render_frame(cx);
+
+        assert!(window.try_find("native-agent-wallet").is_some());
+        assert!(window.try_find("native-agent-quota-card").is_none());
+
+        // Clicking wallet badge opens the proactive panel with Close button and SKU options.
+        window.click("native-agent-wallet", cx);
+        // Restore wallet after refresh_wallet (not signed in during unit test clears wallet).
+        view.update(cx, |view, cx| {
+            view.wallet = Some(sample_wallet());
+            cx.notify();
+        });
+        window.render_frame(cx);
+        assert!(view.read(cx).wallet_panel_open);
+        assert!(!view.read(cx).insufficient_quota);
+        assert!(window.try_find("native-agent-quota-card").is_some());
+        assert!(window.try_find("native-agent-wallet-close").is_some());
+        assert!(window
+            .try_find("native-agent-quota-llm_subscription-alipay_qr-2900")
+            .is_some());
+        assert!(window
+            .try_find("native-agent-quota-llm_credit_pack-wechat_native-1000")
+            .is_some());
+        assert!(window
+            .try_find("native-agent-quota-llm_credit_pack-alipay_qr-5000")
+            .is_some());
+
+        // Proactive Paid state shows Close button and MUST NOT show "继续生成".
+        view.update(cx, |view, cx| {
+            view.quota_checkout = Some(super::QuotaCheckout {
+                state: super::QuotaCheckoutState::Paid,
+                qr: None,
+                price_cents: 2900,
+                provider: "alipay_qr".into(),
+            });
+            cx.notify();
+        });
+        window.render_frame(cx);
+        assert!(window.try_find("native-agent-quota-paid-close").is_some());
+        assert!(window.try_find("native-agent-quota-continue").is_none());
+
+        // Clicking Close dismisses proactive panel and clears checkout.
+        window.click("native-agent-quota-paid-close", cx);
+        window.render_frame(cx);
+        assert!(!view.read(cx).wallet_panel_open);
+        assert!(view.read(cx).quota_checkout.is_none());
+        assert!(window.try_find("native-agent-quota-card").is_none());
+
+        // 402 Paid state shows "继续生成" and hides proactive Close button.
+        view.update(cx, |view, cx| {
+            view.insufficient_quota = true;
+            view.quota_checkout = Some(super::QuotaCheckout {
+                state: super::QuotaCheckoutState::Paid,
+                qr: None,
+                price_cents: 1000,
+                provider: "wechat_native".into(),
+            });
+            cx.notify();
+        });
+        window.render_frame(cx);
+        assert!(window.try_find("native-agent-quota-continue").is_some());
+        assert!(window.try_find("native-agent-quota-paid-close").is_none());
+        assert!(window.try_find("native-agent-wallet-close").is_none());
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn structured_turn_error_opens_quota_card_for_402_and_frozen_notice_for_403(
+    cx: &mut TestAppContext,
+) {
+    use crate::native_runtime::{NativeRuntimeEvent, NativeTurnErrorKind};
+
+    cx.update(gpui_kit::init);
+    let (handle, probe) = cx.update(|cx| {
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds {
+                    origin: Default::default(),
+                    size: size(px(440.0), px(640.0)),
+                })),
+                ..Default::default()
+            },
+            cx,
+            |window, cx| cx.new(|cx| NativeComposerProbe::new(window, cx)),
+        )
+        .unwrap()
+    });
+    cx.update_window(handle, |_, window, cx| {
+        let view = probe.read(cx).view.clone();
+        let generation = view.read(cx).metadata().generation;
+
+        // 403 WalletFrozen must NOT open recharge card; displays frozen notice instead.
+        view.update(cx, |view, cx| {
+            view.apply_runtime_event(
+                &NativeRuntimeEvent::TurnError {
+                    generation,
+                    kind: NativeTurnErrorKind::WalletFrozen,
+                    message: "Permission: wallet frozen".into(),
+                },
+                cx,
+            );
+        });
+        window.render_frame(cx);
+        assert!(!view.read(cx).insufficient_quota);
+        assert!(window.try_find("native-agent-quota-card").is_none());
+        assert!(window
+            .try_find("native-agent-wallet-frozen-notice")
+            .is_some());
+
+        // 402 InsufficientQuota opens recharge card and clears frozen notice, even with arbitrary text.
+        view.update(cx, |view, cx| {
+            view.apply_runtime_event(
+                &NativeRuntimeEvent::TurnError {
+                    generation,
+                    kind: NativeTurnErrorKind::InsufficientQuota,
+                    message: "opaque server message without keywords".into(),
+                },
+                cx,
+            );
+        });
+        window.render_frame(cx);
+        assert!(view.read(cx).insufficient_quota);
+        assert!(view.read(cx).wallet_frozen_notice.is_none());
+        assert!(window.try_find("native-agent-quota-card").is_some());
+        assert!(window
+            .try_find("native-agent-wallet-frozen-notice")
+            .is_none());
+    })
+    .unwrap();
 }
 
 #[path = "paste_tests.rs"]

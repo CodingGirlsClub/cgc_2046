@@ -151,6 +151,8 @@ impl NativeAgentView {
             copied_actions_serial: 0,
             wallet: None,
             wallet_refresh_serial: 0,
+            wallet_panel_open: false,
+            wallet_frozen_notice: None,
             insufficient_quota: false,
             quota_checkout: None,
             quota_checkout_serial: 0,

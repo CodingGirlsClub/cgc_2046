@@ -562,6 +562,7 @@ impl NativeAgentView {
                     }))
 
                     .children(pending_chip)
+                    .children(self.render_wallet_frozen_notice(&palette, cx))
                     .children(self.render_quota_card(&palette, cx))
 
                     .child(
@@ -684,7 +685,7 @@ impl NativeAgentView {
                                     }),
                             )
                             .child(zap_button)
-                            .children(self.wallet_badge(&palette))
+                            .children(self.wallet_badge(&palette, cx))
                             .child(div().flex_1())
                             .children((can_review_changes && change_count > 0).then(|| {
                                 div()

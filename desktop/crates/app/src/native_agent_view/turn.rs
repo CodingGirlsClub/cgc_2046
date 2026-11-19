@@ -1,8 +1,54 @@
 //! Native UI adapter: commands to the owner, ACP events to the shared client session.
 use super::*;
-use cgc_agent_store::CGC_CLOUD_PROVIDER_ID;
+
+pub(super) const WALLET_FROZEN_NOTICE: &str =
+    "当前 CGC 算力钱包已被冻结，暂无法继续对话或充值。请联系客服处理。";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct TurnErrorEffect {
+    opens_quota_card: bool,
+    shows_frozen_notice: bool,
+}
+
+fn turn_error_effect(kind: NativeTurnErrorKind) -> TurnErrorEffect {
+    match kind {
+        NativeTurnErrorKind::InsufficientQuota => TurnErrorEffect {
+            opens_quota_card: true,
+            shows_frozen_notice: false,
+        },
+        NativeTurnErrorKind::WalletFrozen => TurnErrorEffect {
+            opens_quota_card: false,
+            shows_frozen_notice: true,
+        },
+        NativeTurnErrorKind::ConcurrencyLimit | NativeTurnErrorKind::Other => TurnErrorEffect {
+            opens_quota_card: false,
+            shows_frozen_notice: false,
+        },
+    }
+}
 
 impl NativeAgentView {
+    pub(super) fn apply_turn_error(
+        &mut self,
+        kind: NativeTurnErrorKind,
+        message: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let effect = turn_error_effect(kind);
+        self.insufficient_quota = effect.opens_quota_card;
+        if effect.shows_frozen_notice {
+            self.quota_checkout = None;
+            self.quota_checkout_serial = self.quota_checkout_serial.wrapping_add(1);
+            self.wallet_frozen_notice = Some(WALLET_FROZEN_NOTICE.to_string());
+            self.status = WALLET_FROZEN_NOTICE.to_string();
+            self.state.push_notice(WALLET_FROZEN_NOTICE);
+        } else {
+            self.wallet_frozen_notice = None;
+            self.status = format!("错误：{message}");
+        }
+        cx.notify();
+    }
+
     pub(super) fn apply_runtime_event(
         &mut self,
         event: &NativeRuntimeEvent,
@@ -23,6 +69,17 @@ impl NativeAgentView {
                 self.status = message.clone();
                 self.state.push_notice(message.clone());
                 cx.notify();
+            }
+            NativeRuntimeEvent::TurnError {
+                generation,
+                kind,
+                message,
+            } if self
+                .snapshot
+                .as_ref()
+                .is_none_or(|snapshot| *generation == snapshot.generation) =>
+            {
+                self.apply_turn_error(*kind, message, cx);
             }
             NativeRuntimeEvent::Subagent { generation, event }
                 if self
@@ -167,18 +224,9 @@ impl NativeAgentView {
             self.page_context
                 .observe_event(&self.conversation_scope(), &event);
             if let HostEvent::Error { message } = &event {
-                let managed_provider = self.snapshot.as_ref().is_some_and(|snapshot| {
-                    snapshot.model.provider_id.as_str() == CGC_CLOUD_PROVIDER_ID
-                });
-                let lower = message.to_lowercase();
-                if managed_provider
-                    && (lower.contains("insufficient quota")
-                        || lower.contains("insufficient_quota")
-                        || message.contains("算力余额不足"))
-                {
-                    self.insufficient_quota = true;
+                if self.wallet_frozen_notice.is_none() {
+                    self.status = format!("错误：{message}");
                 }
-                self.status = format!("错误：{message}");
             }
             if matches!(
                 event,
@@ -204,7 +252,10 @@ impl NativeAgentView {
             }
         }
         if should_clear_quota_state(had_error, completed) {
-            self.clear_quota_state();
+            self.wallet_frozen_notice = None;
+            if self.insufficient_quota {
+                self.clear_quota_state();
+            }
         }
         if self.state.take_learning_state_changed() {
             cx.emit(NativeAgentViewEvent::LearningStateChanged);
@@ -342,7 +393,8 @@ fn should_clear_quota_state(had_error: bool, completed: bool) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{should_clear_quota_state, should_dispatch};
+    use super::{should_clear_quota_state, should_dispatch, turn_error_effect, TurnErrorEffect};
+    use crate::native_runtime::NativeTurnErrorKind;
 
     #[test]
     fn dispatch_requires_queued_work_idle_runtime_and_model() {
@@ -357,5 +409,37 @@ mod tests {
         assert!(should_clear_quota_state(false, true));
         assert!(!should_clear_quota_state(true, true));
         assert!(!should_clear_quota_state(false, false));
+    }
+
+    #[test]
+    fn structured_turn_error_opens_quota_card_only_for_insufficient_quota_never_wallet_frozen() {
+        assert_eq!(
+            turn_error_effect(NativeTurnErrorKind::InsufficientQuota),
+            TurnErrorEffect {
+                opens_quota_card: true,
+                shows_frozen_notice: false,
+            }
+        );
+        assert_eq!(
+            turn_error_effect(NativeTurnErrorKind::WalletFrozen),
+            TurnErrorEffect {
+                opens_quota_card: false,
+                shows_frozen_notice: true,
+            }
+        );
+        assert_eq!(
+            turn_error_effect(NativeTurnErrorKind::ConcurrencyLimit),
+            TurnErrorEffect {
+                opens_quota_card: false,
+                shows_frozen_notice: false,
+            }
+        );
+        assert_eq!(
+            turn_error_effect(NativeTurnErrorKind::Other),
+            TurnErrorEffect {
+                opens_quota_card: false,
+                shows_frozen_notice: false,
+            }
+        );
     }
 }
