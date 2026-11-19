@@ -328,6 +328,44 @@ defmodule Cgc2046.Reconciliation.ScanDetectionsOps do
     end)
   end
 
+  # 规18（Phase 3A）：LLM 钱包缓存余额 vs 活跃授信余额。
+  # 不变量：cached_balance_mc == SUM(status = 'active' 的 grant.remaining_mc)。
+  # held_mc 是 cached 内的冻结额度（可用 = cached - held），**不**从等式右边扣减；
+  # 否则每个有在途流式请求的钱包都会被误报。过期但 status 仍为 active 的 grant
+  # 在 expire_credits worker 收口前两边基数一致，不产生瞬时假阳性。
+  def detect_llm_wallet_balance_mismatch do
+    {:ok, %{rows: rows}} =
+      Repo.query("""
+      SELECT w.user_id, w.id, w.cached_balance_mc, w.held_mc,
+             COALESCE(
+               SUM(g.remaining_mc) FILTER (WHERE g.status = 'active'),
+               0
+             )::bigint AS grants_remaining_mc
+      FROM llm_wallets w
+      LEFT JOIN llm_credit_grants g ON g.wallet_id = w.id
+      GROUP BY w.id, w.user_id, w.cached_balance_mc, w.held_mc
+      HAVING w.cached_balance_mc <> COALESCE(
+        SUM(g.remaining_mc) FILTER (WHERE g.status = 'active'),
+        0
+      )
+      """)
+
+    Enum.map(rows, fn [user_id, wallet_id, cached_balance_mc, held_mc, grants_remaining_mc] ->
+      %{
+        entity_type: :user,
+        entity_id: Ecto.UUID.load!(user_id),
+        workspace_id: nil,
+        detail: %{
+          "wallet_id" => Ecto.UUID.load!(wallet_id),
+          "cached_balance_mc" => cached_balance_mc,
+          "grants_remaining_mc" => grants_remaining_mc,
+          "held_mc" => held_mc,
+          "available_mc" => cached_balance_mc - held_mc
+        }
+      }
+    end)
+  end
+
   defp fund_burst_config do
     conf = Application.get_env(:cgc_2046, __MODULE__, [])
 

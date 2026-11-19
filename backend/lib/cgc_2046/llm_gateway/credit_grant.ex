@@ -93,7 +93,7 @@ defmodule Cgc2046.LlmGateway.CreditGrant do
       attribute_writable?: false
     )
 
-    belongs_to(:payment_order, Cgc2046.Payments.Order,
+    belongs_to(:payment_order, Cgc2046.LlmGateway.PaymentOrder,
       allow_nil?: true,
       public?: true,
       attribute_writable?: false

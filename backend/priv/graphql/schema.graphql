@@ -5305,6 +5305,15 @@ type RootQueryType {
   "当前用户在课程下的 Notes（服务端真源；可按 issue 过滤）"
   myCourseNotes(courseId: ID!, issueId: String): [CourseNote!]!
 
+  "当前用户\/购买人读取单笔 LLM 收银台订单"
+  llmPaymentOrder(id: ID!): LlmPaymentOrder
+
+  "当前用户 LLM 钱包（含活跃授信批次）；未登录 unauthorized"
+  myLlmWallet: LlmWalletSummary
+
+  "工作台算力池与最近派发记录（Owner\/Admin；PlatformAdmin 跨租户可读）"
+  workspaceLlmPool(workspaceId: ID!): LlmWorkspacePoolSummary
+
   "Placeholder query until the first resource is added"
   ping: String
 
@@ -6435,6 +6444,20 @@ type RootMutationType {
   "关闭批次：open → closed（Owner\/Admin ∪ platform_admin；关闭后不放行新申请，在途申请照常走完）"
   closeRecruitmentCohort(workspaceId: ID!, id: ID!): RecruitmentCohortPayload
 
+  "创建 LLM 算力收银台订单并返回渠道凭据；同 idempotencyKey 返回原单"
+  createLlmPaymentOrder(
+    orderKind: String!, provider: String!, amountCents: Int!, workspaceId: ID, idempotencyKey: String!
+  ): LlmPaymentCheckout
+
+  "工作台 Owner\/Admin 从算力池向当前全部成员派发额度；同 idempotencyKey 幂等"
+  distributeWorkspaceLlmCredits(workspaceId: ID!, perMemberMc: Int!, idempotencyKey: String!, expiresAt: DateTime): LlmWorkspaceGrantResult
+
+  "PlatformAdmin 向工作台算力池充值；与 AdminActionLog 同事务"
+  adminTopupWorkspaceLlmPool(workspaceId: ID!, amountMc: Int!): LlmWorkspacePoolSummary
+
+  "PlatformAdmin 向个人钱包赠予算力（source=admin_gift）；与 AdminActionLog 同事务"
+  adminGrantUserLlmCredits(userId: ID!, amountMc: Int!, expiresAt: DateTime): LlmWalletSummary
+
   "Owner\/Admin 创建一次性工作台邀请小程序码"
   generateMiniProgramCode(workspaceId: ID!, platform: String!): MiniprogramCodeResult
 
@@ -6616,6 +6639,126 @@ string, including UTC timezone ("Z"). The parsed date and time string will
 be converted to UTC if there is an offset.
 """
 scalar DateTime
+
+"LLM 钱包内一笔活跃授信（订阅\/算力包\/工作台派发\/管理员赠送）"
+type LlmCreditGrantItem {
+  id: ID!
+
+  "subscription | pack | workspace_grant | admin_gift"
+  sourceType: String!
+
+  "发放额度（微积分）"
+  initialMc: Int!
+
+  "当前剩余额度（微积分）"
+  remainingMc: Int!
+
+  expiresAt: DateTime
+
+  "active | exhausted | expired"
+  status: String!
+
+  insertedAt: DateTime!
+}
+
+"当前用户 LLM 钱包摘要；金额均为微积分（1 CNY = 1,000,000 mc）"
+type LlmWalletSummary {
+  walletId: ID!
+
+  "缓存总余额（含冻结）"
+  cachedBalanceMc: Int!
+
+  "在途流式请求冻结额度"
+  heldMc: Int!
+
+  "可用额度 = cached - held"
+  availableMc: Int!
+
+  maxConcurrentStreams: Int!
+
+  "active | frozen"
+  status: String!
+
+  "活跃授信剩余百分比 0-100"
+  remainingPercentage: Int!
+
+  activeGrants: [LlmCreditGrantItem!]!
+}
+
+"工作台算力池与最近派发批次"
+type LlmWorkspacePoolSummary {
+  workspaceId: ID!
+
+  "待派发池余额（微积分）"
+  creditPoolMc: Int!
+
+  updatedAt: DateTime!
+
+  recentBatches: [LlmWorkspaceGrantBatch!]!
+}
+
+"工作台批量派发审计行"
+type LlmWorkspaceGrantBatch {
+  id: ID!
+  actorUserId: ID!
+  perMemberMc: Int!
+  memberCount: Int!
+  totalGrantedMc: Int!
+  expiresAt: DateTime
+  idempotencyKey: String!
+  insertedAt: DateTime!
+}
+
+"工作台批量派发结果；idempotentReplay=true 表示命中同 key 原批次、未二次扣池"
+type LlmWorkspaceGrantResult {
+  id: ID!
+  perMemberMc: Int!
+  memberCount: Int!
+  totalGrantedMc: Int!
+  idempotentReplay: Boolean!
+}
+
+"LLM 算力收银台订单（独立于报名支付 payments_orders）"
+type LlmPaymentOrder {
+  id: ID!
+
+  "购买人\/钱包入账用户"
+  userId: ID!
+
+  "工作台池充值目标；个人订单为空"
+  workspaceId: ID
+
+  "llm_subscription | llm_credit_pack | llm_workspace_pool_topup"
+  orderKind: String!
+
+  "wechat_native | alipay_page | alipay_qr | alipay_wap"
+  provider: String!
+
+  outTradeNo: String!
+
+  "实付金额（分）"
+  amountCents: Int!
+
+  "入账算力（微积分；1 cent = 10,000 mc）"
+  creditsMc: Int!
+
+  "pending | paid | cancelled | expired"
+  status: String!
+
+  expiresAt: DateTime
+
+  paidAt: DateTime
+
+  insertedAt: DateTime!
+}
+
+"创单结果：订单快照 + 渠道凭据（二维码\/跳转参数）"
+type LlmPaymentCheckout {
+  order: LlmPaymentOrder!
+
+  "渠道凭据；幂等重放原样返回"
+  credential: Json
+}
 
 type FlashbackRates {
   "分母：成功送达人数（sent 的 distinct person，硬退信与退订剔除）"

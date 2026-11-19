@@ -91,6 +91,7 @@
     "initiative_rule_already_exists",
     "initiative_slug_locked",
     "initiative_slug_taken",
+    "insufficient_workspace_pool",
     "invalid_or_expired_code",
     "invalid_password",
     "invalid_phone",
@@ -99,6 +100,17 @@
     "join_request_not_found",
     "join_request_open",
     "last_admin_denied",
+    "llm_payment_order_database_error",
+    "llm_payment_order_forbidden",
+    "llm_payment_order_idempotency_conflict",
+    "llm_payment_order_invalid_amount",
+    "llm_payment_order_invalid_idempotency_key",
+    "llm_payment_order_invalid_kind",
+    "llm_payment_order_invalid_provider",
+    "llm_payment_order_invalid_workspace",
+    "llm_payment_order_not_found",
+    "llm_payment_order_provider_failed",
+    "llm_payment_order_workspace_required",
     "lock_timeout",
     "mcp_token_limit_reached",
     "membership_already_exists",
@@ -112,6 +124,7 @@
     "mini_web_login_not_approved",
     "mini_web_login_phone_required",
     "mini_web_login_unavailable",
+    "no_workspace_members",
     "not_platform_admin",
     "operation_cancel_failed",
     "operation_confirm_failed",
@@ -196,6 +209,7 @@
     "volunteer_application_invalid_transition",
     "volunteer_application_rejection_reason_required",
     "volunteer_application_workflow_run_failed",
-    "wechat_login_unavailable"
+    "wechat_login_unavailable",
+    "workspace_not_found"
   ]
 }
