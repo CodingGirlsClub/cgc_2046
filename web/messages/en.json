@@ -2438,7 +2438,8 @@
       "deposit_settlement_unanchored": "Deposit settlement without anchor",
       "notification_delivery_failed": "Notification delivery failed",
       "deposit_forfeit_batch_alert": "Deposit forfeiture batch alert",
-      "refunding_without_refund_job": "Refund job missing in flight"
+      "refunding_without_refund_job": "Refund job missing in flight",
+      "llm_wallet_balance_mismatch": "LLM wallet cached balance disagrees with credit ledger"
     },
     "reconEntity": {
       "enrollment": "Enrollment",
