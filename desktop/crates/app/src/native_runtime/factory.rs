@@ -1,5 +1,5 @@
 use super::*;
-use cgc_agent_core::{run_subagent, Agent, SelectedModel};
+use cgc_agent_core::{run_subagent_with_affinity, Agent, SelectedModel};
 use cgc_agent_provider::{
     AnthropicCompatibleConfig, AnthropicCompatibleProvider, EchoProvider, ModelCapabilities,
     ModelLimits, OpenAiCompatibleConfig, OpenAiCompatibleProvider, ProviderId, ProviderProtocol,
@@ -524,6 +524,7 @@ pub(super) fn base_tools(
     config: &mut NativeRuntimeConfig,
     commands: &Weak<mpsc::UnboundedSender<Command>>,
     generation: u64,
+    affinity_session_id: Option<String>,
 ) -> ToolRegistry {
     let workspace = config.context.workspace().to_path_buf();
     let actions: ActionSink = {
@@ -545,18 +546,23 @@ pub(super) fn base_tools(
     let runner: SubagentRunner = {
         let provider = config.provider.clone();
         let model = config.model.clone();
+        let affinity_session_id = affinity_session_id
+            .map(|id| id.trim().to_string())
+            .filter(|id| !id.is_empty());
         Arc::new(move |request, events| {
             let provider = provider.clone();
             let model = model.clone();
             let workspace = workspace.clone();
+            let affinity_session_id = affinity_session_id.clone();
             Box::pin(async move {
-                run_subagent(
+                run_subagent_with_affinity(
                     provider,
                     model,
                     request.task,
                     request.system_prompt,
                     workspace,
                     events,
+                    affinity_session_id,
                 )
                 .await
                 .map_err(|error| error.to_string())

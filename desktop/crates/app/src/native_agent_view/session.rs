@@ -279,6 +279,7 @@ impl NativeAgentView {
         self.snapshot = Some(snapshot);
         if provider_changed {
             self.insufficient_quota = false;
+            self.wallet_frozen_notice = None;
             self.quota_checkout = None;
         }
         if title_changed {

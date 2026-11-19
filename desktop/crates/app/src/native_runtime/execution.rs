@@ -206,6 +206,18 @@ impl Owner {
                     Err(AgentError::StaleConnection)
                 };
                 let completed = result.is_ok();
+                if let Err(ref error) = result {
+                    if generation == self.generation && !matches!(error, AgentError::Cancelled) {
+                        let managed_provider = self.config.model.provider_id.as_str()
+                            == cgc_agent_store::CGC_CLOUD_PROVIDER_ID;
+                        let kind = classify_turn_error(error, managed_provider);
+                        self.emit(NativeRuntimeEvent::TurnError {
+                            generation,
+                            kind,
+                            message: error.to_string(),
+                        });
+                    }
+                }
                 let _ = reply.send(result);
                 self.publish(RuntimeChange::Activity);
                 if let Some(force) = self.pending_title.take() {

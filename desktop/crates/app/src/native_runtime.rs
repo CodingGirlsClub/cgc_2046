@@ -14,7 +14,7 @@ mod worker;
 use cgc_agent_checkpoint::{Checkpoint, FileChange};
 use cgc_agent_core::{AgentError, ImageAttachment, Thread, ToolTurnOutcome};
 use cgc_agent_host::{AgentEvent, NativeTurn, NativeTurnRuntime};
-use cgc_agent_provider::{Model, Provider, ToolSchema};
+use cgc_agent_provider::{Model, Provider, ProviderErrorCategory, ToolSchema};
 use cgc_agent_store::{ProviderPrefs, SessionStore};
 use cgc_agent_tools::{AgentState, AppAction, ToolContext, ToolRegistry};
 use futures::{
@@ -158,6 +158,35 @@ pub enum RuntimeChange {
     Tools,
 }
 
+/// Native turn 失败的结构化错误分类（直接源自 `ProviderError`，不依赖字符串匹配）。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NativeTurnErrorKind {
+    InsufficientQuota,
+    WalletFrozen,
+    ConcurrencyLimit,
+    Other,
+}
+
+/// 将 `AgentError` 映射为 native UI 可消费的结构化错误分类。
+/// 仅在 CGC Cloud 托管 provider 下把 402/403 解释为平台钱包余额不足 / 钱包冻结；
+/// BYOK provider 的 402/403 归为 `Other`，避免误弹 CGC 充值卡或冻结提示。
+pub(crate) fn classify_turn_error(
+    error: &AgentError,
+    managed_provider: bool,
+) -> NativeTurnErrorKind {
+    let AgentError::Provider(provider_error) = error else {
+        return NativeTurnErrorKind::Other;
+    };
+    match provider_error.category() {
+        ProviderErrorCategory::PaymentRequired if managed_provider => {
+            NativeTurnErrorKind::InsufficientQuota
+        }
+        ProviderErrorCategory::Permission if managed_provider => NativeTurnErrorKind::WalletFrozen,
+        ProviderErrorCategory::ConcurrencyLimit => NativeTurnErrorKind::ConcurrencyLimit,
+        _ => NativeTurnErrorKind::Other,
+    }
+}
+
 pub enum NativeRuntimeEvent {
     Snapshot {
         change: RuntimeChange,
@@ -165,6 +194,11 @@ pub enum NativeRuntimeEvent {
     },
     Notice {
         generation: u64,
+        message: String,
+    },
+    TurnError {
+        generation: u64,
+        kind: NativeTurnErrorKind,
         message: String,
     },
     Subagent {
@@ -550,7 +584,9 @@ impl Drop for NativeRuntimeConnection {
 
 #[cfg(test)]
 mod model_setup_tests {
-    use super::ModelSetup;
+    use super::{classify_turn_error, ModelSetup, NativeTurnErrorKind};
+    use cgc_agent_core::AgentError;
+    use cgc_agent_provider::{ProviderError, ProviderErrorCategory};
 
     #[test]
     fn only_unconfigured_blocks_send() {
@@ -558,5 +594,64 @@ mod model_setup_tests {
         assert!(ModelSetup::Configured.allows_send());
         assert!(ModelSetup::PendingCredentials.allows_send());
         assert!(ModelSetup::DemoEcho.allows_send());
+    }
+
+    #[test]
+    fn classify_turn_error_distinguishes_managed_quota_frozen_and_concurrency() {
+        assert_eq!(
+            classify_turn_error(
+                &AgentError::Provider(ProviderError::insufficient_quota("no credits")),
+                true
+            ),
+            NativeTurnErrorKind::InsufficientQuota
+        );
+        assert_eq!(
+            classify_turn_error(
+                &AgentError::Provider(ProviderError::api(403, "wallet frozen")),
+                true
+            ),
+            NativeTurnErrorKind::WalletFrozen
+        );
+        assert_eq!(
+            classify_turn_error(
+                &AgentError::Provider(ProviderError::api_with_category(
+                    ProviderErrorCategory::Permission,
+                    None,
+                    "forbidden"
+                )),
+                true
+            ),
+            NativeTurnErrorKind::WalletFrozen
+        );
+        assert_eq!(
+            classify_turn_error(
+                &AgentError::Provider(ProviderError::concurrency_limit_exceeded("too many")),
+                true
+            ),
+            NativeTurnErrorKind::ConcurrencyLimit
+        );
+        assert_eq!(
+            classify_turn_error(&AgentError::Provider(ProviderError::api(500, "boom")), true),
+            NativeTurnErrorKind::Other
+        );
+        // BYOK 402/403 must NOT classify as CGC Cloud wallet errors.
+        assert_eq!(
+            classify_turn_error(
+                &AgentError::Provider(ProviderError::insufficient_quota("byok 402")),
+                false
+            ),
+            NativeTurnErrorKind::Other
+        );
+        assert_eq!(
+            classify_turn_error(
+                &AgentError::Provider(ProviderError::api(403, "byok 403")),
+                false
+            ),
+            NativeTurnErrorKind::Other
+        );
+        assert_eq!(
+            classify_turn_error(&AgentError::RuntimeBusy, true),
+            NativeTurnErrorKind::Other
+        );
     }
 }
