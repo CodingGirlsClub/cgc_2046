@@ -8,6 +8,8 @@ defmodule Cgc2046.LlmGateway.TokenizerAndPricing do
   防止断流免费。
   """
 
+  require Logger
+
   # Tiktoken 的 encoding_for_model 只认模型名；gpt-4 映射到 cl100k_base，
   # 与 DeepSeek tokenizer 的 cl100k 口径一致。
   @tiktoken_model "gpt-4"
@@ -51,19 +53,63 @@ defmodule Cgc2046.LlmGateway.TokenizerAndPricing do
   }
 
   @doc """
-  精确统计文本 token 数；Tiktoken 不可用时按 3 字节/token 兜底。
+  启动或发布前烟雾校验：确认 `Tiktoken` NIF 正常加载且 `"hello world"` 返回精确 token 数 `2`。
+  """
+  def verify_tokenizer! do
+    case Tiktoken.count_tokens(@tiktoken_model, "hello world") do
+      {:ok, 2} ->
+        :ok
+
+      2 ->
+        :ok
+
+      other ->
+        raise "Tiktoken tokenizer verification failed: expected 2 tokens for \"hello world\", got #{inspect(other)}"
+    end
+  end
+
+  @doc """
+  精确统计文本 token 数；Tiktoken 不可用时按 3 字节/token 兜底，并记录告警与遥测。
   """
   def count_text_tokens(text) when is_binary(text) and byte_size(text) > 0 do
-    case Tiktoken.count_tokens(@tiktoken_model, text) do
-      {:ok, count} when is_integer(count) and count > 0 -> count
-      count when is_integer(count) and count > 0 -> count
-      _ -> max(1, div(byte_size(text), 3))
-    end
-  rescue
-    _ -> max(1, div(byte_size(text), 3))
+    count_text_tokens_with_model(@tiktoken_model, text)
   end
 
   def count_text_tokens(_), do: 0
+
+  @doc false
+  def count_text_tokens_with_model(model, text)
+      when is_binary(model) and is_binary(text) and byte_size(text) > 0 do
+    case Tiktoken.count_tokens(model, text) do
+      {:ok, count} when is_integer(count) and count > 0 ->
+        count
+
+      count when is_integer(count) and count > 0 ->
+        count
+
+      other ->
+        emit_tokenizer_fallback(text, {:unexpected_return, other})
+        max(1, div(byte_size(text), 3))
+    end
+  rescue
+    exception ->
+      emit_tokenizer_fallback(text, {:exception, exception.__struct__})
+      max(1, div(byte_size(text), 3))
+  end
+
+  defp emit_tokenizer_fallback(text, reason) do
+    byte_len = byte_size(text)
+
+    Logger.warning(
+      "llm gateway tiktoken fallback triggered: reason=#{inspect(reason)} byte_size=#{byte_len}"
+    )
+
+    :telemetry.execute(
+      [:cgc2046, :llm_gateway, :tokenizer_fallback],
+      %{byte_size: byte_len},
+      %{reason: reason}
+    )
+  end
 
   @doc """
   统计 chat completion payload 中 messages + tools 的 prompt token 数。

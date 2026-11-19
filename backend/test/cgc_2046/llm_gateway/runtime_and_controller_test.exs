@@ -456,6 +456,39 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
         TokenizerAndPricing.estimate_pre_flight_hold_mc(%{}, "deepseek-chat", -1)
       end
     end
+
+    test "verify_tokenizer!/0 confirms real Tiktoken NIF and emits telemetry on fallback" do
+      assert :ok == TokenizerAndPricing.verify_tokenizer!()
+
+      # Real Tiktoken cl100k_base counts "hello world" as 2 tokens (3-byte fallback would return div(11, 3) == 3).
+      assert 2 == TokenizerAndPricing.count_text_tokens("hello world")
+
+      handler_id = "tiktoken-fallback-test-#{Ecto.UUID.generate()}"
+      test_pid = self()
+
+      :ok =
+        :telemetry.attach(
+          handler_id,
+          [:cgc2046, :llm_gateway, :tokenizer_fallback],
+          fn event, measurements, metadata, _config ->
+            send(test_pid, {:telemetry_event, event, measurements, metadata})
+          end,
+          nil
+        )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      assert 3 ==
+               TokenizerAndPricing.count_text_tokens_with_model(
+                 "nonexistent-tiktoken-model",
+                 "hello world"
+               )
+
+      assert_received {:telemetry_event, [:cgc2046, :llm_gateway, :tokenizer_fallback],
+                       %{byte_size: 11}, %{reason: reason}}
+
+      assert match?({:unexpected_return, _}, reason) or match?({:exception, _}, reason)
+    end
   end
 
   describe "AffinityStore periodic ETS cleanup" do
