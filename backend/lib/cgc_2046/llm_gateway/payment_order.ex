@@ -93,48 +93,12 @@ defmodule Cgc2046.LlmGateway.PaymentOrder do
       get?(true)
       filter(expr(user_id == ^arg(:user_id) and idempotency_key == ^arg(:idempotency_key)))
     end
-
-    create :create do
-      accept([
-        :user_id,
-        :workspace_id,
-        :order_kind,
-        :provider,
-        :out_trade_no,
-        :amount_cents,
-        :credits_mc,
-        :status,
-        :expires_at,
-        :idempotency_key,
-        :credential
-      ])
-    end
-
-    update :mark_paid do
-      accept([:transaction_id, :paid_at])
-      require_atomic?(false)
-      change(set_attribute(:status, :paid))
-    end
-
-    update :cancel do
-      require_atomic?(false)
-      change(set_attribute(:status, :cancelled))
-    end
-
-    update :expire do
-      require_atomic?(false)
-      change(set_attribute(:status, :expired))
-    end
   end
 
   policies do
     policy action_type(:read) do
       authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
       authorize_if(expr(user_id == ^actor(:id)))
-    end
-
-    policy action(:create) do
-      authorize_if(actor_present())
     end
   end
 
@@ -144,21 +108,21 @@ defmodule Cgc2046.LlmGateway.PaymentOrder do
     attribute(:user_id, :uuid,
       allow_nil?: false,
       public?: true,
-      writable?: true,
+      writable?: false,
       description: "购买人（也是个人钱包入账用户）"
     )
 
     attribute(:workspace_id, :uuid,
       allow_nil?: true,
       public?: true,
-      writable?: true,
+      writable?: false,
       description: "工作台池充值目标；个人订单为空"
     )
 
     attribute(:order_kind, :atom,
       allow_nil?: false,
       public?: true,
-      writable?: true,
+      writable?: false,
       constraints: [
         one_of: [:llm_subscription, :llm_credit_pack, :llm_workspace_pool_topup]
       ],
@@ -168,7 +132,7 @@ defmodule Cgc2046.LlmGateway.PaymentOrder do
     attribute(:provider, :atom,
       allow_nil?: false,
       public?: true,
-      writable?: true,
+      writable?: false,
       constraints: [
         one_of: [:wechat_jsapi, :wechat_native, :alipay_page, :alipay_wap, :alipay_qr]
       ]
@@ -177,14 +141,14 @@ defmodule Cgc2046.LlmGateway.PaymentOrder do
     attribute(:out_trade_no, :string,
       allow_nil?: false,
       public?: true,
-      writable?: true,
+      writable?: false,
       description: "渠道商户单号；固定 LLM_ 前缀供回调分流"
     )
 
     attribute(:amount_cents, :integer,
       allow_nil?: false,
       public?: true,
-      writable?: true,
+      writable?: false,
       constraints: [min: 1],
       description: "实付金额（分）"
     )
@@ -192,7 +156,7 @@ defmodule Cgc2046.LlmGateway.PaymentOrder do
     attribute(:credits_mc, :integer,
       allow_nil?: false,
       public?: true,
-      writable?: true,
+      writable?: false,
       constraints: [min: 1],
       description: "创单时快照的入账算力（1 cent = 10,000 mc）"
     )
@@ -201,32 +165,32 @@ defmodule Cgc2046.LlmGateway.PaymentOrder do
       allow_nil?: false,
       default: :pending,
       public?: true,
-      writable?: true,
+      writable?: false,
       constraints: [one_of: [:pending, :paid, :cancelled, :expired]]
     )
 
     attribute(:expires_at, :utc_datetime_usec,
       allow_nil?: true,
       public?: true,
-      writable?: true,
+      writable?: false,
       description: "展示用支付截止时间；本阶段不设抢占资源，不挂过期 worker"
     )
 
-    attribute(:paid_at, :utc_datetime_usec, public?: true, writable?: true)
+    attribute(:paid_at, :utc_datetime_usec, public?: true, writable?: false)
 
-    attribute(:transaction_id, :string, public?: true, writable?: true)
+    attribute(:transaction_id, :string, public?: true, writable?: false)
 
     attribute(:credential, :map,
       allow_nil?: true,
       public?: true,
-      writable?: true,
+      writable?: false,
       description: "渠道创建返回的前端凭据（二维码/跳转参数）；幂等重放原样返回"
     )
 
     attribute(:idempotency_key, :string,
       allow_nil?: false,
       public?: true,
-      writable?: true,
+      writable?: false,
       description: "同一购买人重复创单的幂等键"
     )
 

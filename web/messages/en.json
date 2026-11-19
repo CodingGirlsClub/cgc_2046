@@ -140,7 +140,21 @@
     "mini_web_login_account_conflict": "Account mismatch. Check the current account and start again.",
     "mini_web_login_phone_required": "Complete phone authorization first.",
     "mini_web_login_unavailable": "WeChat login is temporarily unavailable.",
-    "mini_web_login_failed": "Login did not complete. Please retry."
+    "mini_web_login_failed": "Login did not complete. Please retry.",
+    "llm_payment_order_invalid_kind": "Unsupported credit order type. Please choose again.",
+    "llm_payment_order_invalid_provider": "Unsupported payment channel. Please choose another method.",
+    "llm_payment_order_invalid_amount": "Payment amount must be a positive integer. Please check and retry.",
+    "llm_payment_order_invalid_workspace": "Invalid workspace parameter. Please refresh and retry.",
+    "llm_payment_order_invalid_idempotency_key": "Invalid request identifier. Please refresh the page and retry.",
+    "llm_payment_order_workspace_required": "A workspace must be specified for workspace credit pool top-ups.",
+    "llm_payment_order_forbidden": "Only a workspace Owner or Admin can top up this workspace.",
+    "llm_payment_order_provider_failed": "Payment channel order creation failed. Please try again later or choose another method.",
+    "llm_payment_order_idempotency_conflict": "Order creation conflict. Please try again.",
+    "llm_payment_order_not_found": "Credit order not found or you do not have access to it.",
+    "llm_payment_order_database_error": "Failed to save the order. Please try again later.",
+    "insufficient_workspace_pool": "Insufficient workspace credit pool balance. Top up before distributing.",
+    "no_workspace_members": "This workspace has no eligible members to distribute credits to.",
+    "workspace_not_found": "Workspace not found."
   },
   "auth": {
     "unified": {

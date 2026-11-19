@@ -51,6 +51,7 @@ defmodule Cgc2046.Payments.Workers.PaymentReconciliationWorker do
 
   require Logger
 
+  alias Cgc2046.LlmGateway.PaymentOrder, as: LlmPaymentOrder
   alias Cgc2046.Payments.{Order, Provider}
   alias Cgc2046.Reconciliation.Finding
 
@@ -102,20 +103,41 @@ defmodule Cgc2046.Payments.Workers.PaymentReconciliationWorker do
 
     # 本地面单次投影读：五类比对基准（paid/pending/refunding）+ 全量单索引
     # （channel_only 需区分「本地已终态」与「无本地单」）合一次读取，
-    # 规则各取所需字段，两份全量 Map 不再各付一次全表读
+    # 规则各取所需字段，两份全量 Map 不再各付一次全表读；
+    # 共享同一商户号的独立 LLM 算力订单（llm_payment_orders）同样纳入账单面比对
     all_orders =
       Order
       |> Ash.Query.select([:id, :out_trade_no, :status, :amount_cents, :updated_at, :expire_at])
       |> Ash.read!(authorize?: false)
 
+    all_llm_orders =
+      LlmPaymentOrder
+      |> Ash.Query.select([:id, :out_trade_no, :status, :amount_cents, :updated_at, :paid_at])
+      |> Ash.read!(authorize?: false)
+
     orders = Enum.filter(all_orders, &(&1.status in [:paid, :pending, :refunding]))
+    llm_orders = Enum.filter(all_llm_orders, &(&1.status in [:paid, :pending]))
 
     local_by_trade_no =
-      Map.new(all_orders, fn o -> {o.out_trade_no, %{id: o.id, status: o.status}} end)
+      Map.merge(
+        Map.new(all_orders, fn o ->
+          {o.out_trade_no, %{id: o.id, status: o.status, source: :payment_order}}
+        end),
+        Map.new(all_llm_orders, fn o ->
+          {o.out_trade_no, %{id: o.id, status: o.status, source: :llm_payment_order}}
+        end)
+      )
 
     {candidates, statement_complete?} =
       if skipped_channels == [] do
-        {diff_candidates(statement_entries, orders, local_by_trade_no, bill_date, now), true}
+        {diff_candidates(
+           statement_entries,
+           orders,
+           llm_orders,
+           local_by_trade_no,
+           bill_date,
+           now
+         ), true}
       else
         Logger.info(
           "payment recon: statement fetch incomplete for #{inspect(Enum.sort(skipped_channels))} " <>
@@ -227,18 +249,30 @@ defmodule Cgc2046.Payments.Workers.PaymentReconciliationWorker do
 
   # ── 五类差异判定 ──────────────────────────────────────────────────────────
 
-  defp diff_candidates(statement_entries, orders, local_by_trade_no, bill_date, now) do
+  defp diff_candidates(statement_entries, orders, llm_orders, local_by_trade_no, bill_date, now) do
     # 规1：渠道有我无（本地无此单，或本地已终态——cancelled=作废单被支付（异常），
     # expired=过期后迟到扣款且回调丢失（AE2 长尾）；refunding/refunded 在退款链
-    # 在途，不报）
+    # 在途，不报；LLM 订单无过期 worker，渠道有款但本地仍 pending 同样属于回调丢失）
     channel_only =
       Enum.flat_map(statement_entries, fn {out_trade_no, entry} ->
         case local_by_trade_no do
-          %{^out_trade_no => order} ->
+          %{^out_trade_no => %{source: :payment_order} = order} ->
             if order.status in [:cancelled, :expired] do
               [
                 candidate(order.id, "channel_only", entry, %{
                   local_status: Atom.to_string(order.status)
+                })
+              ]
+            else
+              []
+            end
+
+          %{^out_trade_no => %{source: :llm_payment_order} = order} ->
+            if order.status in [:pending, :cancelled, :expired] do
+              [
+                candidate(order.id, "channel_only", entry, %{
+                  local_status: Atom.to_string(order.status),
+                  order_source: "llm_payment_order"
                 })
               ]
             else
@@ -276,9 +310,40 @@ defmodule Cgc2046.Payments.Workers.PaymentReconciliationWorker do
         end
       end)
 
+    llm_matched_or_local =
+      Enum.flat_map(llm_orders, fn order ->
+        case Map.fetch(statement_entries, order.out_trade_no) do
+          {:ok, entry} ->
+            if entry.amount_cents == order.amount_cents do
+              []
+            else
+              [
+                candidate(order.id, "amount_mismatch", entry, %{
+                  local_cents: order.amount_cents,
+                  order_source: "llm_payment_order"
+                })
+              ]
+            end
+
+          :error ->
+            settled_at = order.paid_at || order.updated_at
+
+            if order.status == :paid and bill_date == DateTime.to_date(settled_at) do
+              [
+                candidate(order.id, "local_paid_missing", nil, %{
+                  status: "paid",
+                  order_source: "llm_payment_order"
+                })
+              ]
+            else
+              []
+            end
+        end
+      end)
+
     local_only = pending_overdue(orders, now) ++ refunding_stuck(orders, now)
 
-    dedupe(channel_only ++ matched_or_local ++ local_only)
+    dedupe(channel_only ++ matched_or_local ++ llm_matched_or_local ++ local_only)
   end
 
   defp pending_overdue(orders, now) do
