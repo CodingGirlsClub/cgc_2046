@@ -15,10 +15,23 @@ fn provider_label(provider: &str) -> &'static str {
 }
 
 impl NativeAgentView {
+    /// 账号/scope 切换时清掉上一账号的钱包与收银台状态，并推进 serial
+    /// 让在途的 wallet / checkout / polling 回调全部失效。
+    pub(crate) fn reset_account_state(&mut self, cx: &mut Context<Self>) {
+        self.wallet = None;
+        self.wallet_refresh_serial = self.wallet_refresh_serial.wrapping_add(1);
+        self.insufficient_quota = false;
+        self.quota_checkout = None;
+        self.quota_checkout_serial = self.quota_checkout_serial.wrapping_add(1);
+        cx.notify();
+    }
+
     /// 登录成功 / 每轮结束后异步刷新 `myLlmWallet`；失败不阻塞对话。
     pub(super) fn refresh_wallet(&mut self, cx: &mut Context<Self>) {
         if !cgc_platform::gateway::signed_in() {
             self.wallet = None;
+            // 让已经发出的 wallet 请求在回调里也被丢弃。
+            self.wallet_refresh_serial = self.wallet_refresh_serial.wrapping_add(1);
             cx.notify();
             return;
         }

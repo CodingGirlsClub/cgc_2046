@@ -912,6 +912,7 @@ impl RootView {
         if let Some(runtime) = &self.native_runtime {
             runtime.stop();
         }
+        self.reset_native_account_state(cx);
         self.session.sign_out_local();
         self.workspaces.reset();
         self.workspaces_started = false;
@@ -3761,6 +3762,7 @@ impl RootView {
         if let Some(runtime) = &self.native_runtime {
             runtime.stop();
         }
+        self.reset_native_account_state(cx);
         let token = self.session.sign_out_local();
         if let Some(token) = token {
             let api = self.session.api_handle();

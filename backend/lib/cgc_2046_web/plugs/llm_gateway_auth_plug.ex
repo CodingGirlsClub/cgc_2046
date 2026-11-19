@@ -21,11 +21,12 @@ defmodule Cgc2046Web.Plugs.LlmGatewayAuthPlug do
 
   @impl true
   def call(conn, _opts) do
-    case bearer_token(conn) do
-      nil ->
-        conn
+    case get_req_header(conn, "authorization") do
+      [] ->
+        # 本管线没有 cookie/session 鉴权来源；显式清空防止其它 plug 遗留 actor。
+        assign(conn, :current_user, nil)
 
-      token ->
+      [<<"Bearer ", token::binary>>] when byte_size(token) > 0 ->
         signer = Config.token_signer(Cgc2046.Accounts.User, [], %{})
 
         case Joken.verify(token, signer) do
@@ -35,13 +36,12 @@ defmodule Cgc2046Web.Plugs.LlmGatewayAuthPlug do
           _ ->
             assign(conn, :current_user, nil)
         end
-    end
-  end
 
-  defp bearer_token(conn) do
-    case get_req_header(conn, "authorization") do
-      [<<"Bearer ", token::binary>>] when byte_size(token) > 0 -> token
-      _ -> nil
+      _ ->
+        # `load_from_bearer` 会遍历所有 Authorization 头并加载用户；多头时
+        # 不能只因为无法取出单个 token 就沿用 current_user，否则 web 会话
+        # 可以靠重复头绕过 desktop claim 门。
+        assign(conn, :current_user, nil)
     end
   end
 end

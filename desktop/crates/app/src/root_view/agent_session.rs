@@ -361,6 +361,13 @@ impl RootView {
         self.prepare_agent_authorization(cx);
     }
 
+    /// 账号/scope 切换时清掉 native 视图里上一账号的钱包、402 卡和在途回调。
+    pub(in crate::root_view) fn reset_native_account_state(&mut self, cx: &mut Context<Self>) {
+        if let Some(view) = self.native_agent_view.clone() {
+            view.update(cx, |view, cx| view.reset_account_state(cx));
+        }
+    }
+
     /// 登录态变化后让 native runtime 重新读取 managed provider / BYOK 选择。
     /// 首次启动 signed-out 时 runtime 已按 Unconfigured 建好，不刷新会一直禁用发送。
     pub(in crate::root_view) fn refresh_native_providers(&mut self, cx: &mut Context<Self>) {
@@ -393,6 +400,7 @@ impl RootView {
         let Some(runtime) = self.native_runtime.clone() else {
             return;
         };
+        self.reset_native_account_state(cx);
         self.native_scope = Some(scope.clone());
         let epoch = self.workspaces.epoch();
         runtime.stop();
