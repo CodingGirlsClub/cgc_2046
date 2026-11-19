@@ -9,9 +9,31 @@ defmodule Cgc2046.LlmGateway.AffinityRouter do
 
   @ets_table :llm_session_affinity
   @affinity_ttl_seconds 7_200
-  @max_output_tokens 8_192
-  @default_output_tokens 4_096
+  @max_output_tokens_default 8_192
+  @default_output_tokens_default 4_096
+  @max_output_tokens_reasoning 32_768
+  @default_output_tokens_reasoning 16_384
   @background_output_tokens 1_024
+
+  # 上游转发参数白名单：严格剔除 "n"、"session_id"、"stream"、"stream_options"、"user"
+  # 及任意客户端自定义字段，防止多候选倍率套利或协议注入。
+  @allowed_upstream_keys ~w(
+    model
+    messages
+    tools
+    tool_choice
+    max_tokens
+    temperature
+    top_p
+    presence_penalty
+    frequency_penalty
+    stop
+    response_format
+    seed
+    reasoning_effort
+    logprobs
+    top_logprobs
+  )
 
   @default_channels [
     %{
@@ -148,6 +170,7 @@ defmodule Cgc2046.LlmGateway.AffinityRouter do
 
     cleaned_params =
       params
+      |> Map.take(@allowed_upstream_keys)
       |> Map.put("model", upstream_model)
       |> Map.put("stream", true)
       |> Map.put("stream_options", %{"include_usage" => true})
@@ -200,7 +223,8 @@ defmodule Cgc2046.LlmGateway.AffinityRouter do
     is_reasoner? =
       logical_model == "cgc-reasoning" or
         String.contains?(upstream_model, "reasoner") or
-        String.contains?(upstream_model, "-r1")
+        String.contains?(upstream_model, "-r1") or
+        String.contains?(upstream_model, "v4-pro")
 
     params =
       if is_reasoner? do
@@ -219,17 +243,17 @@ defmodule Cgc2046.LlmGateway.AffinityRouter do
     output_limit =
       case Map.get(params, "max_tokens") do
         max_tokens when is_integer(max_tokens) and max_tokens > 0 ->
-          if logical_model == "cgc-background" do
-            min(max_tokens, @background_output_tokens)
-          else
-            min(max_tokens, @max_output_tokens)
+          cond do
+            logical_model == "cgc-background" -> min(max_tokens, @background_output_tokens)
+            is_reasoner? -> min(max_tokens, @max_output_tokens_reasoning)
+            true -> min(max_tokens, @max_output_tokens_default)
           end
 
         _ ->
-          if logical_model == "cgc-background" do
-            @background_output_tokens
-          else
-            @default_output_tokens
+          cond do
+            logical_model == "cgc-background" -> @background_output_tokens
+            is_reasoner? -> @default_output_tokens_reasoning
+            true -> @default_output_tokens_default
           end
       end
 

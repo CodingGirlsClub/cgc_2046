@@ -518,6 +518,10 @@ if config_env() == :prod do
     System.get_env("DEEPSEEK_API_KEYS", System.get_env("DEEPSEEK_API_KEY", ""))
     |> String.split(",", trim: true)
 
+  deepseek_default_model = System.get_env("DEEPSEEK_DEFAULT_MODEL", "deepseek-chat")
+  deepseek_reasoning_model = System.get_env("DEEPSEEK_REASONING_MODEL", "deepseek-reasoner")
+  deepseek_background_model = System.get_env("DEEPSEEK_BACKGROUND_MODEL", "deepseek-chat")
+
   primary_channels =
     deepseek_keys
     |> Enum.with_index(1)
@@ -529,14 +533,14 @@ if config_env() == :prod do
         api_key: key,
         chat_path: "/chat/completions",
         pricing_model: %{
-          "cgc-default" => "deepseek-chat",
-          "cgc-reasoning" => "deepseek-reasoner",
-          "cgc-background" => "deepseek-chat"
+          "cgc-default" => deepseek_default_model,
+          "cgc-reasoning" => deepseek_reasoning_model,
+          "cgc-background" => deepseek_background_model
         },
         models: %{
-          "cgc-default" => "deepseek-chat",
-          "cgc-reasoning" => "deepseek-reasoner",
-          "cgc-background" => "deepseek-chat"
+          "cgc-default" => deepseek_default_model,
+          "cgc-reasoning" => deepseek_reasoning_model,
+          "cgc-background" => deepseek_background_model
         }
       }
     end)
@@ -562,9 +566,9 @@ if config_env() == :prod do
             api_key: ark_key,
             chat_path: "/chat/completions",
             pricing_model: %{
-              "cgc-default" => "deepseek-chat",
-              "cgc-reasoning" => "deepseek-reasoner",
-              "cgc-background" => "deepseek-chat"
+              "cgc-default" => "volcengine-deepseek-v3",
+              "cgc-reasoning" => "volcengine-deepseek-r1",
+              "cgc-background" => "volcengine-deepseek-v3"
             },
             models: %{
               "cgc-default" => System.get_env("VOLCENGINE_V3_EP", "deepseek-v3-250324"),

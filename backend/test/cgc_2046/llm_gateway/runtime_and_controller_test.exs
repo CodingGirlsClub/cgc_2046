@@ -145,6 +145,57 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
       assert bg_cleaned["max_tokens"] == 1024
     end
 
+    test "strips disallowed client keys (n, session_id, user, custom) and raises cgc-reasoning max_tokens ceiling" do
+      [channel | _] = AffinityRouter.configured_channels()
+
+      {_, _, cleaned} =
+        AffinityRouter.prepare_upstream_payload(
+          %{
+            "model" => "cgc-reasoning",
+            "n" => 5,
+            "session_id" => "sess-leak-attempt",
+            "user" => "spoofed-user",
+            "stream" => false,
+            "stream_options" => %{"include_usage" => false},
+            "arbitrary_client_key" => "evil",
+            "max_tokens" => 32_768,
+            "messages" => [%{"role" => "user", "content" => "Deep proof"}]
+          },
+          channel
+        )
+
+      refute Map.has_key?(cleaned, "n")
+      refute Map.has_key?(cleaned, "session_id")
+      refute Map.has_key?(cleaned, "user")
+      refute Map.has_key?(cleaned, "arbitrary_client_key")
+      assert cleaned["stream"] == true
+      assert cleaned["stream_options"] == %{"include_usage" => true}
+      assert cleaned["max_tokens"] == 32_768
+
+      {_, _, capped_reasoning} =
+        AffinityRouter.prepare_upstream_payload(
+          %{
+            "model" => "cgc-reasoning",
+            "max_tokens" => 99_999,
+            "messages" => [%{"role" => "user", "content" => "Cap check"}]
+          },
+          channel
+        )
+
+      assert capped_reasoning["max_tokens"] == 32_768
+
+      {_, _, default_reasoning} =
+        AffinityRouter.prepare_upstream_payload(
+          %{
+            "model" => "cgc-reasoning",
+            "messages" => [%{"role" => "user", "content" => "Default check"}]
+          },
+          channel
+        )
+
+      assert default_reasoning["max_tokens"] == 16_384
+    end
+
     test "evicts expired session-affinity entries" do
       key = "session:expired-#{Ecto.UUID.generate()}"
 
@@ -248,6 +299,38 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
         )
 
       assert defaulted["max_tokens"] == 4096
+
+      # Decoupled hold reserve: cgc-reasoning allows max_tokens 32_768 upstream while
+      # pre-flight hold caps output reserve at 4_096 tokens (same hold as 4_096).
+      {_, _, reasoning_32k} =
+        AffinityRouter.prepare_upstream_payload(
+          %{
+            "model" => "cgc-reasoning",
+            "max_tokens" => 32_768,
+            "messages" => params["messages"]
+          },
+          channel
+        )
+
+      assert reasoning_32k["max_tokens"] == 32_768
+
+      hold_32k =
+        TokenizerAndPricing.estimate_pre_flight_hold_mc(reasoning_32k, "deepseek-reasoner")
+
+      hold_4k =
+        TokenizerAndPricing.estimate_pre_flight_hold_mc(
+          Map.put(reasoning_32k, "max_tokens", 4_096),
+          "deepseek-reasoner"
+        )
+
+      hold_2k =
+        TokenizerAndPricing.estimate_pre_flight_hold_mc(
+          Map.put(reasoning_32k, "max_tokens", 2_048),
+          "deepseek-reasoner"
+        )
+
+      assert hold_32k == hold_4k
+      assert hold_4k > hold_2k
     end
 
     test "uses official usage for exact billing and Tiktoken estimate when usage is nil" do
@@ -266,7 +349,9 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
           official_usage: nil,
           output_iodata: content_iodata,
           reasoning_iodata: reasoning_iodata,
-          upstream_error?: false
+          upstream_error?: false,
+          channel_provider: :deepseek,
+          settled_at: ~U[2026-11-19 02:00:00Z]
         })
 
       assert abort_settlement.billing_mode == :estimated_abort
@@ -275,24 +360,61 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
       assert abort_settlement.reasoning_tokens > 0
       assert abort_settlement.charged_mc > abort_settlement.upstream_cost_mc
 
-      exact_settlement =
+      usage = %{
+        "prompt_tokens" => 10_000,
+        "prompt_cache_hit_tokens" => 9_000,
+        "prompt_cache_miss_tokens" => 1_000,
+        "completion_tokens" => 500
+      }
+
+      # Thursday 02:00 UTC => peak (1.0x); base_cost_mc = 1_800 + 2_000 + 1_500 = 5_300;
+      # transparent 1.5x markup => charged_mc = 7_950 (no hidden cache-hit surcharge).
+      peak_deepseek =
         TokenizerAndPricing.calculate_settlement("deepseek-chat", 10_000, %{
-          official_usage: %{
-            "prompt_tokens" => 10_000,
-            "prompt_cache_hit_tokens" => 9_000,
-            "prompt_cache_miss_tokens" => 1_000,
-            "completion_tokens" => 500
-          },
+          official_usage: usage,
           output_iodata: content_iodata,
-          reasoning_iodata: reasoning_iodata
+          reasoning_iodata: reasoning_iodata,
+          channel_provider: :deepseek,
+          settled_at: ~U[2026-11-19 02:00:00Z]
         })
 
-      assert exact_settlement.billing_mode == :exact
-      assert exact_settlement.prompt_cache_hit_tokens == 9_000
-      assert exact_settlement.prompt_cache_miss_tokens == 1_000
-      assert exact_settlement.completion_tokens == 500
-      assert exact_settlement.upstream_cost_mc == 5_300
-      assert exact_settlement.charged_mc > exact_settlement.upstream_cost_mc
+      assert peak_deepseek.billing_mode == :exact
+      assert peak_deepseek.prompt_cache_hit_tokens == 9_000
+      assert peak_deepseek.prompt_cache_miss_tokens == 1_000
+      assert peak_deepseek.completion_tokens == 500
+      assert peak_deepseek.upstream_cost_mc == 5_300
+      assert peak_deepseek.charged_mc == 7_950
+
+      # Thursday 18:00 UTC => off-peak (0.5x) for :deepseek official channel:
+      # upstream_cost_mc drops by 50%, while user charged_mc stays stable 24/7.
+      off_peak_deepseek =
+        TokenizerAndPricing.calculate_settlement("deepseek-chat", 10_000, %{
+          official_usage: usage,
+          channel_provider: :deepseek,
+          settled_at: ~U[2026-11-19 18:00:00Z]
+        })
+
+      assert off_peak_deepseek.upstream_cost_mc == 2_650
+      assert off_peak_deepseek.charged_mc == 7_950
+
+      # Saturday 02:00 UTC => weekend off-peak (0.5x) for :deepseek, 1.0x for :volcengine.
+      assert TokenizerAndPricing.upstream_rate_multiplier(:deepseek, ~U[2026-11-21 02:00:00Z]) ==
+               0.5
+
+      assert TokenizerAndPricing.upstream_rate_multiplier(:volcengine, ~U[2026-11-21 02:00:00Z]) ==
+               1.0
+
+      # :volcengine does not get DeepSeek off-peak discount (multiplier stays 1.0).
+      off_peak_volcengine =
+        TokenizerAndPricing.calculate_settlement("volcengine-deepseek-v3", 10_000, %{
+          official_usage: usage,
+          channel_provider: :volcengine,
+          settled_at: ~U[2026-11-19 18:00:00Z]
+        })
+
+      # base_cost_mc = (9_000*400_000 + 1_000*2_000_000 + 500*8_000_000)/1_000_000 = 9_600
+      assert off_peak_volcengine.upstream_cost_mc == 9_600
+      assert off_peak_volcengine.charged_mc == 14_400
     end
 
     test "estimate_pre_flight_hold_mc/3 with pre-computed prompt_tokens matches /2" do
@@ -398,6 +520,39 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
         })
 
       assert %{"error" => %{"code" => "insufficient_quota"}} = json_response(conn, 402)
+    end
+
+    test "returns 403 wallet_frozen when the wallet is frozen even with sufficient credits" do
+      user = register_user("gateway-frozen")
+      raw_token = desktop_token(user)
+
+      {:ok, _} =
+        Ledger.grant_personal_credits(user.id, %{amount_mc: 500_000, source_type: :pack})
+
+      Cgc2046.Repo.query!(
+        "UPDATE llm_wallets SET status = 'frozen' WHERE user_id = $1",
+        [Ecto.UUID.dump!(user.id)]
+      )
+
+      conn =
+        build_conn()
+        |> put_req_header("authorization", "Bearer #{raw_token}")
+        |> put_req_header("content-type", "application/json")
+        |> put_req_header("accept", "text/event-stream")
+        |> post("/v1/chat/completions", %{
+          "model" => "cgc-default",
+          "messages" => [%{"role" => "user", "content" => "Hello frozen wallet"}]
+        })
+
+      assert %{
+               "error" => %{
+                 "code" => "wallet_frozen",
+                 "type" => "permission_error"
+               }
+             } = json_response(conn, 403)
+
+      assert LeaseManager.active_streams_count(user.id) == 0
+      assert Ledger.fetch_wallet!(user.id).held_mc == 0
     end
 
     test "rejects an MCP token before spending credits" do
@@ -966,6 +1121,61 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
       assert log.upstream_model == "ep-v3-backup"
       assert log.billing_mode == :exact
       assert log.charged_mc > 0
+    end
+
+    test "flushes trailing sse_buffer without double-newline terminator so final usage still settles :exact" do
+      user = register_user("gateway-sse-trailing-buffer")
+      raw_token = desktop_token(user)
+      session_id = "sess-sse-trailing-#{Ecto.UUID.generate()}"
+
+      {:ok, _} =
+        Ledger.grant_personal_credits(user.id, %{amount_mc: 500_000, source_type: :pack})
+
+      usage = %{
+        "prompt_tokens" => 2_000,
+        "prompt_cache_hit_tokens" => 1_800,
+        "prompt_cache_miss_tokens" => 200,
+        "completion_tokens" => 300
+      }
+
+      server =
+        start_sse_server(fn socket, _request ->
+          # Final usage frame intentionally lacks the trailing "\n\n" SSE delimiter.
+          send_sse_chunks(socket, [
+            sse_data_frame(%{
+              "choices" => [%{"delta" => %{"content" => "Trailing usage test."}}]
+            }),
+            "data: " <> Jason.encode!(%{"choices" => [], "usage" => usage})
+          ])
+        end)
+
+      configure_local_channels([local_channel("local_trailing_primary", server.base_url)])
+
+      conn =
+        build_conn()
+        |> put_req_header("authorization", "Bearer #{raw_token}")
+        |> put_req_header("x-session-affinity", session_id)
+        |> put_req_header("content-type", "application/json")
+        |> put_req_header("accept", "text/event-stream")
+        |> post("/v1/chat/completions", %{
+          "model" => "cgc-default",
+          "messages" => [%{"role" => "user", "content" => "No trailing blank line"}]
+        })
+
+      assert conn.status == 200
+      assert conn.resp_body =~ "Trailing usage test."
+
+      [log] = user_usage_logs(user.id)
+      assert log.billing_mode == :exact
+      assert log.prompt_cache_hit_tokens == 1_800
+      assert log.prompt_cache_miss_tokens == 200
+      assert log.completion_tokens == 300
+      assert log.charged_mc > 0
+
+      wallet = Ledger.fetch_wallet!(user.id)
+      assert wallet.held_mc == 0
+      assert wallet.cached_balance_mc == 500_000 - log.charged_mc
+      assert LeaseManager.active_streams_count(user.id) == 0
     end
   end
 

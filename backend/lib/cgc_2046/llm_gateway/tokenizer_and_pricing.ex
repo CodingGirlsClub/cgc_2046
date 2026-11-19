@@ -12,15 +12,38 @@ defmodule Cgc2046.LlmGateway.TokenizerAndPricing do
   # 与 DeepSeek tokenizer 的 cl100k 口径一致。
   @tiktoken_model "gpt-4"
   @default_markup_ratio 1.5
-  @default_hold_output_tokens 1024
+  @default_hold_output_tokens 1_024
+  @hold_output_cap_default 2_048
+  @hold_output_cap_reasoning 4_096
+  @hold_output_cap_background 1_024
 
-  @pricing_per_million_tokens %{
+  @default_pricing_per_million_tokens %{
     "deepseek-chat" => %{
       cache_hit_mc: 200_000,
       cache_miss_mc: 2_000_000,
       output_mc: 3_000_000
     },
     "deepseek-reasoner" => %{
+      cache_hit_mc: 1_000_000,
+      cache_miss_mc: 4_000_000,
+      output_mc: 16_000_000
+    },
+    "deepseek-flash" => %{
+      cache_hit_mc: 100_000,
+      cache_miss_mc: 1_000_000,
+      output_mc: 2_000_000
+    },
+    "deepseek-v4-pro" => %{
+      cache_hit_mc: 1_000_000,
+      cache_miss_mc: 4_000_000,
+      output_mc: 16_000_000
+    },
+    "volcengine-deepseek-v3" => %{
+      cache_hit_mc: 400_000,
+      cache_miss_mc: 2_000_000,
+      output_mc: 8_000_000
+    },
+    "volcengine-deepseek-r1" => %{
       cache_hit_mc: 1_000_000,
       cache_miss_mc: 4_000_000,
       output_mc: 16_000_000
@@ -89,12 +112,14 @@ defmodule Cgc2046.LlmGateway.TokenizerAndPricing do
 
   @doc """
   使用已算好的 `prompt_tokens` 估算预授权冻结额，避免重复分词。
+  冻结输出缓冲与上游 `max_tokens` 解耦，按模型档位封顶以防长推理额度误伤正常余额用户。
   """
   def estimate_pre_flight_hold_mc(params, pricing_model, prompt_tokens)
       when is_integer(prompt_tokens) and prompt_tokens >= 0 do
     rates = rates_for(pricing_model)
+    cap = hold_output_cap(params, pricing_model)
 
-    output_tokens =
+    requested_output_tokens =
       case Map.get(params, "max_tokens") do
         max_tokens when is_integer(max_tokens) and max_tokens > 0 ->
           max_tokens
@@ -103,16 +128,45 @@ defmodule Cgc2046.LlmGateway.TokenizerAndPricing do
           @default_hold_output_tokens
       end
 
+    hold_output_tokens = min(requested_output_tokens, cap)
+
     raw_cost_mc =
       div(
         prompt_tokens * rates.cache_miss_mc +
-          output_tokens * rates.output_mc,
+          hold_output_tokens * rates.output_mc,
         1_000_000
       )
 
     markup = Application.get_env(:cgc_2046, :llm_gateway_markup_ratio, @default_markup_ratio)
     max(100, round(raw_cost_mc * markup))
   end
+
+  @doc """
+  计算上游通道的时段折扣倍率（仅作用于 `upstream_cost_mc`，用户计价 24/7 恒定）。
+
+  DeepSeek 官方通道在 `:llm_gateway_off_peak_pricing_enabled` 开启（默认 `true`）时：
+  周一至周五 01:00–04:00 UTC 与 06:00–10:00 UTC 为高峰（`1.0`），其余时段与周末为错峰（`0.5`）；
+  其他厂商恒为 `1.0`。
+  """
+  def upstream_rate_multiplier(provider, now \\ DateTime.utc_now())
+
+  def upstream_rate_multiplier(:deepseek, %DateTime{} = now) do
+    if Application.get_env(:cgc_2046, :llm_gateway_off_peak_pricing_enabled, true) do
+      utc = now |> DateTime.to_unix() |> DateTime.from_unix!()
+      dow = utc |> DateTime.to_date() |> Date.day_of_week()
+      hour = utc.hour
+
+      if dow in 1..5 and (hour in 1..3 or hour in 6..9) do
+        1.0
+      else
+        0.5
+      end
+    else
+      1.0
+    end
+  end
+
+  def upstream_rate_multiplier(_provider, _now), do: 1.0
 
   @doc """
   结算计算。上游 `usage` 存在 → 精确计费；nil → 断流估算；上游在产生
@@ -123,12 +177,20 @@ defmodule Cgc2046.LlmGateway.TokenizerAndPricing do
     rates = rates_for(pricing_model)
     markup = Application.get_env(:cgc_2046, :llm_gateway_markup_ratio, @default_markup_ratio)
 
+    provider =
+      Map.get(stream_state, :channel_provider) ||
+        Map.get(stream_state, :provider) ||
+        :deepseek
+
+    settled_at = Map.get(stream_state, :settled_at) || DateTime.utc_now()
+    upstream_multiplier = upstream_rate_multiplier(provider, settled_at)
+
     case Map.get(stream_state, :official_usage) do
       usage when is_map(usage) ->
         {hit_tokens, miss_tokens, completion_tokens, reasoning_tokens} =
           extract_official_tokens(usage)
 
-        upstream_cost_mc =
+        base_cost_mc =
           div(
             hit_tokens * rates.cache_hit_mc +
               miss_tokens * rates.cache_miss_mc +
@@ -136,16 +198,10 @@ defmodule Cgc2046.LlmGateway.TokenizerAndPricing do
             1_000_000
           )
 
-        # 用户侧把 cache-hit 输入按 cache-miss 的一半计价，保留折扣但收回大部分缓存红利。
-        user_input_cost_mc =
-          div(
-            hit_tokens * div(rates.cache_miss_mc, 2) +
-              miss_tokens * rates.cache_miss_mc +
-              completion_tokens * rates.output_mc,
-            1_000_000
-          )
-
-        charged_mc = max(1, round(user_input_cost_mc * markup))
+        # 透明统一加价：用户侧按标准基准价 × markup 24/7 恒定计费（不叠加隐藏缓存加价），
+        # 上游真实成本按通道错峰倍率记录以准确核算毛利。
+        upstream_cost_mc = max(1, round(base_cost_mc * upstream_multiplier))
+        charged_mc = max(1, round(base_cost_mc * markup))
 
         %{
           billing_mode: :exact,
@@ -153,7 +209,7 @@ defmodule Cgc2046.LlmGateway.TokenizerAndPricing do
           prompt_cache_miss_tokens: miss_tokens,
           completion_tokens: completion_tokens,
           reasoning_tokens: reasoning_tokens,
-          upstream_cost_mc: max(1, upstream_cost_mc),
+          upstream_cost_mc: upstream_cost_mc,
           charged_mc: charged_mc
         }
 
@@ -177,14 +233,15 @@ defmodule Cgc2046.LlmGateway.TokenizerAndPricing do
           }
         else
           # 客户端断流或上游中途失败：按 100% cache-miss prompt + 已生成 token 计费。
-          upstream_cost_mc =
+          base_cost_mc =
             div(
               prompt_tokens * rates.cache_miss_mc +
                 total_completion_tokens * rates.output_mc,
               1_000_000
             )
 
-          charged_mc = max(1, round(upstream_cost_mc * markup))
+          upstream_cost_mc = max(1, round(base_cost_mc * upstream_multiplier))
+          charged_mc = max(1, round(base_cost_mc * markup))
 
           %{
             billing_mode: :estimated_abort,
@@ -192,7 +249,7 @@ defmodule Cgc2046.LlmGateway.TokenizerAndPricing do
             prompt_cache_miss_tokens: prompt_tokens,
             completion_tokens: total_completion_tokens,
             reasoning_tokens: est_reasoning_tokens,
-            upstream_cost_mc: max(1, upstream_cost_mc),
+            upstream_cost_mc: upstream_cost_mc,
             charged_mc: charged_mc
           }
         end
@@ -232,13 +289,48 @@ defmodule Cgc2046.LlmGateway.TokenizerAndPricing do
     {hit, miss, completion, reasoning}
   end
 
+  defp hold_output_cap(params, pricing_model) do
+    model = Map.get(params, "model")
+
+    cond do
+      model == "cgc-background" or pricing_model == "deepseek-flash" ->
+        @hold_output_cap_background
+
+      reasoning_pricing_model?(pricing_model) ->
+        @hold_output_cap_reasoning
+
+      true ->
+        @hold_output_cap_default
+    end
+  end
+
+  defp reasoning_pricing_model?(pricing_model) when is_binary(pricing_model) do
+    String.contains?(pricing_model, "reasoner") or
+      String.contains?(pricing_model, "-r1") or
+      String.contains?(pricing_model, "v4-pro")
+  end
+
+  defp reasoning_pricing_model?(_), do: false
+
+  defp pricing_rates do
+    case Application.get_env(:cgc_2046, :llm_gateway_pricing_rates) do
+      overrides when is_map(overrides) ->
+        Map.merge(@default_pricing_per_million_tokens, overrides)
+
+      _ ->
+        @default_pricing_per_million_tokens
+    end
+  end
+
   defp rates_for(pricing_model) when is_binary(pricing_model) do
+    all_rates = pricing_rates()
+
     Map.get(
-      @pricing_per_million_tokens,
+      all_rates,
       pricing_model,
-      @pricing_per_million_tokens["deepseek-chat"]
+      Map.fetch!(all_rates, "deepseek-chat")
     )
   end
 
-  defp rates_for(_pricing_model), do: @pricing_per_million_tokens["deepseek-chat"]
+  defp rates_for(_pricing_model), do: Map.fetch!(pricing_rates(), "deepseek-chat")
 end

@@ -273,6 +273,69 @@ defmodule Cgc2046.LlmGateway.LedgerTest do
       assert grant.status == :expired
       assert grant.remaining_mc == 0
     end
+
+    test "returns :wallet_frozen instead of :insufficient_quota for non-active wallets" do
+      user = register_user("ledger-frozen-wallet")
+
+      {:ok, _} =
+        Ledger.grant_personal_credits(user.id, %{amount_mc: 100_000, source_type: :pack})
+
+      Repo.query!(
+        "UPDATE llm_wallets SET status = 'frozen' WHERE user_id = $1",
+        [Ecto.UUID.dump!(user.id)]
+      )
+
+      assert {:error, :wallet_frozen} = Ledger.acquire_hold(user.id, 1_000)
+
+      wallet = Ledger.fetch_wallet!(user.id)
+      assert wallet.status == "frozen"
+      assert wallet.held_mc == 0
+      assert wallet.cached_balance_mc == 100_000
+    end
+
+    test "emits settlement_shortfall telemetry when charged_mc exceeds actual_deduct_mc" do
+      user = register_user("ledger-shortfall-telemetry")
+      {:ok, _} = Ledger.grant_personal_credits(user.id, %{amount_mc: 10_000, source_type: :pack})
+
+      handler_id = "shortfall-test-#{Ecto.UUID.generate()}"
+      test_pid = self()
+
+      :ok =
+        :telemetry.attach(
+          handler_id,
+          [:cgc2046, :llm_gateway, :settlement_shortfall],
+          fn event, measurements, metadata, _config ->
+            send(test_pid, {:telemetry_event, event, measurements, metadata})
+          end,
+          nil
+        )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      assert {:ok, hold_a} = Ledger.acquire_hold(user.id, 6_000)
+      assert {:ok, _hold_b} = Ledger.acquire_hold(user.id, 4_000)
+
+      assert {:ok, _wallet} =
+               Ledger.settle_usage(
+                 user.id,
+                 6_000,
+                 %{
+                   logical_model: "cgc-default",
+                   upstream_channel: "deepseek_official_1",
+                   upstream_model: "deepseek-chat",
+                   billing_mode: :exact,
+                   charged_mc: 10_000,
+                   upstream_cost_mc: 5_000
+                 },
+                 hold_id: hold_a.hold_id
+               )
+
+      expected_user_id = user.id
+
+      assert_received {:telemetry_event, [:cgc2046, :llm_gateway, :settlement_shortfall],
+                       %{uncollected_mc: 4_000, charged_mc: 10_000, actual_deduct_mc: 6_000},
+                       %{user_id: ^expected_user_id, billing_mode: "exact"}}
+    end
   end
 
   describe "CreditExpiryWorker" do

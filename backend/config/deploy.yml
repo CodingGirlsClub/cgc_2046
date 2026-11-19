@@ -87,6 +87,9 @@ env:
     LC_ALL: C.UTF-8
     # LLM Gateway 非敏感配置；Key 在 secret 名单
     DEEPSEEK_BASE_URL: https://api.deepseek.com
+    DEEPSEEK_DEFAULT_MODEL: deepseek-chat
+    DEEPSEEK_REASONING_MODEL: deepseek-reasoner
+    DEEPSEEK_BACKGROUND_MODEL: deepseek-chat
     VOLCENGINE_V3_EP: deepseek-v3-250324
     VOLCENGINE_R1_EP: deepseek-r1-250120
   secret:

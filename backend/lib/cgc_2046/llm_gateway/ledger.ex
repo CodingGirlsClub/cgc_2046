@@ -12,6 +12,8 @@ defmodule Cgc2046.LlmGateway.Ledger do
   资源层只读；任何调用方都不得绕过本模块直接改钱包/批次表。
   """
 
+  require Logger
+
   alias Cgc2046.Accounts.{MembershipContext, Role}
   alias Cgc2046.Repo
 
@@ -295,7 +297,7 @@ defmodule Cgc2046.LlmGateway.Ledger do
 
         case Repo.query!(
                """
-               SELECT id
+               SELECT id, status
                FROM llm_wallets
                WHERE user_id = $1
                FOR UPDATE
@@ -305,7 +307,10 @@ defmodule Cgc2046.LlmGateway.Ledger do
           [] ->
             Repo.rollback(:wallet_not_found)
 
-          [[wallet_id_bin]] ->
+          [[_wallet_id_bin, status]] when status != "active" ->
+            {:error, :wallet_frozen}
+
+          [[wallet_id_bin, "active"]] ->
             # 过期批次的 cached_balance 在 Worker 跑之前仍存在；先在钱包锁内收口，
             # 否则过期-only 钱包会被错误授权，结算时又因过期无法扣费 → 免费推理。
             {_expired_count, _expired_sum} = expire_wallet_grants!(wallet_id_bin, now)
@@ -371,105 +376,132 @@ defmodule Cgc2046.LlmGateway.Ledger do
     validate_billing_mode!(billing_mode)
     hold_id = Keyword.get(opts, :hold_id)
 
-    Repo.transaction(fn ->
-      now = DateTime.utc_now()
-      user_uuid = dump_uuid!(user_id)
+    tx_result =
+      Repo.transaction(fn ->
+        now = DateTime.utc_now()
+        user_uuid = dump_uuid!(user_id)
 
-      case Repo.query!(
-             """
-             SELECT id, cached_balance_mc, held_mc
-             FROM llm_wallets
-             WHERE user_id = $1
-             FOR UPDATE
-             """,
-             [user_uuid]
-           ).rows do
-        [] ->
-          Repo.rollback(:wallet_not_found)
+        case Repo.query!(
+               """
+               SELECT id, cached_balance_mc, held_mc
+               FROM llm_wallets
+               WHERE user_id = $1
+               FOR UPDATE
+               """,
+               [user_uuid]
+             ).rows do
+          [] ->
+            Repo.rollback(:wallet_not_found)
 
-        [[wallet_id_bin, current_balance, current_held]] ->
-          hold_to_release_mc =
-            case hold_id do
-              nil ->
-                min(hold_mc, current_held)
+          [[wallet_id_bin, current_balance, current_held]] ->
+            hold_to_release_mc =
+              case hold_id do
+                nil ->
+                  min(hold_mc, current_held)
 
-              id ->
-                case Repo.query!(
-                       """
-                       DELETE FROM llm_wallet_holds
-                       WHERE id = $1 AND wallet_id = $2
-                       RETURNING hold_mc
-                       """,
-                       [dump_uuid!(id), wallet_id_bin]
-                     ).rows do
-                  [[held_mc]] -> held_mc
-                  [] -> 0
-                end
-            end
+                id ->
+                  case Repo.query!(
+                         """
+                         DELETE FROM llm_wallet_holds
+                         WHERE id = $1 AND wallet_id = $2
+                         RETURNING hold_mc
+                         """,
+                         [dump_uuid!(id), wallet_id_bin]
+                       ).rows do
+                    [[held_mc]] -> held_mc
+                    [] -> 0
+                  end
+              end
 
-          # 不在此处收口过期 grants：在 hold 有效期内到期的批次仍是本次请求的
-          # 已授权额度，必须可用于扣费；Worker 会按 held_mc 保留它们。
-          available_mc = max(0, current_balance - max(0, current_held - hold_to_release_mc))
-          actual_deduct_mc = min(charged_mc, available_mc)
+            # 不在此处收口过期 grants：在 hold 有效期内到期的批次仍是本次请求的
+            # 已授权额度，必须可用于扣费；Worker 会按 held_mc 保留它们。
+            available_mc = max(0, current_balance - max(0, current_held - hold_to_release_mc))
+            actual_deduct_mc = min(charged_mc, available_mc)
 
-          leftover_mc =
-            deduct_from_grants_fifo!(wallet_id_bin, actual_deduct_mc, now,
-              expired_budget_mc: hold_to_release_mc
+            leftover_mc =
+              deduct_from_grants_fifo!(wallet_id_bin, actual_deduct_mc, now,
+                expired_budget_mc: hold_to_release_mc
+              )
+
+            actual_deduct_mc = actual_deduct_mc - leftover_mc
+            uncollected_mc = max(0, charged_mc - actual_deduct_mc)
+
+            Repo.query!(
+              """
+              UPDATE llm_wallets
+              SET cached_balance_mc = GREATEST(0, cached_balance_mc - $2),
+                  held_mc = GREATEST(0, held_mc - $3),
+                  updated_at = $4
+              WHERE id = $1
+              """,
+              [wallet_id_bin, actual_deduct_mc, hold_to_release_mc, now]
             )
 
-          actual_deduct_mc = actual_deduct_mc - leftover_mc
+            Repo.query!(
+              """
+              INSERT INTO llm_usage_logs (
+                id, wallet_id, user_id, session_id, logical_model,
+                upstream_channel, upstream_model, billing_mode,
+                prompt_cache_hit_tokens, prompt_cache_miss_tokens,
+                completion_tokens, reasoning_tokens,
+                charged_mc, upstream_cost_mc, ttfb_ms, duration_ms, inserted_at
+              )
+              VALUES (
+                gen_random_uuid(), $1, $2, $3, $4,
+                $5, $6, $7,
+                $8, $9,
+                $10, $11,
+                $12, $13, $14, $15, $16
+              )
+              """,
+              [
+                wallet_id_bin,
+                user_uuid,
+                Map.get(usage_attrs, :session_id),
+                Map.fetch!(usage_attrs, :logical_model),
+                Map.fetch!(usage_attrs, :upstream_channel),
+                Map.fetch!(usage_attrs, :upstream_model),
+                billing_mode,
+                Map.get(usage_attrs, :prompt_cache_hit_tokens, 0),
+                Map.get(usage_attrs, :prompt_cache_miss_tokens, 0),
+                Map.get(usage_attrs, :completion_tokens, 0),
+                Map.get(usage_attrs, :reasoning_tokens, 0),
+                actual_deduct_mc,
+                upstream_cost_mc,
+                Map.get(usage_attrs, :ttfb_ms),
+                Map.get(usage_attrs, :duration_ms),
+                now
+              ]
+            )
 
-          Repo.query!(
-            """
-            UPDATE llm_wallets
-            SET cached_balance_mc = GREATEST(0, cached_balance_mc - $2),
-                held_mc = GREATEST(0, held_mc - $3),
-                updated_at = $4
-            WHERE id = $1
-            """,
-            [wallet_id_bin, actual_deduct_mc, hold_to_release_mc, now]
+            {fetch_wallet!(user_id), actual_deduct_mc, uncollected_mc}
+        end
+      end)
+
+    case tx_result do
+      {:ok, {wallet, actual_deduct_mc, uncollected_mc}} ->
+        if uncollected_mc > 0 do
+          Logger.warning(
+            "llm gateway settlement shortfall: user_id=#{user_id} billing_mode=#{billing_mode} " <>
+              "charged_mc=#{charged_mc} actual_deduct_mc=#{actual_deduct_mc} uncollected_mc=#{uncollected_mc}"
           )
 
-          Repo.query!(
-            """
-            INSERT INTO llm_usage_logs (
-              id, wallet_id, user_id, session_id, logical_model,
-              upstream_channel, upstream_model, billing_mode,
-              prompt_cache_hit_tokens, prompt_cache_miss_tokens,
-              completion_tokens, reasoning_tokens,
-              charged_mc, upstream_cost_mc, ttfb_ms, duration_ms, inserted_at
-            )
-            VALUES (
-              gen_random_uuid(), $1, $2, $3, $4,
-              $5, $6, $7,
-              $8, $9,
-              $10, $11,
-              $12, $13, $14, $15, $16
-            )
-            """,
-            [
-              wallet_id_bin,
-              user_uuid,
-              Map.get(usage_attrs, :session_id),
-              Map.fetch!(usage_attrs, :logical_model),
-              Map.fetch!(usage_attrs, :upstream_channel),
-              Map.fetch!(usage_attrs, :upstream_model),
-              billing_mode,
-              Map.get(usage_attrs, :prompt_cache_hit_tokens, 0),
-              Map.get(usage_attrs, :prompt_cache_miss_tokens, 0),
-              Map.get(usage_attrs, :completion_tokens, 0),
-              Map.get(usage_attrs, :reasoning_tokens, 0),
-              actual_deduct_mc,
-              upstream_cost_mc,
-              Map.get(usage_attrs, :ttfb_ms),
-              Map.get(usage_attrs, :duration_ms),
-              now
-            ]
+          :telemetry.execute(
+            [:cgc2046, :llm_gateway, :settlement_shortfall],
+            %{
+              uncollected_mc: uncollected_mc,
+              charged_mc: charged_mc,
+              actual_deduct_mc: actual_deduct_mc
+            },
+            %{user_id: user_id, billing_mode: billing_mode}
           )
+        end
 
-          fetch_wallet!(user_id)
-      end
-    end)
+        {:ok, wallet}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   @doc false

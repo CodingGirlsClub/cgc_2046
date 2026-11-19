@@ -97,6 +97,7 @@ defmodule Cgc2046Web.LlmGatewayController do
     initial_state = %{
       conn: conn,
       channel_id: primary.id,
+      channel_provider: Map.get(primary, :provider, :deepseek),
       logical_model: logical_model,
       upstream_model: initial_upstream_model,
       pricing_model: initial_pricing_model,
@@ -150,6 +151,9 @@ defmodule Cgc2046Web.LlmGatewayController do
          hold_id
        ) do
     try do
+      flushed_state = flush_remaining_sse_buffer()
+      state = if map_size(flushed_state) > 0, do: flushed_state, else: state
+
       settlement =
         TokenizerAndPricing.calculate_settlement(
           Map.get(state, :pricing_model, Map.get(state, :upstream_model)),
@@ -187,6 +191,7 @@ defmodule Cgc2046Web.LlmGatewayController do
 
     update_process_state(%{
       channel_id: channel.id,
+      channel_provider: Map.get(channel, :provider, :deepseek),
       logical_model: logical_model,
       upstream_model: upstream_model,
       pricing_model: AffinityRouter.pricing_model(channel, logical_model),
@@ -244,6 +249,8 @@ defmodule Cgc2046Web.LlmGatewayController do
               Map.get(state, :conn, conn)
 
             status in 200..299 ->
+              _ = flush_remaining_sse_buffer()
+
               if Map.get(state, :chunked_started?, false) do
                 Map.get(state, :conn, conn)
               else
@@ -345,6 +352,29 @@ defmodule Cgc2046Web.LlmGatewayController do
     |> put_resp_header("cache-control", "no-cache")
     |> put_resp_header("x-accel-buffering", "no")
     |> send_chunked(200)
+  end
+
+  defp flush_remaining_sse_buffer do
+    state = Process.get(@process_state_key, %{})
+    buffer = Map.get(state, :sse_buffer, "")
+
+    if is_binary(buffer) and String.trim(buffer) != "" do
+      {content_fragments, reasoning_fragments, maybe_usage} = safe_parse_sse_frames([buffer])
+
+      new_state =
+        state
+        |> Map.put(:sse_buffer, "")
+        |> Map.put(:output_iodata, [Map.get(state, :output_iodata, []) | content_fragments])
+        |> Map.put(:reasoning_iodata, [
+          Map.get(state, :reasoning_iodata, []) | reasoning_fragments
+        ])
+        |> Map.put(:official_usage, maybe_usage || Map.get(state, :official_usage))
+
+      Process.put(@process_state_key, new_state)
+      new_state
+    else
+      state
+    end
   end
 
   defp split_sse_frames(buffer) do
@@ -610,6 +640,18 @@ defmodule Cgc2046Web.LlmGatewayController do
   defp update_process_state(updates) do
     current = Process.get(@process_state_key, %{})
     Process.put(@process_state_key, Map.merge(current, updates))
+  end
+
+  defp hold_error(conn, :wallet_frozen) do
+    conn
+    |> put_status(403)
+    |> json(%{
+      error: %{
+        code: "wallet_frozen",
+        type: "permission_error",
+        message: "Your LLM wallet is frozen. Please contact support."
+      }
+    })
   end
 
   defp hold_error(conn, _reason) do
