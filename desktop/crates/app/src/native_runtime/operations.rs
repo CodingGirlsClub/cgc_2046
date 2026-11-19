@@ -349,10 +349,26 @@ impl Owner {
         if self.config.model == model {
             return Ok(self.snapshot());
         }
+        let entering_managed = enters_managed_provider(
+            model.provider_id.as_str(),
+            self.config.model.provider_id.as_str(),
+        );
+        let managed = model.provider_id.as_str() == CGC_CLOUD_PROVIDER_ID;
+        let background_model = managed
+            .then(|| factory::managed_background_model(production))
+            .flatten()
+            .map(|(_, model)| model);
         self.persist();
         self.config.provider = provider;
         self.config.context_size = model.limits.context_window as u64;
-        self.config.model = model;
+        self.config.model = model.clone();
+        if entering_managed {
+            self.thinking_enabled = false;
+            self.effort_index = 0;
+        }
+        if let Some(agent) = self.agent.as_mut() {
+            agent.set_background_model(background_model);
+        }
         self.replace(
             thread_for_model_switch(
                 &self.frozen,
@@ -464,6 +480,10 @@ fn resets_thinking_on_managed_entry(managed: bool, current_provider_id: &str) ->
     managed && current_provider_id != CGC_CLOUD_PROVIDER_ID
 }
 
+fn enters_managed_provider(target_provider_id: &str, current_provider_id: &str) -> bool {
+    target_provider_id == CGC_CLOUD_PROVIDER_ID && current_provider_id != CGC_CLOUD_PROVIDER_ID
+}
+
 fn model_is_available(active: &cgc_agent_store::ProviderPrefs, model_id: &str) -> bool {
     active.models.iter().any(|id| id == model_id) && active.model_config(model_id).enabled
 }
@@ -476,7 +496,10 @@ fn thread_for_model_switch(current: &Thread, selected: SelectedModel) -> Thread 
 
 #[cfg(test)]
 mod tests {
-    use super::{model_is_available, resets_thinking_on_managed_entry, thread_for_model_switch};
+    use super::{
+        enters_managed_provider, model_is_available, resets_thinking_on_managed_entry,
+        thread_for_model_switch,
+    };
     use cgc_agent_core::{SelectedModel, Thread};
     use cgc_agent_provider::{ModelId, ProviderId};
     use cgc_agent_store::{ModelPrefs, ProviderPrefs};
@@ -518,6 +541,9 @@ mod tests {
         assert!(resets_thinking_on_managed_entry(true, "custom"));
         assert!(!resets_thinking_on_managed_entry(true, "cgc-cloud"));
         assert!(!resets_thinking_on_managed_entry(false, "custom"));
+        assert!(enters_managed_provider("cgc-cloud", "custom"));
+        assert!(!enters_managed_provider("cgc-cloud", "cgc-cloud"));
+        assert!(!enters_managed_provider("custom", "cgc-cloud"));
     }
 
     #[test]

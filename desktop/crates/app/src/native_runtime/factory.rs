@@ -39,20 +39,41 @@ fn endpoint_url(provider: &ProviderPrefs) -> String {
 
 /// 登录态下的有效 Provider：显式选择的 BYOK 优先；没有可用 BYOK 时默认 CGC Cloud。
 /// 工厂初始化与运行时 refresh 共用，避免登录后两条路径给出不同选择。
+///
+/// 已保存的 CGC 配置优先于新造默认值：用户禁用的模型/Provider 不能被登录
+/// 默认逻辑悄悄重新启用；若用户明确禁用了 CGC 且没有可用 BYOK，则保持
+/// Unconfigured，而不是重新创建 CGC 后又在 available 列表里过滤掉。
 pub(super) fn resolve_active_provider(
     prefs: &AgentPrefs,
     managed_available: bool,
 ) -> (bool, Option<ProviderPrefs>) {
+    let saved_managed = prefs.provider(CGC_CLOUD_PROVIDER_ID).cloned();
     let configured_active = prefs
         .active_provider()
         .filter(|provider| provider.has_key || !managed_available)
-        .cloned();
+        .cloned()
+        .or_else(|| {
+            saved_managed
+                .as_ref()
+                .filter(|provider| provider.enabled && managed_available)
+                .cloned()
+        });
     let managed = managed_available
-        && configured_active
-            .as_ref()
-            .is_none_or(|provider| provider.id == CGC_CLOUD_PROVIDER_ID);
+        && match saved_managed.as_ref() {
+            Some(provider) => {
+                provider.enabled
+                    && configured_active
+                        .as_ref()
+                        .is_none_or(|active| active.id == CGC_CLOUD_PROVIDER_ID)
+            }
+            None => configured_active
+                .as_ref()
+                .is_none_or(|active| active.id == CGC_CLOUD_PROVIDER_ID),
+        };
     let active = if managed {
-        Some(cgc_cloud_provider())
+        saved_managed
+            .filter(|provider| provider.enabled)
+            .or_else(|| Some(cgc_cloud_provider()))
     } else {
         configured_active
     };

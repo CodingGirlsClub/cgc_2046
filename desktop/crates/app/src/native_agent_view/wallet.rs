@@ -3,8 +3,13 @@
 //! 钱包查询与收银台调用都在后台线程执行；UI 只保存摘要，不持久化 token。
 
 use super::*;
+use cgc_platform::gateway::GatewayError;
 
 const QUOTA_PACKS: [(i64, &str); 2] = [(1000, "¥10 加油包"), (5000, "¥50 加油包")];
+
+fn polling_error_is_transient(error: &GatewayError) -> bool {
+    matches!(error, GatewayError::Transport(_))
+}
 
 fn provider_label(provider: &str) -> &'static str {
     match provider {
@@ -20,10 +25,15 @@ impl NativeAgentView {
     pub(crate) fn reset_account_state(&mut self, cx: &mut Context<Self>) {
         self.wallet = None;
         self.wallet_refresh_serial = self.wallet_refresh_serial.wrapping_add(1);
+        self.clear_quota_state();
+        cx.notify();
+    }
+
+    /// 成功恢复后清掉过期的 402 状态；同时推进 serial 停止旧订单轮询。
+    pub(super) fn clear_quota_state(&mut self) {
         self.insufficient_quota = false;
         self.quota_checkout = None;
         self.quota_checkout_serial = self.quota_checkout_serial.wrapping_add(1);
-        cx.notify();
     }
 
     /// 登录成功 / 每轮结束后异步刷新 `myLlmWallet`；失败不阻塞对话。
@@ -197,6 +207,7 @@ impl NativeAgentView {
                             false
                         }
                         Ok(_) => true,
+                        Err(error) if polling_error_is_transient(&error) => true,
                         Err(error) => {
                             checkout.state = QuotaCheckoutState::Failed(error.diagnostic());
                             cx.notify();
@@ -359,7 +370,8 @@ impl NativeAgentView {
 
 #[cfg(test)]
 mod tests {
-    use super::{provider_label, QUOTA_PACKS};
+    use super::{polling_error_is_transient, provider_label, QUOTA_PACKS};
+    use cgc_platform::gateway::GatewayError;
 
     #[test]
     fn checkout_offers_both_qr_providers_and_two_packs() {
@@ -367,5 +379,17 @@ mod tests {
         assert_eq!(provider_label("alipay_qr"), "支付宝");
         assert_eq!(provider_label("wechat_native"), "微信");
         assert_eq!(provider_label("unknown"), "支付渠道");
+    }
+
+    #[test]
+    fn only_transport_poll_errors_are_retryable() {
+        assert!(polling_error_is_transient(&GatewayError::Transport(
+            "timeout".into()
+        )));
+        assert!(!polling_error_is_transient(&GatewayError::Unauthenticated));
+        assert!(!polling_error_is_transient(&GatewayError::Graphql {
+            code: Some("llm_payment_order_not_found".into()),
+            message: "missing".into(),
+        }));
     }
 }

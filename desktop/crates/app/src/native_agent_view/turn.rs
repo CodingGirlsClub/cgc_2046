@@ -117,6 +117,18 @@ impl NativeAgentView {
         let terminal = events
             .iter()
             .any(|event| matches!(event, HostEvent::TurnEnd { .. } | HostEvent::Error { .. }));
+        let had_error = events
+            .iter()
+            .any(|event| matches!(event, HostEvent::Error { .. }));
+        let completed = events.iter().any(|event| {
+            matches!(
+                event,
+                HostEvent::TurnEnd {
+                    cancelled: false,
+                    ..
+                }
+            )
+        });
         for event in events {
             if !self.state.ingest(generation, &event) {
                 continue;
@@ -190,6 +202,9 @@ impl NativeAgentView {
             if matches!(entry, ConversationEntry::Thinking { .. }) {
                 self.expanded_thinking.insert(index);
             }
+        }
+        if should_clear_quota_state(had_error, completed) {
+            self.clear_quota_state();
         }
         if self.state.take_learning_state_changed() {
             cx.emit(NativeAgentViewEvent::LearningStateChanged);
@@ -321,9 +336,13 @@ fn should_dispatch(queue_empty: bool, idle: bool, model_ready: bool) -> bool {
     !queue_empty && idle && model_ready
 }
 
+fn should_clear_quota_state(had_error: bool, completed: bool) -> bool {
+    completed && !had_error
+}
+
 #[cfg(test)]
 mod tests {
-    use super::should_dispatch;
+    use super::{should_clear_quota_state, should_dispatch};
 
     #[test]
     fn dispatch_requires_queued_work_idle_runtime_and_model() {
@@ -331,5 +350,12 @@ mod tests {
         assert!(!should_dispatch(true, true, true));
         assert!(!should_dispatch(false, false, true));
         assert!(!should_dispatch(false, true, false));
+    }
+
+    #[test]
+    fn successful_retry_clears_stale_quota_state() {
+        assert!(should_clear_quota_state(false, true));
+        assert!(!should_clear_quota_state(true, true));
+        assert!(!should_clear_quota_state(false, false));
     }
 }
