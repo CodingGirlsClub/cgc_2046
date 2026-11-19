@@ -536,6 +536,256 @@ defmodule Cgc2046Web.GraphqlLlmGatewayTest do
     Cgc2046.Payments.Providers.Fake.reset!()
   end
 
+  test "myLlmUsageLogs: 仅返回当前用户记录、支持 limit 与 before 游标，且不暴露上游渠道与成本" do
+    user = Fixtures.register_user("llm-usage-owner")
+    other = Fixtures.register_user("llm-usage-other")
+    token = sign_in_token(user)
+    wallet = Ledger.ensure_wallet!(user.id)
+    other_wallet = Ledger.ensure_wallet!(other.id)
+
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    t1 = DateTime.add(now, -300, :second)
+    t2 = DateTime.add(now, -200, :second)
+    t3 = DateTime.add(now, -100, :second)
+
+    id1 =
+      insert_usage_log!(wallet.id, user.id, %{session_id: "s1", charged_mc: 100, inserted_at: t1})
+
+    id2 =
+      insert_usage_log!(wallet.id, user.id, %{session_id: "s2", charged_mc: 200, inserted_at: t2})
+
+    id3 =
+      insert_usage_log!(wallet.id, user.id, %{session_id: "s3", charged_mc: 300, inserted_at: t3})
+
+    _other_id =
+      insert_usage_log!(other_wallet.id, other.id, %{
+        session_id: "other",
+        charged_mc: 999,
+        inserted_at: now
+      })
+
+    # 未登录 unauthorized
+    assert %{"errors" => [%{"code" => "unauthorized"}]} = graphql(usage_logs_query())
+
+    # 第一页 limit: 2 -> [id3, id2]
+    assert %{
+             "myLlmUsageLogs" => [
+               %{
+                 "id" => ^id3,
+                 "sessionId" => "s3",
+                 "logicalModel" => "cgc-default",
+                 "billingMode" => "exact",
+                 "chargedMc" => 300,
+                 "insertedAt" => inserted_at_3
+               },
+               %{
+                 "id" => ^id2,
+                 "sessionId" => "s2",
+                 "chargedMc" => 200,
+                 "insertedAt" => inserted_at_2
+               }
+             ]
+           } = data!(graphql(usage_logs_query(), token, %{"limit" => 2}))
+
+    assert is_binary(inserted_at_3) and is_binary(inserted_at_2)
+
+    # 游标翻页 before: inserted_at_2 -> [id1]
+    assert %{"myLlmUsageLogs" => [%{"id" => ^id1, "sessionId" => "s1", "chargedMc" => 100}]} =
+             data!(graphql(usage_logs_query(), token, %{"limit" => 2, "before" => inserted_at_2}))
+
+    # schema 层面不暴露 upstreamChannel / upstreamCostMc
+    assert %{"errors" => [_ | _]} =
+             graphql(
+               """
+               query {
+                 myLlmUsageLogs {
+                   id
+                   upstreamChannel
+                   upstreamCostMc
+                 }
+               }
+               """,
+               token
+             )
+  end
+
+  test "adminLlmUsageAnalytics: 仅 PlatformAdmin 可读，按 UTC 日期与渠道准确聚合指标与毛利" do
+    member = Fixtures.register_user("llm-analytics-member")
+    admin = Fixtures.platform_admin("llm-analytics-admin")
+    wallet = Ledger.ensure_wallet!(member.id)
+
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    today = DateTime.to_date(now) |> Date.to_iso8601()
+    yesterday_dt = DateTime.add(now, -86_400, :second)
+    yesterday = DateTime.to_date(yesterday_dt) |> Date.to_iso8601()
+    old_dt = DateTime.add(now, -20 * 86_400, :second)
+
+    # 未登录 unauthorized / 普通成员 forbidden
+    assert %{"errors" => [%{"code" => "unauthorized"}]} = graphql(analytics_query())
+
+    assert %{"errors" => [%{"code" => "forbidden"}]} =
+             graphql(analytics_query(), sign_in_token(member))
+
+    insert_usage_log!(wallet.id, member.id, %{
+      upstream_channel: "deepseek_official_1",
+      billing_mode: "exact",
+      prompt_cache_hit_tokens: 1_000,
+      prompt_cache_miss_tokens: 500,
+      completion_tokens: 200,
+      charged_mc: 3_000_000_000,
+      upstream_cost_mc: 2_000_000_000,
+      inserted_at: now
+    })
+
+    insert_usage_log!(wallet.id, member.id, %{
+      upstream_channel: "deepseek_official_1",
+      billing_mode: "estimated_abort",
+      prompt_cache_hit_tokens: 0,
+      prompt_cache_miss_tokens: 300,
+      completion_tokens: 50,
+      charged_mc: 500,
+      upstream_cost_mc: 300,
+      inserted_at: now
+    })
+
+    insert_usage_log!(wallet.id, member.id, %{
+      upstream_channel: "volcengine_ark_backup",
+      billing_mode: "waived_upstream_error",
+      prompt_cache_hit_tokens: 0,
+      prompt_cache_miss_tokens: 100,
+      completion_tokens: 0,
+      charged_mc: 0,
+      upstream_cost_mc: 0,
+      inserted_at: yesterday_dt
+    })
+
+    # 超出 days: 7 窗口，应被排除
+    insert_usage_log!(wallet.id, member.id, %{
+      upstream_channel: "deepseek_official_1",
+      billing_mode: "exact",
+      charged_mc: 999_999,
+      upstream_cost_mc: 111_111,
+      inserted_at: old_dt
+    })
+
+    assert %{"adminLlmUsageAnalytics" => rows} =
+             data!(graphql(analytics_query(), sign_in_token(admin), %{"days" => 7}))
+
+    assert [
+             %{
+               "day" => ^today,
+               "upstreamChannel" => "deepseek_official_1",
+               "requestCount" => 2,
+               "abortedCount" => 1,
+               "waivedCount" => 0,
+               "cacheHitTokens" => 1_000,
+               "cacheMissTokens" => 800,
+               "completionTokens" => 250,
+               "totalChargedMc" => 3_000_000_500,
+               "totalUpstreamCostMc" => 2_000_000_300,
+               "grossMarginMc" => 1_000_000_200
+             },
+             %{
+               "day" => ^yesterday,
+               "upstreamChannel" => "volcengine_ark_backup",
+               "requestCount" => 1,
+               "abortedCount" => 0,
+               "waivedCount" => 1,
+               "cacheHitTokens" => 0,
+               "cacheMissTokens" => 100,
+               "completionTokens" => 0,
+               "totalChargedMc" => 0,
+               "totalUpstreamCostMc" => 0,
+               "grossMarginMc" => 0
+             }
+           ] = rows
+  end
+
+  defp insert_usage_log!(wallet_id, user_id, attrs) do
+    id = Ecto.UUID.generate()
+
+    Cgc2046.Repo.query!(
+      """
+      INSERT INTO llm_usage_logs (
+        id, wallet_id, user_id, session_id, logical_model,
+        upstream_channel, upstream_model, billing_mode,
+        prompt_cache_hit_tokens, prompt_cache_miss_tokens,
+        completion_tokens, reasoning_tokens,
+        charged_mc, upstream_cost_mc, ttfb_ms, duration_ms, inserted_at
+      )
+      VALUES (
+        $1, $2, $3, $4, $5,
+        $6, $7, $8,
+        $9, $10,
+        $11, $12,
+        $13, $14, $15, $16, $17
+      )
+      """,
+      [
+        Ecto.UUID.dump!(id),
+        Ecto.UUID.dump!(wallet_id),
+        Ecto.UUID.dump!(user_id),
+        Map.get(attrs, :session_id),
+        Map.get(attrs, :logical_model, "cgc-default"),
+        Map.get(attrs, :upstream_channel, "deepseek_official_1"),
+        Map.get(attrs, :upstream_model, "deepseek-chat"),
+        Map.get(attrs, :billing_mode, "exact"),
+        Map.get(attrs, :prompt_cache_hit_tokens, 0),
+        Map.get(attrs, :prompt_cache_miss_tokens, 0),
+        Map.get(attrs, :completion_tokens, 0),
+        Map.get(attrs, :reasoning_tokens, 0),
+        Map.get(attrs, :charged_mc, 0),
+        Map.get(attrs, :upstream_cost_mc, 0),
+        Map.get(attrs, :ttfb_ms, 120),
+        Map.get(attrs, :duration_ms, 450),
+        Map.get(attrs, :inserted_at, DateTime.utc_now())
+      ]
+    )
+
+    id
+  end
+
+  defp usage_logs_query do
+    """
+    query MyLlmUsageLogs($limit: Int, $before: DateTime) {
+      myLlmUsageLogs(limit: $limit, before: $before) {
+        id
+        sessionId
+        logicalModel
+        billingMode
+        promptCacheHitTokens
+        promptCacheMissTokens
+        completionTokens
+        reasoningTokens
+        chargedMc
+        ttfbMs
+        durationMs
+        insertedAt
+      }
+    }
+    """
+  end
+
+  defp analytics_query do
+    """
+    query AdminLlmUsageAnalytics($days: Int) {
+      adminLlmUsageAnalytics(days: $days) {
+        day
+        upstreamChannel
+        requestCount
+        abortedCount
+        waivedCount
+        cacheHitTokens
+        cacheMissTokens
+        completionTokens
+        totalChargedMc
+        totalUpstreamCostMc
+        grossMarginMc
+      }
+    }
+    """
+  end
+
   defp create_payment_order_mutation(provider, amount_cents, idempotency_key, workspace_id) do
     order_kind =
       if workspace_id, do: "llm_workspace_pool_topup", else: "llm_credit_pack"

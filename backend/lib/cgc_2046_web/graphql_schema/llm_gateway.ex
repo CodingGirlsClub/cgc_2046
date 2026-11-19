@@ -153,6 +153,37 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
     field(:credential, :json, description: "渠道凭据；幂等重放原样返回")
   end
 
+  @desc "当前用户单条 LLM 调用用量流水（不含上游渠道与上游成本）"
+  object :llm_usage_log_item do
+    field(:id, non_null(:id))
+    field(:session_id, :string)
+    field(:logical_model, non_null(:string))
+    field(:billing_mode, non_null(:string))
+    field(:prompt_cache_hit_tokens, non_null(:bigint))
+    field(:prompt_cache_miss_tokens, non_null(:bigint))
+    field(:completion_tokens, non_null(:bigint))
+    field(:reasoning_tokens, non_null(:bigint))
+    field(:charged_mc, non_null(:bigint))
+    field(:ttfb_ms, :integer)
+    field(:duration_ms, :integer)
+    field(:inserted_at, non_null(:datetime))
+  end
+
+  @desc "平台管理面按日 × 上游渠道聚合的 LLM 营收与成本指标（UTC 日期）"
+  object :llm_daily_channel_metric do
+    field(:day, non_null(:string))
+    field(:upstream_channel, non_null(:string))
+    field(:request_count, non_null(:integer))
+    field(:aborted_count, non_null(:integer))
+    field(:waived_count, non_null(:integer))
+    field(:cache_hit_tokens, non_null(:bigint))
+    field(:cache_miss_tokens, non_null(:bigint))
+    field(:completion_tokens, non_null(:bigint))
+    field(:total_charged_mc, non_null(:bigint))
+    field(:total_upstream_cost_mc, non_null(:bigint))
+    field(:gross_margin_mc, non_null(:bigint))
+  end
+
   object :llm_gateway_queries do
     @desc "当前用户/购买人读取单笔 LLM 收银台订单"
     field :llm_payment_order, :llm_payment_order do
@@ -172,6 +203,25 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
     field :my_llm_wallet, :llm_wallet_summary do
       resolve(fn _, _, %{context: context} ->
         with_actor(context, fn actor -> build_wallet_summary(actor.id) end)
+      end)
+    end
+
+    @desc "当前用户 LLM 调用用量流水（按 insertedAt 倒序分页，limit 默认 20、范围 1..100）"
+    field :my_llm_usage_logs, non_null(list_of(non_null(:llm_usage_log_item))) do
+      arg(:limit, :integer)
+      arg(:before, :datetime)
+
+      resolve(fn _, args, %{context: context} ->
+        with_actor(context, fn actor -> list_user_usage_logs(actor.id, args) end)
+      end)
+    end
+
+    @desc "PlatformAdmin 按日 × 上游渠道聚合的 LLM 营收、成本与毛利指标（days 默认 14、范围 1..90）"
+    field :admin_llm_usage_analytics, non_null(list_of(non_null(:llm_daily_channel_metric))) do
+      arg(:days, :integer)
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn _actor -> list_admin_usage_analytics(args) end)
       end)
     end
 
@@ -467,6 +517,135 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
       }
     end)
   end
+
+  defp list_user_usage_logs(user_id, args) do
+    limit = clamp_int(Map.get(args, :limit), 20, 1, 100)
+    before = Map.get(args, :before)
+    user_uuid = Ecto.UUID.dump!(user_id)
+
+    {sql, params} =
+      case before do
+        %DateTime{} = cursor ->
+          {"""
+           SELECT id, session_id, logical_model, billing_mode,
+                  prompt_cache_hit_tokens, prompt_cache_miss_tokens,
+                  completion_tokens, reasoning_tokens, charged_mc,
+                  ttfb_ms, duration_ms, inserted_at
+           FROM llm_usage_logs
+           WHERE user_id = $1 AND inserted_at < $2
+           ORDER BY inserted_at DESC
+           LIMIT $3
+           """, [user_uuid, cursor, limit]}
+
+        _ ->
+          {"""
+           SELECT id, session_id, logical_model, billing_mode,
+                  prompt_cache_hit_tokens, prompt_cache_miss_tokens,
+                  completion_tokens, reasoning_tokens, charged_mc,
+                  ttfb_ms, duration_ms, inserted_at
+           FROM llm_usage_logs
+           WHERE user_id = $1
+           ORDER BY inserted_at DESC
+           LIMIT $2
+           """, [user_uuid, limit]}
+      end
+
+    {:ok, %{rows: rows}} = Repo.query(sql, params)
+
+    {:ok,
+     Enum.map(rows, fn [
+                         id,
+                         session_id,
+                         logical_model,
+                         billing_mode,
+                         prompt_cache_hit_tokens,
+                         prompt_cache_miss_tokens,
+                         completion_tokens,
+                         reasoning_tokens,
+                         charged_mc,
+                         ttfb_ms,
+                         duration_ms,
+                         inserted_at
+                       ] ->
+       %{
+         id: Ecto.UUID.load!(id),
+         session_id: session_id,
+         logical_model: logical_model,
+         billing_mode: billing_mode,
+         prompt_cache_hit_tokens: prompt_cache_hit_tokens,
+         prompt_cache_miss_tokens: prompt_cache_miss_tokens,
+         completion_tokens: completion_tokens,
+         reasoning_tokens: reasoning_tokens,
+         charged_mc: charged_mc,
+         ttfb_ms: ttfb_ms,
+         duration_ms: duration_ms,
+         inserted_at: to_utc_datetime(inserted_at)
+       }
+     end)}
+  end
+
+  defp list_admin_usage_analytics(args) do
+    days = clamp_int(Map.get(args, :days), 14, 1, 90)
+    since = DateTime.add(DateTime.utc_now(), -days * 86_400, :second)
+
+    {:ok, %{rows: rows}} =
+      Repo.query(
+        """
+        SELECT to_char(inserted_at, 'YYYY-MM-DD') AS day,
+               upstream_channel,
+               COUNT(*)::int AS request_count,
+               COUNT(*) FILTER (WHERE billing_mode = 'estimated_abort')::int AS aborted_count,
+               COUNT(*) FILTER (WHERE billing_mode = 'waived_upstream_error')::int AS waived_count,
+               COALESCE(SUM(prompt_cache_hit_tokens), 0)::bigint AS cache_hit_tokens,
+               COALESCE(SUM(prompt_cache_miss_tokens), 0)::bigint AS cache_miss_tokens,
+               COALESCE(SUM(completion_tokens), 0)::bigint AS completion_tokens,
+               COALESCE(SUM(charged_mc), 0)::bigint AS total_charged_mc,
+               COALESCE(SUM(upstream_cost_mc), 0)::bigint AS total_upstream_cost_mc
+        FROM llm_usage_logs
+        WHERE inserted_at >= $1
+        GROUP BY to_char(inserted_at, 'YYYY-MM-DD'), upstream_channel
+        ORDER BY day DESC, upstream_channel ASC
+        """,
+        [since]
+      )
+
+    {:ok,
+     Enum.map(rows, fn [
+                         day,
+                         upstream_channel,
+                         request_count,
+                         aborted_count,
+                         waived_count,
+                         cache_hit_tokens,
+                         cache_miss_tokens,
+                         completion_tokens,
+                         total_charged_mc,
+                         total_upstream_cost_mc
+                       ] ->
+       %{
+         day: day,
+         upstream_channel: upstream_channel,
+         request_count: request_count,
+         aborted_count: aborted_count,
+         waived_count: waived_count,
+         cache_hit_tokens: cache_hit_tokens,
+         cache_miss_tokens: cache_miss_tokens,
+         completion_tokens: completion_tokens,
+         total_charged_mc: total_charged_mc,
+         total_upstream_cost_mc: total_upstream_cost_mc,
+         gross_margin_mc: total_charged_mc - total_upstream_cost_mc
+       }
+     end)}
+  end
+
+  defp clamp_int(value, _default, min_val, max_val) when is_integer(value) do
+    value |> max(min_val) |> min(max_val)
+  end
+
+  defp clamp_int(_value, default, _min_val, _max_val), do: default
+
+  defp to_utc_datetime(%DateTime{} = dt), do: dt
+  defp to_utc_datetime(%NaiveDateTime{} = dt), do: DateTime.from_naive!(dt, "Etc/UTC")
 
   defp with_workspace_admin(actor, workspace_id, fun) do
     cond do

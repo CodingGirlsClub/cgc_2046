@@ -5311,6 +5311,12 @@ type RootQueryType {
   "当前用户 LLM 钱包（含活跃授信批次）；未登录 unauthorized"
   myLlmWallet: LlmWalletSummary
 
+  "当前用户 LLM 调用用量流水（按 insertedAt 倒序分页，limit 默认 20、范围 1..100）"
+  myLlmUsageLogs(limit: Int, before: DateTime): [LlmUsageLogItem!]!
+
+  "PlatformAdmin 按日 × 上游渠道聚合的 LLM 营收、成本与毛利指标（days 默认 14、范围 1..90）"
+  adminLlmUsageAnalytics(days: Int): [LlmDailyChannelMetric!]!
+
   "工作台算力池与最近派发记录（Owner\/Admin；PlatformAdmin 跨租户可读）"
   workspaceLlmPool(workspaceId: ID!): LlmWorkspacePoolSummary
 
@@ -6761,6 +6767,37 @@ type LlmPaymentCheckout {
 
   "渠道凭据；幂等重放原样返回"
   credential: Json
+}
+
+"当前用户单条 LLM 调用用量流水（不含上游渠道与上游成本）"
+type LlmUsageLogItem {
+  id: ID!
+  sessionId: String
+  logicalModel: String!
+  billingMode: String!
+  promptCacheHitTokens: BigInt!
+  promptCacheMissTokens: BigInt!
+  completionTokens: BigInt!
+  reasoningTokens: BigInt!
+  chargedMc: BigInt!
+  ttfbMs: Int
+  durationMs: Int
+  insertedAt: DateTime!
+}
+
+"平台管理面按日 × 上游渠道聚合的 LLM 营收与成本指标（UTC 日期）"
+type LlmDailyChannelMetric {
+  day: String!
+  upstreamChannel: String!
+  requestCount: Int!
+  abortedCount: Int!
+  waivedCount: Int!
+  cacheHitTokens: BigInt!
+  cacheMissTokens: BigInt!
+  completionTokens: BigInt!
+  totalChargedMc: BigInt!
+  totalUpstreamCostMc: BigInt!
+  grossMarginMc: BigInt!
 }
 
 type FlashbackRates {
