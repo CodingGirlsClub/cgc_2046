@@ -10,6 +10,15 @@ impl NativeAgentView {
         }
     }
 
+    pub(crate) fn set_status_message(
+        &mut self,
+        message: impl Into<String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.status = message.into();
+        cx.notify();
+    }
+
     pub(crate) fn new(
         window: &mut Window,
         cx: &mut Context<Self>,

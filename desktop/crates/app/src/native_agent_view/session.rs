@@ -270,7 +270,15 @@ impl NativeAgentView {
                 snapshot.title_generating,
                 snapshot.title_generation_error.clone(),
             ));
+        let provider_changed = self
+            .snapshot
+            .as_ref()
+            .is_some_and(|current| current.model.provider_id != snapshot.model.provider_id);
         self.snapshot = Some(snapshot);
+        if provider_changed {
+            self.insufficient_quota = false;
+            self.quota_checkout = None;
+        }
         if title_changed {
             cx.emit(NativeAgentViewEvent::TitleChanged);
         }

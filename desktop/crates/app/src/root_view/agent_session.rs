@@ -367,9 +367,16 @@ impl RootView {
         let Some(runtime) = self.native_runtime.clone() else {
             return;
         };
+        let view = self.native_agent_view.clone();
         let operation = runtime.refresh_providers();
-        cx.spawn(async move |_this, _cx| {
-            let _ = operation.await;
+        cx.spawn(async move |_this, cx| {
+            if let Err(error) = operation.await {
+                log::warn!(target: "native-agent", "provider refresh after login failed: {error}");
+                if let Some(view) = view {
+                    let message = format!("模型配置刷新失败：{error}；可重开设置或重启客户端重试");
+                    view.update(cx, |view, cx| view.set_status_message(message, cx));
+                }
+            }
         })
         .detach();
     }

@@ -335,6 +335,23 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
       assert wallet.cached_balance_mc == 500_000
     end
 
+    test "rejects a web session token on the desktop gateway" do
+      user = register_user("gateway-web-token")
+      raw_token = web_token(user)
+
+      conn =
+        build_conn()
+        |> put_req_header("authorization", "Bearer #{raw_token}")
+        |> put_req_header("content-type", "application/json")
+        |> put_req_header("accept", "text/event-stream")
+        |> post("/v1/chat/completions", %{
+          "model" => "cgc-default",
+          "messages" => [%{"role" => "user", "content" => "Hello"}]
+        })
+
+      assert %{"error" => %{"code" => "unauthorized"}} = json_response(conn, 401)
+    end
+
     test "returns 429 when concurrent stream slots are exhausted" do
       user = register_user("gateway-concurrent")
       raw_token = desktop_token(user)
@@ -414,6 +431,11 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
 
   defp desktop_token(user) do
     {:ok, signed} = SignInFlow.generate_token(user, :desktop, %{})
+    signed.__metadata__[:token]
+  end
+
+  defp web_token(user) do
+    {:ok, signed} = SignInFlow.generate_token(user, :web, %{})
     signed.__metadata__[:token]
   end
 end

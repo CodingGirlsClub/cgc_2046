@@ -436,10 +436,16 @@ impl Owner {
             return Ok(self.snapshot());
         };
         let (provider, model) = factory::select_model(production, &active.id, &model_id)?;
+        let entering_managed =
+            managed && self.config.model.provider_id.as_str() != CGC_CLOUD_PROVIDER_ID;
         self.config.provider = provider;
         self.config.context_size = model.limits.context_window as u64;
         self.config.model = model.clone();
         self.model_meta = Arc::new(model.clone());
+        if entering_managed {
+            self.thinking_enabled = false;
+            self.effort_index = 0;
+        }
         if let Some(agent) = self.agent.as_mut() {
             let background = managed
                 .then(|| factory::managed_background_model(production))

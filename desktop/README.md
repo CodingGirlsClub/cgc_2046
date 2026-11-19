@@ -95,6 +95,10 @@ cargo clippy --workspace --all-targets -- -D warnings
 `CGC_AUTH=fake` 才使用本地假数据（无后端跑 UI 或单测）。界面不暴露演示账号，发布形态
 不依赖任何演示数据。
 
+CGC Cloud 的 `/v1` 地址默认由同一 GraphQL 端点推导（`…/api/graphql` → `…/v1`）；
+需要单独指向网关时用 `CGC_GATEWAY_BASE_URL` 覆盖。该地址同样过官方域/本机白名单，
+不允许把登录 Bearer 发到站外。
+
 `CGC_LANG=zh|en` 选择启动语言（默认 zh），`CGC_THEME=light|dark|system` 覆盖主题，
 `CGC_LOG=error|warn|info|debug|trace` 调日志级别（默认 info，文件见「内测分发」）。
 

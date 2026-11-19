@@ -103,6 +103,7 @@ defmodule Cgc2046Web.Router do
   # terminal/learning_host token 物理隔离；不把 MCP token 的权限带进算力消费。
   pipeline :llm_gateway do
     plug(:load_from_bearer)
+    plug(Cgc2046Web.Plugs.LlmGatewayAuthPlug)
     plug(:load_actor)
   end
 
