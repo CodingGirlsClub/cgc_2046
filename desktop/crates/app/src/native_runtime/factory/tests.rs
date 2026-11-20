@@ -401,3 +401,33 @@ fn explicitly_disabled_managed_provider_is_not_recreated() {
         "disabled managed provider must stay disabled"
     );
 }
+
+#[test]
+fn env_byok_credentials_override_managed_default_when_signed_in() {
+    let prefs = AgentPrefs::default();
+    assert!(super::has_env_byok(
+        &prefs,
+        Some("https://byok.example/v1"),
+        Some("sk-env-key")
+    ));
+    let (managed, active) = super::resolve_active_provider_with_env(&prefs, true, true);
+    assert!(!managed);
+    assert!(active.is_none());
+
+    let mut prefs_with_byok = AgentPrefs::default();
+    prefs_with_byok.providers.push(ProviderPrefs {
+        id: "deepseek".into(),
+        name: "DeepSeek".into(),
+        has_key: false,
+        enabled: true,
+        ..Default::default()
+    });
+    assert!(super::has_env_byok(
+        &prefs_with_byok,
+        None,
+        Some("sk-env-key")
+    ));
+    let (managed, active) = super::resolve_active_provider_with_env(&prefs_with_byok, true, true);
+    assert!(!managed);
+    assert_eq!(active.expect("BYOK provider").id, "deepseek");
+}

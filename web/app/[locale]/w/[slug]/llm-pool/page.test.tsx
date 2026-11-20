@@ -412,4 +412,82 @@ describe("/w/[slug]/llm-pool 工作台算力池页", () => {
 			}),
 		);
 	});
+
+	it("工作台成员超过一页时自动跟随 endKeyset 拉取后续页的成员与角色", async () => {
+		const firstPageMembers = Array.from({ length: 100 }, (_, i) => ({
+			id: `mem-p1-${i}`,
+			workspaceId: "ws-lab-1",
+			userId: `user-p1-${i}`,
+			userDisplayName: `学员 ${i}`,
+			userEmail: `p1-${i}@example.com`,
+			roles: [{ id: "role-learner", name: "learner" }],
+		}));
+		const secondPageMembers = [
+			{
+				id: "mem-p2-1",
+				workspaceId: "ws-lab-1",
+				userId: "user-p2-tutor",
+				userDisplayName: "第二页导师",
+				userEmail: "p2-tutor@example.com",
+				roles: [{ id: "role-tutor", name: "tutor" }],
+			},
+		];
+
+		queryMock.mockImplementation(({ query, variables }) => {
+			if (query === WORKSPACE_LLM_POOL) {
+				return Promise.resolve({ data: { workspaceLlmPool: POOL_FIXTURE } });
+			}
+			if (query === WORKSPACE_MEMBERS) {
+				if (variables?.after === "cursor-page-1") {
+					return Promise.resolve({
+						data: {
+							workspaceMembers: {
+								count: 101,
+								results: secondPageMembers,
+								endKeyset: null,
+							},
+						},
+					});
+				}
+				return Promise.resolve({
+					data: {
+						workspaceMembers: {
+							count: 101,
+							results: firstPageMembers,
+							endKeyset: "cursor-page-1",
+						},
+					},
+				});
+			}
+			return Promise.resolve({ data: {} });
+		});
+
+		render(<WorkspaceLlmPoolPage />);
+
+		await screen.findByTestId("workspace-pool-summary");
+
+		// 切换到按角色选择：第 2 页独有的 tutor 角色应出现
+		fireEvent.click(screen.getByTestId("target-mode-roles"));
+		const roleSelector = await screen.findByTestId("target-roles-selector");
+		expect(
+			await within(roleSelector).findByLabelText("tutor"),
+		).toBeInTheDocument();
+
+		// 切换到指定成员：第 2 页成员可选
+		fireEvent.click(screen.getByTestId("target-mode-members"));
+		const memberSelector = await screen.findByTestId("target-members-selector");
+		expect(
+			within(memberSelector).getByLabelText(/第二页导师/),
+		).toBeInTheDocument();
+
+		expect(queryMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				query: WORKSPACE_MEMBERS,
+				variables: expect.objectContaining({
+					first: 100,
+					after: "cursor-page-1",
+				}),
+			}),
+		);
+	});
 });

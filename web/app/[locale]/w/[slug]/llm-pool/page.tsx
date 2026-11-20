@@ -171,23 +171,52 @@ export default function WorkspaceLlmPoolPage() {
 	useEffect(() => {
 		if (!workspaceId || !canManage) return;
 		let cancelled = false;
-		client
-			.query({
-				query: WORKSPACE_MEMBERS,
-				variables: {
-					filter: { workspaceId: { eq: workspaceId } },
-					first: 100,
-				},
-				fetchPolicy: "network-only",
-			})
-			.then(({ data }) => {
+		const PAGE_SIZE = 100;
+		const MAX_PAGES = 50;
+
+		async function loadAllMembers() {
+			const collected: WorkspaceMembership[] = [];
+			const seenUserIds = new Set<string>();
+			let after: string | undefined;
+
+			for (let page = 0; page < MAX_PAGES; page++) {
+				const { data } = await client.query({
+					query: WORKSPACE_MEMBERS,
+					variables: {
+						filter: { workspaceId: { eq: workspaceId } },
+						first: PAGE_SIZE,
+						...(after ? { after } : {}),
+					},
+					fetchPolicy: "network-only",
+				});
 				if (cancelled) return;
-				setMembers(data?.workspaceMembers?.results ?? []);
-			})
-			.catch(() => {
-				if (cancelled) return;
-				setMembers([]);
-			});
+				const conn = data?.workspaceMembers;
+				const batch = conn?.results ?? [];
+				for (const member of batch) {
+					if (!seenUserIds.has(member.userId)) {
+						seenUserIds.add(member.userId);
+						collected.push(member);
+					}
+				}
+				const nextCursor = conn?.endKeyset ?? undefined;
+				if (
+					batch.length < PAGE_SIZE ||
+					!nextCursor ||
+					nextCursor === after ||
+					(typeof conn?.count === "number" && collected.length >= conn.count)
+				) {
+					break;
+				}
+				after = nextCursor;
+			}
+			if (!cancelled) {
+				setMembers(collected);
+			}
+		}
+
+		loadAllMembers().catch(() => {
+			if (!cancelled) setMembers([]);
+		});
 
 		return () => {
 			cancelled = true;

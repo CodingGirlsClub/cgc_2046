@@ -42,11 +42,51 @@ fn endpoint_url(provider: &ProviderPrefs) -> String {
 ///
 /// 已保存的 CGC 配置优先于新造默认值：用户禁用的模型/Provider 不能被登录
 /// 默认逻辑悄悄重新启用；若用户明确禁用了 CGC 且没有可用 BYOK，则保持
+pub(super) fn env_byok_credentials() -> (Option<String>, Option<String>) {
+    let base_url = std::env::var("CGC_AGENT_BASE_URL")
+        .ok()
+        .filter(|value| !value.is_empty());
+    let api_key = std::env::var("CGC_AGENT_API_KEY")
+        .ok()
+        .filter(|value| !value.is_empty());
+    (base_url, api_key)
+}
+
+pub(super) fn has_env_byok(
+    prefs: &AgentPrefs,
+    env_base_url: Option<&str>,
+    env_key: Option<&str>,
+) -> bool {
+    match (env_base_url, env_key) {
+        (Some(_), Some(_)) => true,
+        (None, Some(_)) => prefs
+            .active_provider()
+            .is_some_and(|provider| provider.id != CGC_CLOUD_PROVIDER_ID),
+        _ => false,
+    }
+}
+
 /// Unconfigured，而不是重新创建 CGC 后又在 available 列表里过滤掉。
+#[cfg(test)]
 pub(super) fn resolve_active_provider(
     prefs: &AgentPrefs,
     managed_available: bool,
 ) -> (bool, Option<ProviderPrefs>) {
+    resolve_active_provider_with_env(prefs, managed_available, false)
+}
+
+pub(super) fn resolve_active_provider_with_env(
+    prefs: &AgentPrefs,
+    managed_available: bool,
+    env_byok_configured: bool,
+) -> (bool, Option<ProviderPrefs>) {
+    if env_byok_configured {
+        let byok_active = prefs
+            .active_provider()
+            .filter(|provider| provider.id != CGC_CLOUD_PROVIDER_ID)
+            .cloned();
+        return (false, byok_active);
+    }
     let saved_managed = prefs.provider(CGC_CLOUD_PROVIDER_ID).cloned();
     let configured_active = prefs
         .active_provider()
@@ -117,7 +157,9 @@ pub(super) fn initialize_with_keychain(
         .map_err(|error| NativeRuntimeError::Storage(error.to_string()))?;
     let prefs = PrefsStore::new(data_root.join("agent_prefs.json")).load();
     let managed_available = cgc_platform::gateway::signed_in();
-    let (managed, active) = resolve_active_provider(&prefs, managed_available);
+    let (env_base_url, env_key) = env_byok_credentials();
+    let env_byok = has_env_byok(&prefs, env_base_url.as_deref(), env_key.as_deref());
+    let (managed, active) = resolve_active_provider_with_env(&prefs, managed_available, env_byok);
     let protocol = std::env::var("CGC_AGENT_PROTOCOL")
         .ok()
         .map(|value| value.parse::<ProviderProtocol>())
@@ -196,15 +238,9 @@ pub(super) fn initialize_with_keychain(
     let base_url = if managed {
         cgc_platform::gateway::gateway_base_url()
     } else {
-        std::env::var("CGC_AGENT_BASE_URL")
-            .ok()
-            .filter(|value| !value.is_empty())
-            .or_else(|| active.as_ref().map(endpoint_url))
+        env_base_url.or_else(|| active.as_ref().map(endpoint_url))
     };
     // 只读环境变量：钥匙串留到首次 turn（Production::pending）。
-    let env_key = std::env::var("CGC_AGENT_API_KEY")
-        .ok()
-        .filter(|value| !value.is_empty());
     let active_has_key = active.as_ref().is_some_and(|provider| provider.has_key);
     let pending = match (&env_key, &base_url) {
         (Some(_), _) => None,

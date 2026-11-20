@@ -7,6 +7,8 @@ export type Scalars = {
   Boolean: { input: boolean; output: boolean; }
   Int: { input: number; output: number; }
   Float: { input: number; output: number; }
+  /** Signed 64-bit integer (microcredits). Accepts integer or numeric string; serializes as JSON integer. */
+  BigInt: { input: unknown; output: unknown; }
   /**
    * The `DateTime` scalar type represents a date and time in the UTC
    * timezone. The DateTime appears in a JSON response as an ISO8601 formatted
@@ -3847,14 +3849,29 @@ export type LlmCreditGrantItem = {
   expiresAt?: Maybe<Scalars['DateTime']['output']>;
   id: Scalars['ID']['output'];
   /** 发放额度（微积分） */
-  initialMc: Scalars['Int']['output'];
+  initialMc: Scalars['BigInt']['output'];
   insertedAt: Scalars['DateTime']['output'];
   /** 当前剩余额度（微积分） */
-  remainingMc: Scalars['Int']['output'];
+  remainingMc: Scalars['BigInt']['output'];
   /** subscription | pack | workspace_grant | admin_gift */
   sourceType: Scalars['String']['output'];
   /** active | exhausted | expired */
   status: Scalars['String']['output'];
+};
+
+/** 平台管理面按日 × 上游渠道聚合的 LLM 营收与成本指标（UTC 日期） */
+export type LlmDailyChannelMetric = {
+  abortedCount: Scalars['Int']['output'];
+  cacheHitTokens: Scalars['BigInt']['output'];
+  cacheMissTokens: Scalars['BigInt']['output'];
+  completionTokens: Scalars['BigInt']['output'];
+  day: Scalars['String']['output'];
+  grossMarginMc: Scalars['BigInt']['output'];
+  requestCount: Scalars['Int']['output'];
+  totalChargedMc: Scalars['BigInt']['output'];
+  totalUpstreamCostMc: Scalars['BigInt']['output'];
+  upstreamChannel: Scalars['String']['output'];
+  waivedCount: Scalars['Int']['output'];
 };
 
 /** 创单结果：订单快照 + 渠道凭据（二维码/跳转参数） */
@@ -3869,7 +3886,7 @@ export type LlmPaymentOrder = {
   /** 实付金额（分） */
   amountCents: Scalars['Int']['output'];
   /** 入账算力（微积分；1 cent = 10,000 mc） */
-  creditsMc: Scalars['Int']['output'];
+  creditsMc: Scalars['BigInt']['output'];
   expiresAt?: Maybe<Scalars['DateTime']['output']>;
   id: Scalars['ID']['output'];
   insertedAt: Scalars['DateTime']['output'];
@@ -3877,7 +3894,7 @@ export type LlmPaymentOrder = {
   orderKind: Scalars['String']['output'];
   outTradeNo: Scalars['String']['output'];
   paidAt?: Maybe<Scalars['DateTime']['output']>;
-  /** wechat_native | alipay_page | alipay_qr | alipay_wap */
+  /** wechat_native | alipay_qr */
   provider: Scalars['String']['output'];
   /** pending | paid | cancelled | expired */
   status: Scalars['String']['output'];
@@ -3887,15 +3904,31 @@ export type LlmPaymentOrder = {
   workspaceId?: Maybe<Scalars['ID']['output']>;
 };
 
+/** 当前用户单条 LLM 调用用量流水（不含上游渠道与上游成本） */
+export type LlmUsageLogItem = {
+  billingMode: Scalars['String']['output'];
+  chargedMc: Scalars['BigInt']['output'];
+  completionTokens: Scalars['BigInt']['output'];
+  durationMs?: Maybe<Scalars['Int']['output']>;
+  id: Scalars['ID']['output'];
+  insertedAt: Scalars['DateTime']['output'];
+  logicalModel: Scalars['String']['output'];
+  promptCacheHitTokens: Scalars['BigInt']['output'];
+  promptCacheMissTokens: Scalars['BigInt']['output'];
+  reasoningTokens: Scalars['BigInt']['output'];
+  sessionId?: Maybe<Scalars['String']['output']>;
+  ttfbMs?: Maybe<Scalars['Int']['output']>;
+};
+
 /** 当前用户 LLM 钱包摘要；金额均为微积分（1 CNY = 1,000,000 mc） */
 export type LlmWalletSummary = {
   activeGrants: Array<LlmCreditGrantItem>;
-  /** 可用额度 = cached - held */
-  availableMc: Scalars['Int']['output'];
+  /** 可用额度（未过期授信与缓存余额取小后扣除冻结） */
+  availableMc: Scalars['BigInt']['output'];
   /** 缓存总余额（含冻结） */
-  cachedBalanceMc: Scalars['Int']['output'];
+  cachedBalanceMc: Scalars['BigInt']['output'];
   /** 在途流式请求冻结额度 */
-  heldMc: Scalars['Int']['output'];
+  heldMc: Scalars['BigInt']['output'];
   maxConcurrentStreams: Scalars['Int']['output'];
   /** 活跃授信剩余百分比 0-100 */
   remainingPercentage: Scalars['Int']['output'];
@@ -3912,8 +3945,8 @@ export type LlmWorkspaceGrantBatch = {
   idempotencyKey: Scalars['String']['output'];
   insertedAt: Scalars['DateTime']['output'];
   memberCount: Scalars['Int']['output'];
-  perMemberMc: Scalars['Int']['output'];
-  totalGrantedMc: Scalars['Int']['output'];
+  perMemberMc: Scalars['BigInt']['output'];
+  totalGrantedMc: Scalars['BigInt']['output'];
 };
 
 /** 工作台批量派发结果；idempotentReplay=true 表示命中同 key 原批次、未二次扣池 */
@@ -3921,15 +3954,29 @@ export type LlmWorkspaceGrantResult = {
   id: Scalars['ID']['output'];
   idempotentReplay: Scalars['Boolean']['output'];
   memberCount: Scalars['Int']['output'];
-  perMemberMc: Scalars['Int']['output'];
-  totalGrantedMc: Scalars['Int']['output'];
+  perMemberMc: Scalars['BigInt']['output'];
+  totalGrantedMc: Scalars['BigInt']['output'];
+};
+
+/** 工作台算力池追加账本流水行 */
+export type LlmWorkspacePoolEntry = {
+  actorUserId?: Maybe<Scalars['ID']['output']>;
+  /** 变动微积分（充值正数，派发负数） */
+  deltaMc: Scalars['BigInt']['output'];
+  /** order_topup | admin_topup | batch_grant_debit | migration_baseline */
+  entryType: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  insertedAt: Scalars['DateTime']['output'];
+  paymentOrderId?: Maybe<Scalars['ID']['output']>;
+  workspaceBatchId?: Maybe<Scalars['ID']['output']>;
 };
 
 /** 工作台算力池与最近派发批次 */
 export type LlmWorkspacePoolSummary = {
   /** 待派发池余额（微积分） */
-  creditPoolMc: Scalars['Int']['output'];
+  creditPoolMc: Scalars['BigInt']['output'];
   recentBatches: Array<LlmWorkspaceGrantBatch>;
+  recentPoolEntries: Array<LlmWorkspacePoolEntry>;
   updatedAt: Scalars['DateTime']['output'];
   workspaceId: Scalars['ID']['output'];
 };
@@ -4993,7 +5040,7 @@ export type RootMutationType = {
   disableInviteBatch: DisableInviteBatchResult;
   /** 拒绝首公里接入邀请（每次登录弹直到明确拒绝；幂等保留首次拒绝时间戳，仅本人） */
   dismissOnboardingInvitation?: Maybe<User>;
-  /** 工作台 Owner/Admin 从算力池向当前全部成员派发额度；同 idempotencyKey 幂等 */
+  /** 工作台 Owner/Admin 从算力池向目标成员（默认全部，可按成员 ID/角色筛选）派发额度；同 idempotencyKey 幂等 */
   distributeWorkspaceLlmCredits?: Maybe<LlmWorkspaceGrantResult>;
   ensureCourseRetro?: Maybe<CourseNote>;
   /** 愿望留言（R8）：公开愿望可留言讨论 */
@@ -5229,7 +5276,7 @@ export type RootMutationTypeAdminCloseEventArgs = {
 
 
 export type RootMutationTypeAdminGrantUserLlmCreditsArgs = {
-  amountMc: Scalars['Int']['input'];
+  amountMc: Scalars['BigInt']['input'];
   expiresAt?: InputMaybe<Scalars['DateTime']['input']>;
   userId: Scalars['ID']['input'];
 };
@@ -5246,7 +5293,7 @@ export type RootMutationTypeAdminLaunchEventArgs = {
 
 
 export type RootMutationTypeAdminTopupWorkspaceLlmPoolArgs = {
-  amountMc: Scalars['Int']['input'];
+  amountMc: Scalars['BigInt']['input'];
   workspaceId: Scalars['ID']['input'];
 };
 
@@ -5541,7 +5588,9 @@ export type RootMutationTypeDisableInviteBatchArgs = {
 export type RootMutationTypeDistributeWorkspaceLlmCreditsArgs = {
   expiresAt?: InputMaybe<Scalars['DateTime']['input']>;
   idempotencyKey: Scalars['String']['input'];
-  perMemberMc: Scalars['Int']['input'];
+  perMemberMc: Scalars['BigInt']['input'];
+  targetRoles?: InputMaybe<Array<Scalars['String']['input']>>;
+  targetUserIds?: InputMaybe<Array<Scalars['ID']['input']>>;
   workspaceId: Scalars['ID']['input'];
 };
 
@@ -6146,6 +6195,8 @@ export type RootMutationTypeWechatMiniWebLoginStartForDesktopArgs = {
 };
 
 export type RootQueryType = {
+  /** PlatformAdmin 按日 × 上游渠道聚合的 LLM 营收、成本与毛利指标（days 默认 14、范围 1..90） */
+  adminLlmUsageAnalytics: Array<LlmDailyChannelMetric>;
   /** 当前用户可读的已发布课程内容（chapter + typed materials；不含原始 WorkflowRun） */
   courseContent?: Maybe<CourseContent>;
   /** Tutor/Owner/Admin 课程草稿（不向 learner 暴露；无权/课程不存在统一 null，不泄露存在性） */
@@ -6288,6 +6339,8 @@ export type RootQueryType = {
   myEnrollments?: Maybe<KeysetPageOfEnrollment>;
   /** 当前用户 confirmed 课程报名的学习 run 进度（非成员可读；event 报名不走 objective 学习不返回，已取消课程除外） */
   myLearningRuns: Array<MyLearningRun>;
+  /** 当前用户 LLM 调用用量流水（按 insertedAt 倒序分页，limit 默认 20、范围 1..100） */
+  myLlmUsageLogs: Array<LlmUsageLogItem>;
   /** 当前用户 LLM 钱包（含活跃授信批次）；未登录 unauthorized */
   myLlmWallet?: Maybe<LlmWalletSummary>;
   /** 当前用户的 MCP 连接 token 列表（切片 D #44；不含明文，新→旧；policy 仅见本人） */
@@ -6355,6 +6408,11 @@ export type RootQueryType = {
   workspacePaymentStats: Scalars['JsonString']['output'];
   /** 当前用户在某工作台的公开资料（ADR-0004 per-workspace；按 visibility 授权） */
   workspaceProfile?: Maybe<WorkspaceProfile>;
+};
+
+
+export type RootQueryTypeAdminLlmUsageAnalyticsArgs = {
+  days?: InputMaybe<Scalars['Int']['input']>;
 };
 
 
@@ -6757,6 +6815,12 @@ export type RootQueryTypeMyEnrollmentsArgs = {
   first?: InputMaybe<Scalars['Int']['input']>;
   last?: InputMaybe<Scalars['Int']['input']>;
   sort?: InputMaybe<Array<InputMaybe<EnrollmentSortInput>>>;
+};
+
+
+export type RootQueryTypeMyLlmUsageLogsArgs = {
+  before?: InputMaybe<Scalars['DateTime']['input']>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
 };
 
 

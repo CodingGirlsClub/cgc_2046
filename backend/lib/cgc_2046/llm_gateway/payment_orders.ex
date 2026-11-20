@@ -247,6 +247,31 @@ defmodule Cgc2046.LlmGateway.PaymentOrders do
   end
 
   defp create_channel_credential(%PaymentOrder{} = order) do
+    :global.trans({{__MODULE__, order.id}, self()}, fn ->
+      do_create_channel_credential(order)
+    end)
+  end
+
+  defp do_create_channel_credential(%PaymentOrder{} = order) do
+    case reload_order(order.id) do
+      {:ok, %PaymentOrder{status: :cancelled}} ->
+        {:error, :provider_failed}
+
+      {:ok, %PaymentOrder{credential: credential} = persisted} when not is_nil(credential) ->
+        {:ok, persisted}
+
+      {:ok, %PaymentOrder{status: status} = persisted} when status != :pending ->
+        {:ok, persisted}
+
+      {:ok, %PaymentOrder{status: :pending, credential: nil} = current} ->
+        call_provider_and_persist_credential(current)
+
+      {:error, _reason} ->
+        {:error, :database_error}
+    end
+  end
+
+  defp call_provider_and_persist_credential(%PaymentOrder{} = order) do
     order_shape = %{
       provider: order.provider,
       out_trade_no: order.out_trade_no,
@@ -258,16 +283,21 @@ defmodule Cgc2046.LlmGateway.PaymentOrders do
       {:ok, credential} ->
         updated_at = DateTime.utc_now()
 
-        Repo.query!(
-          """
-          UPDATE llm_payment_orders
-          SET credential = $2, updated_at = $3
-          WHERE id = $1 AND status = 'pending'
-          """,
-          [Repo.uuid!(order.id), credential, updated_at]
-        )
+        %{num_rows: num_rows} =
+          Repo.query!(
+            """
+            UPDATE llm_payment_orders
+            SET credential = $2, updated_at = $3
+            WHERE id = $1 AND status = 'pending' AND credential IS NULL
+            """,
+            [Repo.uuid!(order.id), credential, updated_at]
+          )
 
-        {:ok, %{order | credential: credential}}
+        if num_rows == 1 do
+          {:ok, %{order | credential: credential}}
+        else
+          resolve_persisted_order_after_noop_update(order.id)
+        end
 
       {:error, reason} ->
         Logger.warning(
@@ -286,6 +316,29 @@ defmodule Cgc2046.LlmGateway.PaymentOrders do
         )
 
         {:error, :provider_failed}
+    end
+  end
+
+  defp resolve_persisted_order_after_noop_update(order_id) do
+    case reload_order(order_id) do
+      {:ok, %PaymentOrder{status: :cancelled}} ->
+        {:error, :provider_failed}
+
+      {:ok, %PaymentOrder{credential: credential} = persisted} when not is_nil(credential) ->
+        {:ok, persisted}
+
+      {:ok, %PaymentOrder{status: status} = persisted} when status != :pending ->
+        {:ok, persisted}
+
+      _ ->
+        {:error, :provider_failed}
+    end
+  end
+
+  defp reload_order(order_id) do
+    case Ash.get(PaymentOrder, order_id, authorize?: false) do
+      {:ok, %PaymentOrder{} = order} -> {:ok, order}
+      _ -> {:error, :not_found}
     end
   end
 

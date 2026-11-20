@@ -572,6 +572,94 @@ defmodule Cgc2046.LlmGateway.PaymentOrdersTest do
     end
   end
 
+  defmodule SerializedProvider do
+    def create_payment(order, _opts) do
+      counter = :persistent_term.get({__MODULE__, :counter})
+      :counters.add(counter, 1, 1)
+      Process.sleep(60)
+      {:ok, %{"type" => "qr_code", "code_url" => "weixin://serial/#{order.out_trade_no}"}}
+    end
+  end
+
+  defmodule CancelDuringProviderCall do
+    def create_payment(order, _opts) do
+      Cgc2046.Repo.query!(
+        "UPDATE llm_payment_orders SET status = 'cancelled' WHERE out_trade_no = $1",
+        [order.out_trade_no]
+      )
+
+      {:ok, %{"type" => "qr_code", "code_url" => "weixin://should-not-leak"}}
+    end
+  end
+
+  test "并发同幂等键串行化 Phase B：渠道只调一次且返回同一持久化凭证" do
+    counter = :counters.new(1, [])
+    :persistent_term.put({SerializedProvider, :counter}, counter)
+    original = Application.get_env(:cgc_2046, :payments_providers)
+
+    Application.put_env(:cgc_2046, :payments_providers, %{
+      wechat: SerializedProvider,
+      alipay: SerializedProvider
+    })
+
+    on_exit(fn ->
+      :persistent_term.erase({SerializedProvider, :counter})
+      Application.put_env(:cgc_2046, :payments_providers, original)
+    end)
+
+    user = Fixtures.register_user("llm-concurrent-idem")
+
+    params = %{
+      order_kind: "llm_credit_pack",
+      provider: "wechat_native",
+      amount_cents: 1_000,
+      idempotency_key: "idem-concurrent-001"
+    }
+
+    parent = self()
+
+    t1 =
+      Task.async(fn ->
+        Ecto.Adapters.SQL.Sandbox.allow(Repo, parent, self())
+        PaymentOrders.create(user, params)
+      end)
+
+    t2 =
+      Task.async(fn ->
+        Ecto.Adapters.SQL.Sandbox.allow(Repo, parent, self())
+        PaymentOrders.create(user, params)
+      end)
+
+    assert {:ok, o1} = Task.await(t1, 5_000)
+    assert {:ok, o2} = Task.await(t2, 5_000)
+    assert o1.id == o2.id
+    assert o1.credential == o2.credential
+    assert :counters.get(counter, 1) == 1
+  end
+
+  test "渠道返回前订单已被取消时，绝不把未落库二维码返回给用户" do
+    original = Application.get_env(:cgc_2046, :payments_providers)
+
+    Application.put_env(:cgc_2046, :payments_providers, %{
+      wechat: CancelDuringProviderCall,
+      alipay: CancelDuringProviderCall
+    })
+
+    on_exit(fn ->
+      Application.put_env(:cgc_2046, :payments_providers, original)
+    end)
+
+    user = Fixtures.register_user("llm-cancelled-race")
+
+    assert {:error, :provider_failed} =
+             PaymentOrders.create(user, %{
+               order_kind: "llm_credit_pack",
+               provider: "wechat_native",
+               amount_cents: 1_000,
+               idempotency_key: "idem-cancelled-race-001"
+             })
+  end
+
   defp with_tx_probe_provider do
     original = Application.get_env(:cgc_2046, :payments_providers)
     Process.put({TxProbeProvider, :caller}, self())

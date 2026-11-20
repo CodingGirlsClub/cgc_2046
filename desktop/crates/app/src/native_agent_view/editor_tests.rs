@@ -744,7 +744,7 @@ fn wallet_badge_toggles_proactive_panel_and_distinguishes_paid_state_from_402(
         assert!(view.read(cx).quota_checkout.is_none());
         assert!(window.try_find("native-agent-quota-card").is_none());
 
-        // 402 Paid state shows "继续生成" and hides proactive Close button.
+        // 402 Paid state shows "继续生成" (instead of proactive paid-close), and keeps header Close button.
         view.update(cx, |view, cx| {
             view.insufficient_quota = true;
             view.quota_checkout = Some(super::QuotaCheckout {
@@ -758,7 +758,14 @@ fn wallet_badge_toggles_proactive_panel_and_distinguishes_paid_state_from_402(
         window.render_frame(cx);
         assert!(window.try_find("native-agent-quota-continue").is_some());
         assert!(window.try_find("native-agent-quota-paid-close").is_none());
-        assert!(window.try_find("native-agent-wallet-close").is_none());
+        assert!(window.try_find("native-agent-wallet-close").is_some());
+
+        // Clicking header Close dismisses 402 card and clears checkout state.
+        window.click("native-agent-wallet-close", cx);
+        window.render_frame(cx);
+        assert!(!view.read(cx).insufficient_quota);
+        assert!(view.read(cx).quota_checkout.is_none());
+        assert!(window.try_find("native-agent-quota-card").is_none());
     })
     .unwrap();
 }

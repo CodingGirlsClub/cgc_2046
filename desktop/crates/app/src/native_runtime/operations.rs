@@ -393,7 +393,10 @@ impl Owner {
             .ok_or_else(|| NativeRuntimeError::Configuration("runtime 未配置模型目录".into()))?;
         let prefs = PrefsStore::new(production.data_root.join("agent_prefs.json")).load();
         let managed_available = cgc_platform::gateway::signed_in();
-        let (managed, active) = factory::resolve_active_provider(&prefs, managed_available);
+        let (env_base_url, env_key) = factory::env_byok_credentials();
+        let env_byok = factory::has_env_byok(&prefs, env_base_url.as_deref(), env_key.as_deref());
+        let (managed, active) =
+            factory::resolve_active_provider_with_env(&prefs, managed_available, env_byok);
         let mut available_providers = prefs.providers.clone();
         if managed
             && !available_providers
