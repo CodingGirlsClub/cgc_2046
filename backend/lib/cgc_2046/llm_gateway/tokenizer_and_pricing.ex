@@ -267,7 +267,8 @@ defmodule Cgc2046.LlmGateway.TokenizerAndPricing do
         est_reasoning_tokens = count_text_tokens(reasoning_text)
         total_completion_tokens = est_output_tokens + est_reasoning_tokens
 
-        if total_completion_tokens == 0 and Map.get(stream_state, :upstream_error?, false) do
+        if Map.get(stream_state, :sse_error?, false) or
+             (total_completion_tokens == 0 and Map.get(stream_state, :upstream_error?, false)) do
           %{
             billing_mode: :waived_upstream_error,
             prompt_cache_hit_tokens: 0,

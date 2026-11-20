@@ -16,6 +16,8 @@ import {
 	ADMIN_GRANT_USER_LLM_CREDITS,
 	ADMIN_LLM_USAGE_ANALYTICS,
 	ADMIN_TOPUP_WORKSPACE_LLM_POOL,
+	ADMIN_UPDATE_USER_LLM_CONCURRENCY,
+	ADMIN_UPDATE_USER_LLM_WALLET_STATUS,
 	type LlmDailyChannelMetric,
 } from "@/lib/graphql/llm-gateway";
 import {
@@ -92,6 +94,21 @@ export default function AdminLlmClient() {
 	const [giftSubmitting, setGiftSubmitting] = useState(false);
 	const [giftError, setGiftError] = useState<string | null>(null);
 	const [giftSuccess, setGiftSuccess] = useState<string | null>(null);
+
+	// 表单 3：账户冻结 / 解冻风控
+	const [riskStatusUserId, setRiskStatusUserId] = useState("");
+	const [riskStatus, setRiskStatus] = useState<"frozen" | "active">("frozen");
+	const [riskFrozenReason, setRiskFrozenReason] = useState("");
+	const [riskStatusSubmitting, setRiskStatusSubmitting] = useState(false);
+	const [riskStatusError, setRiskStatusError] = useState<string | null>(null);
+	const [riskStatusSuccess, setRiskStatusSuccess] = useState<string | null>(null);
+
+	// 表单 4：用户并发流上限调整
+	const [concurrencyUserId, setConcurrencyUserId] = useState("");
+	const [maxConcurrentStreams, setMaxConcurrentStreams] = useState("3");
+	const [concurrencySubmitting, setConcurrencySubmitting] = useState(false);
+	const [concurrencyError, setConcurrencyError] = useState<string | null>(null);
+	const [concurrencySuccess, setConcurrencySuccess] = useState<string | null>(null);
 
 	const loadAnalytics = useCallback((windowDays: DayWindow) => {
 		setLoading(true);
@@ -237,6 +254,95 @@ export default function AdminLlmClient() {
 			setGiftError(errorMessage(err, t("giftFailed")));
 		} finally {
 			setGiftSubmitting(false);
+		}
+	}
+
+	async function handleRiskStatusSubmit(event: FormEvent) {
+		event.preventDefault();
+		setRiskStatusError(null);
+		setRiskStatusSuccess(null);
+
+		const uid = riskStatusUserId.trim();
+		if (!uid) {
+			setRiskStatusError(t("validationUserId"));
+			return;
+		}
+
+		const reason =
+			riskStatus === "frozen" && riskFrozenReason.trim()
+				? riskFrozenReason.trim()
+				: null;
+
+		setRiskStatusSubmitting(true);
+		try {
+			const { data } = await client.mutate({
+				mutation: ADMIN_UPDATE_USER_LLM_WALLET_STATUS,
+				variables: {
+					userId: uid,
+					status: riskStatus,
+					frozenReason: reason,
+				},
+			});
+			const wallet = data?.adminUpdateUserLlmWalletStatus;
+			if (!wallet) {
+				setRiskStatusError(t("riskStatusFailed"));
+				return;
+			}
+			setRiskStatusSuccess(
+				wallet.status === "frozen"
+					? t("riskFreezeSuccess", { userId: uid })
+					: t("riskUnfreezeSuccess", { userId: uid }),
+			);
+			if (wallet.status === "active") {
+				setRiskFrozenReason("");
+			}
+		} catch (err) {
+			setRiskStatusError(errorMessage(err, t("riskStatusFailed")));
+		} finally {
+			setRiskStatusSubmitting(false);
+		}
+	}
+
+	async function handleConcurrencySubmit(event: FormEvent) {
+		event.preventDefault();
+		setConcurrencyError(null);
+		setConcurrencySuccess(null);
+
+		const uid = concurrencyUserId.trim();
+		if (!uid) {
+			setConcurrencyError(t("validationUserId"));
+			return;
+		}
+		const parsed = Number.parseInt(maxConcurrentStreams, 10);
+		if (!Number.isInteger(parsed) || parsed < 1 || parsed > 20) {
+			setConcurrencyError(t("validationConcurrency"));
+			return;
+		}
+
+		setConcurrencySubmitting(true);
+		try {
+			const { data } = await client.mutate({
+				mutation: ADMIN_UPDATE_USER_LLM_CONCURRENCY,
+				variables: {
+					userId: uid,
+					maxConcurrentStreams: parsed,
+				},
+			});
+			const wallet = data?.adminUpdateUserLlmConcurrency;
+			if (!wallet) {
+				setConcurrencyError(t("concurrencyFailed"));
+				return;
+			}
+			setConcurrencySuccess(
+				t("concurrencySuccess", {
+					userId: uid,
+					limit: wallet.maxConcurrentStreams,
+				}),
+			);
+		} catch (err) {
+			setConcurrencyError(errorMessage(err, t("concurrencyFailed")));
+		} finally {
+			setConcurrencySubmitting(false);
 		}
 	}
 
@@ -554,6 +660,142 @@ export default function AdminLlmClient() {
 								className="l-btn-primary"
 							>
 								{giftSubmitting ? t("submitting") : t("giftSubmit")}
+							</button>
+						</div>
+					</form>
+
+					<form
+						onSubmit={(e) => void handleRiskStatusSubmit(e)}
+						className="admin-card admin-card__body"
+						data-testid="admin-wallet-status-form"
+					>
+						<div>
+							<h3 className="text-sm font-medium text-ink">{t("riskStatusTitle")}</h3>
+							<p className="mt-1 text-xs text-ink-3">{t("riskStatusDesc")}</p>
+						</div>
+						<label className="grid gap-1.5 text-xs text-ink-2">
+							<span>{t("userIdLabel")}</span>
+							<input
+								type="text"
+								value={riskStatusUserId}
+								onChange={(e) => setRiskStatusUserId(e.target.value)}
+								placeholder={t("userIdPlaceholder")}
+								className="l-input"
+							/>
+						</label>
+						<div className="grid gap-1.5 text-xs text-ink-2">
+							<span>{t("riskActionLabel")}</span>
+							<div className="flex flex-wrap gap-2">
+								<button
+									type="button"
+									aria-pressed={riskStatus === "frozen"}
+									onClick={() => setRiskStatus("frozen")}
+									className={
+										riskStatus === "frozen" ? "l-btn-primary" : "l-btn-outline"
+									}
+								>
+									{t("riskActionFreeze")}
+								</button>
+								<button
+									type="button"
+									aria-pressed={riskStatus === "active"}
+									onClick={() => setRiskStatus("active")}
+									className={
+										riskStatus === "active" ? "l-btn-primary" : "l-btn-outline"
+									}
+								>
+									{t("riskActionUnfreeze")}
+								</button>
+							</div>
+						</div>
+						{riskStatus === "frozen" && (
+							<label className="grid gap-1.5 text-xs text-ink-2">
+								<span>{t("frozenReasonLabel")}</span>
+								<input
+									type="text"
+									maxLength={200}
+									value={riskFrozenReason}
+									onChange={(e) => setRiskFrozenReason(e.target.value)}
+									placeholder={t("frozenReasonPlaceholder")}
+									className="l-input"
+								/>
+							</label>
+						)}
+						{riskStatusError && (
+							<p role="alert" className="text-xs text-red-400">
+								{riskStatusError}
+							</p>
+						)}
+						{riskStatusSuccess && (
+							<p role="status" className="text-xs text-emerald-400">
+								{riskStatusSuccess}
+							</p>
+						)}
+						<div>
+							<button
+								type="submit"
+								disabled={riskStatusSubmitting}
+								className="l-btn-primary"
+							>
+								{riskStatusSubmitting ? t("submitting") : t("riskStatusSubmit")}
+							</button>
+						</div>
+					</form>
+
+					<form
+						onSubmit={(e) => void handleConcurrencySubmit(e)}
+						className="admin-card admin-card__body"
+						data-testid="admin-wallet-concurrency-form"
+					>
+						<div>
+							<h3 className="text-sm font-medium text-ink">
+								{t("concurrencyTitle")}
+							</h3>
+							<p className="mt-1 text-xs text-ink-3">{t("concurrencyDesc")}</p>
+						</div>
+						<label className="grid gap-1.5 text-xs text-ink-2">
+							<span>{t("userIdLabel")}</span>
+							<input
+								type="text"
+								value={concurrencyUserId}
+								onChange={(e) => setConcurrencyUserId(e.target.value)}
+								placeholder={t("userIdPlaceholder")}
+								className="l-input"
+							/>
+						</label>
+						<label className="grid gap-1.5 text-xs text-ink-2">
+							<span>{t("concurrencyLimitLabel")}</span>
+							<input
+								type="number"
+								min={1}
+								max={20}
+								value={maxConcurrentStreams}
+								onChange={(e) => setMaxConcurrentStreams(e.target.value)}
+								className="l-input"
+							/>
+							<span className="text-xs text-ink-3">
+								{t("concurrencyLimitHint")}
+							</span>
+						</label>
+						{concurrencyError && (
+							<p role="alert" className="text-xs text-red-400">
+								{concurrencyError}
+							</p>
+						)}
+						{concurrencySuccess && (
+							<p role="status" className="text-xs text-emerald-400">
+								{concurrencySuccess}
+							</p>
+						)}
+						<div>
+							<button
+								type="submit"
+								disabled={concurrencySubmitting}
+								className="l-btn-primary"
+							>
+								{concurrencySubmitting
+									? t("submitting")
+									: t("concurrencySubmit")}
 							</button>
 						</div>
 					</form>

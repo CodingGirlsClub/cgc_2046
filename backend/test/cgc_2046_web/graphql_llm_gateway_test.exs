@@ -829,6 +829,195 @@ defmodule Cgc2046Web.GraphqlLlmGatewayTest do
     assert by_type["batch_grant_debit"]["actorUserId"] == owner.id
   end
 
+  test "adminUpdateUserLlmWalletStatus & adminUpdateUserLlmConcurrency: 仅 PlatformAdmin 可用并写 AdminActionLog" do
+    user = Fixtures.register_user("gql-risk-target")
+    admin = Fixtures.platform_admin("gql-risk-admin")
+    user_token = sign_in_token(user)
+    admin_token = sign_in_token(admin)
+
+    status_mutation = """
+    mutation UpdateStatus($userId: ID!, $status: String!, $frozenReason: String) {
+      adminUpdateUserLlmWalletStatus(
+        userId: $userId,
+        status: $status,
+        frozenReason: $frozenReason
+      ) {
+        status
+        frozenReason
+        maxConcurrentStreams
+      }
+    }
+    """
+
+    concurrency_mutation = """
+    mutation UpdateConcurrency($userId: ID!, $maxConcurrentStreams: Int!) {
+      adminUpdateUserLlmConcurrency(
+        userId: $userId,
+        maxConcurrentStreams: $maxConcurrentStreams
+      ) {
+        status
+        frozenReason
+        maxConcurrentStreams
+      }
+    }
+    """
+
+    # 非管理员被拒
+    assert %{"errors" => [%{"code" => "forbidden"}]} =
+             graphql(status_mutation, user_token, %{
+               "userId" => user.id,
+               "status" => "frozen",
+               "frozenReason" => "test"
+             })
+
+    assert %{"errors" => [%{"code" => "forbidden"}]} =
+             graphql(concurrency_mutation, user_token, %{
+               "userId" => user.id,
+               "maxConcurrentStreams" => 8
+             })
+
+    # 管理员冻结账户并附带原因
+    assert %{
+             "adminUpdateUserLlmWalletStatus" => %{
+               "status" => "frozen",
+               "frozenReason" => "高频异常请求"
+             }
+           } =
+             data!(
+               graphql(status_mutation, admin_token, %{
+                 "userId" => user.id,
+                 "status" => "frozen",
+                 "frozenReason" => "高频异常请求"
+               })
+             )
+
+    # myLlmWallet 同步暴露 frozenReason
+    assert %{"myLlmWallet" => %{"status" => "frozen", "frozenReason" => "高频异常请求"}} =
+             data!(
+               graphql(
+                 "query { myLlmWallet { status frozenReason } }",
+                 user_token
+               )
+             )
+
+    # 管理员调整并发上限
+    assert %{
+             "adminUpdateUserLlmConcurrency" => %{
+               "maxConcurrentStreams" => 8
+             }
+           } =
+             data!(
+               graphql(concurrency_mutation, admin_token, %{
+                 "userId" => user.id,
+                 "maxConcurrentStreams" => 8
+               })
+             )
+
+    # 超出范围拒绝
+    assert %{"errors" => [%{"code" => "invalid_concurrency_limit"}]} =
+             graphql(concurrency_mutation, admin_token, %{
+               "userId" => user.id,
+               "maxConcurrentStreams" => 99
+             })
+
+    # 解冻后清空 frozenReason
+    assert %{
+             "adminUpdateUserLlmWalletStatus" => %{
+               "status" => "active",
+               "frozenReason" => nil
+             }
+           } =
+             data!(
+               graphql(status_mutation, admin_token, %{
+                 "userId" => user.id,
+                 "status" => "active"
+               })
+             )
+
+    logs =
+      Cgc2046.Accounts.AdminActionLog
+      |> Ash.read!(authorize?: false)
+      |> Enum.filter(&(&1.target_id == user.id))
+      |> Enum.map(& &1.action)
+
+    assert :llm_wallet_status_update in logs
+    assert :llm_wallet_concurrency_update in logs
+  end
+
+  test "workspaceLlmPool 聚合派发批次消耗率与汇总余额（不泄露单成员明细）" do
+    %{owner: owner, workspace: workspace, member: member} =
+      Fixtures.workspace_with_member(member_roles: [:learner])
+
+    owner_token = sign_in_token(owner)
+    assert {:ok, 50_000_000} = Ledger.topup_workspace_pool(workspace.id, 50_000_000)
+
+    assert {:ok, batch} =
+             Ledger.batch_grant_workspace_members(
+               owner,
+               workspace.id,
+               10_000_000,
+               "batch-usage-analytics-1"
+             )
+
+    # 成员消耗 3,000,000 mc（¥3.00）
+    {:ok, hold} = Ledger.acquire_hold(member.id, 3_000_000)
+
+    {:ok, _} =
+      Ledger.settle_usage(
+        member.id,
+        3_000_000,
+        %{
+          logical_model: "cgc-default",
+          upstream_channel: "deepseek_official_1",
+          upstream_model: "deepseek-chat",
+          billing_mode: :exact,
+          charged_mc: 3_000_000,
+          upstream_cost_mc: 1_500_000
+        },
+        hold_id: hold.hold_id
+      )
+
+    assert %{
+             "workspaceLlmPool" => %{
+               "distributedTotalMc" => 20_000_000,
+               "distributedConsumedMc" => 3_000_000,
+               "distributedRemainingMc" => 17_000_000,
+               "recentBatches" => [
+                 %{
+                   "id" => batch_id,
+                   "totalGrantedMc" => 20_000_000,
+                   "consumedMc" => 3_000_000,
+                   "remainingMc" => 17_000_000,
+                   "expiredMc" => 0
+                 }
+               ]
+             }
+           } =
+             data!(
+               graphql(
+                 """
+                 query {
+                   workspaceLlmPool(workspaceId: "#{workspace.id}") {
+                     distributedTotalMc
+                     distributedConsumedMc
+                     distributedRemainingMc
+                     recentBatches {
+                       id
+                       totalGrantedMc
+                       consumedMc
+                       remainingMc
+                       expiredMc
+                     }
+                   }
+                 }
+                 """,
+                 owner_token
+               )
+             )
+
+    assert batch_id == batch.batch_id
+  end
+
   defp insert_usage_log!(wallet_id, user_id, attrs) do
     id = Ecto.UUID.generate()
 

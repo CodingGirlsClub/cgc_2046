@@ -28,8 +28,10 @@ import {
 import {
 	formatMcAsCny,
 	formatMcInteger,
+	formatPercent,
 	parseCnyInputToCents,
 	parseCnyInputToMc,
+	toBigIntMc,
 } from "@/lib/llm-credits";
 import { PROVIDER_LABEL } from "@/lib/payment";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
@@ -452,6 +454,56 @@ export default function WorkspaceLlmPoolPage() {
 									</button>
 								</div>
 							</div>
+
+							{pool.distributedTotalMc !== undefined && (
+								<div
+									className="mt-4 grid gap-3 border-t border-line pt-4 sm:grid-cols-3"
+									data-testid="workspace-distributed-summary"
+								>
+									<div>
+										<span className="admin-stat__label">
+											{t("distributedTotalLabel")}
+										</span>
+										<p
+											className="mt-0.5 text-base font-medium text-ink"
+											data-testid="workspace-distributed-total"
+										>
+											{formatMcAsCny(pool.distributedTotalMc)}
+										</p>
+									</div>
+									<div>
+										<span className="admin-stat__label">
+											{t("distributedConsumedLabel")}
+										</span>
+										<p
+											className="mt-0.5 text-base font-medium text-ink"
+											data-testid="workspace-distributed-consumed"
+										>
+											{formatMcAsCny(pool.distributedConsumedMc ?? 0)}{" "}
+											<span className="text-xs font-normal text-ink-3">
+												(
+												{formatPercent(
+													toBigIntMc(pool.distributedConsumedMc ?? 0),
+													toBigIntMc(pool.distributedTotalMc),
+													1,
+												)}
+												)
+											</span>
+										</p>
+									</div>
+									<div>
+										<span className="admin-stat__label">
+											{t("distributedRemainingLabel")}
+										</span>
+										<p
+											className="mt-0.5 text-base font-medium text-ink"
+											data-testid="workspace-distributed-remaining"
+										>
+											{formatMcAsCny(pool.distributedRemainingMc ?? 0)}
+										</p>
+									</div>
+								</div>
+							)}
 						</div>
 
 						{canManage && (
@@ -783,33 +835,56 @@ export default function WorkspaceLlmPoolPage() {
 												<th className="admin-table__num">{t("thPerMember")}</th>
 												<th className="admin-table__num">{t("thMembers")}</th>
 												<th className="admin-table__num">{t("thTotalGranted")}</th>
+												<th className="admin-table__num">{t("thBatchUsage")}</th>
 												<th>{t("thExpiresAt")}</th>
 												<th>{t("thActor")}</th>
 												<th>{t("thIdempotencyKey")}</th>
 											</tr>
 										</thead>
 										<tbody>
-											{pool.recentBatches.map((batch) => (
-												<tr key={batch.id}>
-													<td>{formatDateTime(batch.insertedAt)}</td>
-													<td className="admin-table__num">
-														{formatMcAsCny(batch.perMemberMc)}
-													</td>
-													<td className="admin-table__num">
-														{batch.memberCount}
-													</td>
-													<td className="admin-table__num admin-table__primary">
-														{formatMcAsCny(batch.totalGrantedMc)}
-													</td>
-													<td>
-														{batch.expiresAt
-															? formatDateTime(batch.expiresAt)
-															: t("permanent")}
-													</td>
-													<td className="l-mono">{batch.actorUserId}</td>
-													<td className="l-mono">{batch.idempotencyKey}</td>
-												</tr>
-											))}
+											{pool.recentBatches.map((batch) => {
+												const consumed = toBigIntMc(batch.consumedMc ?? 0);
+												const total = toBigIntMc(batch.totalGrantedMc);
+												const remaining = toBigIntMc(batch.remainingMc ?? 0);
+												const expired = toBigIntMc(batch.expiredMc ?? 0);
+												return (
+													<tr key={batch.id}>
+														<td>{formatDateTime(batch.insertedAt)}</td>
+														<td className="admin-table__num">
+															{formatMcAsCny(batch.perMemberMc)}
+														</td>
+														<td className="admin-table__num">
+															{batch.memberCount}
+														</td>
+														<td className="admin-table__num admin-table__primary">
+															{formatMcAsCny(batch.totalGrantedMc)}
+														</td>
+														<td className="admin-table__num">
+															<span>
+																{formatMcAsCny(consumed)} (
+																{formatPercent(consumed, total, 1)})
+															</span>
+															<span className="admin-table__sub">
+																{t("batchRemainingSub", {
+																	remaining: formatMcAsCny(remaining),
+																})}
+																{expired > BigInt(0)
+																	? ` · ${t("batchExpiredSub", {
+																			expired: formatMcAsCny(expired),
+																		})}`
+																	: ""}
+															</span>
+														</td>
+														<td>
+															{batch.expiresAt
+																? formatDateTime(batch.expiresAt)
+																: t("permanent")}
+														</td>
+														<td className="l-mono">{batch.actorUserId}</td>
+														<td className="l-mono">{batch.idempotencyKey}</td>
+													</tr>
+												);
+											})}
 										</tbody>
 									</table>
 								</div>

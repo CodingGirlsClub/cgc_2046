@@ -55,13 +55,24 @@ pub(crate) fn parse_openai_error(status: Option<u16>, raw: &str) -> ProviderErro
             }
             let code = error.get("code").and_then(Value::as_str);
             let err_type = error.get("type").and_then(Value::as_str);
-            let message = error
+            let reason = error
+                .get("reason")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|r| !r.is_empty());
+            let base_message = error
                 .get("message")
                 .and_then(Value::as_str)
                 .filter(|msg| !msg.trim().is_empty())
                 .map(|msg| truncate(msg, 500))
                 .or_else(|| code.map(|c| truncate(c, 500)))
                 .unwrap_or_else(|| truncate(trimmed, 500));
+            let message = match (code, reason) {
+                (Some("wallet_frozen"), Some(reason)) => {
+                    format!("{base_message} (reason: {})", truncate(reason, 200))
+                }
+                _ => base_message,
+            };
 
             if status == Some(402)
                 || code == Some("insufficient_quota")
@@ -101,5 +112,23 @@ pub(crate) fn parse_openai_error(status: Option<u16>, raw: &str) -> ProviderErro
             None,
             truncate(trimmed, 500),
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_openai_error_preserves_wallet_frozen_reason() {
+        let raw = r#"{"error":{"code":"wallet_frozen","type":"permission_error","message":"Your LLM wallet is frozen. Please contact support.","reason":"异常刷量"}}"#;
+        let err = parse_openai_error(Some(403), raw);
+        assert_eq!(err.category(), ProviderErrorCategory::Permission);
+        assert!(err.to_string().contains("(reason: 异常刷量)"));
+
+        let raw_no_reason = r#"{"error":{"code":"wallet_frozen","type":"permission_error","message":"Your LLM wallet is frozen. Please contact support."}}"#;
+        let err2 = parse_openai_error(Some(403), raw_no_reason);
+        assert_eq!(err2.category(), ProviderErrorCategory::Permission);
+        assert!(!err2.to_string().contains("(reason:"));
     }
 }

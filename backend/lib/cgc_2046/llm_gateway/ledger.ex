@@ -15,11 +15,15 @@ defmodule Cgc2046.LlmGateway.Ledger do
   require Logger
 
   alias Cgc2046.Accounts.{MembershipContext, Role}
+  alias Cgc2046.Notifications.Inbox
   alias Cgc2046.Repo
 
   @source_types ~w(subscription pack workspace_grant admin_gift)
   @billing_modes ~w(exact estimated_abort waived_upstream_error)
   @hold_ttl_seconds 7_200
+  @low_balance_threshold_mc 500_000
+  @max_frozen_reason_length 200
+  @concurrency_range 1..20
 
   @doc """
   确保用户钱包存在并返回其快照（金额为微积分 / microcredit）。
@@ -48,25 +52,89 @@ defmodule Cgc2046.LlmGateway.Ledger do
   def fetch_wallet!(user_id) do
     case Repo.query!(
            """
-           SELECT id, cached_balance_mc, held_mc, max_concurrent_streams, status
+           SELECT id, cached_balance_mc, held_mc, max_concurrent_streams, status, frozen_reason
            FROM llm_wallets
            WHERE user_id = $1
            """,
            [dump_uuid!(user_id)]
          ).rows do
-      [[id, cached_balance_mc, held_mc, max_concurrent_streams, status]] ->
+      [[id, cached_balance_mc, held_mc, max_concurrent_streams, status, frozen_reason]] ->
         %{
           id: Ecto.UUID.load!(id),
           user_id: user_id,
           cached_balance_mc: cached_balance_mc,
           held_mc: held_mc,
           max_concurrent_streams: max_concurrent_streams,
-          status: status
+          status: status,
+          frozen_reason: frozen_reason
         }
 
       [] ->
         raise "llm wallet not found for user #{user_id}"
     end
+  end
+
+  @doc """
+  更新用户 LLM 额度账户状态（`active` / `frozen`）。
+
+  解冻（`active`）自动清空 `frozen_reason`；冻结（`frozen`）可选记录 `reason`
+  （首尾去空白，最长 200 字符，空白视作 `nil`）。
+  """
+  def set_wallet_status(user_id, status, opts \\ []) when is_list(opts) do
+    case normalize_wallet_status(status) do
+      {:ok, normalized_status} ->
+        reason =
+          if normalized_status == "frozen" do
+            opts |> Keyword.get(:reason) |> normalize_frozen_reason()
+          else
+            nil
+          end
+
+        Repo.transaction(fn ->
+          wallet = ensure_wallet!(user_id)
+          now = DateTime.utc_now()
+
+          Repo.query!(
+            """
+            UPDATE llm_wallets
+            SET status = $2, frozen_reason = $3, updated_at = $4
+            WHERE id = $1
+            """,
+            [dump_uuid!(wallet.id), normalized_status, reason, now]
+          )
+
+          fetch_wallet!(user_id)
+        end)
+
+      :error ->
+        {:error, :invalid_wallet_status}
+    end
+  end
+
+  @doc """
+  更新用户 LLM 并发流上限（范围 1..20）。
+  """
+  def set_max_concurrent_streams(user_id, max_streams)
+      when is_integer(max_streams) and max_streams in @concurrency_range do
+    Repo.transaction(fn ->
+      wallet = ensure_wallet!(user_id)
+      now = DateTime.utc_now()
+
+      Repo.query!(
+        """
+        UPDATE llm_wallets
+        SET max_concurrent_streams = $2, updated_at = $3
+        WHERE id = $1
+        """,
+        [dump_uuid!(wallet.id), max_streams, now]
+      )
+
+      fetch_wallet!(user_id)
+    end)
+  end
+
+  def set_max_concurrent_streams(_user_id, _max_streams) do
+    {:error, :invalid_concurrency_limit}
   end
 
   @doc """
@@ -534,12 +602,14 @@ defmodule Cgc2046.LlmGateway.Ledger do
               ]
             )
 
-            {fetch_wallet!(user_id), actual_deduct_mc, uncollected_mc}
+            updated_wallet = fetch_wallet!(user_id)
+            after_available_mc = max(0, updated_wallet.cached_balance_mc - updated_wallet.held_mc)
+            {updated_wallet, actual_deduct_mc, uncollected_mc, available_mc, after_available_mc}
         end
       end)
 
     case tx_result do
-      {:ok, {wallet, actual_deduct_mc, uncollected_mc}} ->
+      {:ok, {wallet, actual_deduct_mc, uncollected_mc, before_available_mc, after_available_mc}} ->
         if uncollected_mc > 0 do
           Logger.warning(
             "llm gateway settlement shortfall: user_id=#{user_id} billing_mode=#{billing_mode} " <>
@@ -555,6 +625,11 @@ defmodule Cgc2046.LlmGateway.Ledger do
             },
             %{user_id: user_id, billing_mode: billing_mode}
           )
+        end
+
+        if actual_deduct_mc > 0 and before_available_mc >= @low_balance_threshold_mc and
+             after_available_mc < @low_balance_threshold_mc do
+          maybe_notify_low_balance(user_id, after_available_mc)
         end
 
         {:ok, wallet}
@@ -872,6 +947,50 @@ defmodule Cgc2046.LlmGateway.Ledger do
   defp domain_error_code(:no_workspace_members), do: "no_workspace_members"
   defp domain_error_code(:workspace_not_found), do: "workspace_not_found"
   defp domain_error_code(:invalid_target_members), do: "invalid_target_members"
+  defp domain_error_code(:invalid_wallet_status), do: "invalid_wallet_status"
+  defp domain_error_code(:invalid_concurrency_limit), do: "invalid_concurrency_limit"
+
+  defp normalize_wallet_status(:active), do: {:ok, "active"}
+  defp normalize_wallet_status("active"), do: {:ok, "active"}
+  defp normalize_wallet_status(:frozen), do: {:ok, "frozen"}
+  defp normalize_wallet_status("frozen"), do: {:ok, "frozen"}
+  defp normalize_wallet_status(_), do: :error
+
+  defp normalize_frozen_reason(reason) when is_binary(reason) do
+    trimmed = String.trim(reason)
+
+    if trimmed == "" do
+      nil
+    else
+      String.slice(trimmed, 0, @max_frozen_reason_length)
+    end
+  end
+
+  defp normalize_frozen_reason(_), do: nil
+
+  defp maybe_notify_low_balance(user_id, after_available_mc) do
+    {iso_year, iso_week} = Date.utc_today() |> Date.to_erl() |> :calendar.iso_week_number()
+    week_str = String.pad_leading(Integer.to_string(iso_week), 2, "0")
+
+    data = %{"remaining_cny" => format_cny(after_available_mc)}
+    meta = %{"idempotency_key" => "llm_low_balance:#{user_id}:#{iso_year}-W#{week_str}"}
+
+    try do
+      Inbox.record(user_id, "llm_credit_low", data, meta)
+    rescue
+      error ->
+        Logger.warning(
+          "llm low balance notification failed for user_id=#{user_id}: #{Exception.message(error)}"
+        )
+    end
+  end
+
+  defp format_cny(mc) when is_integer(mc) and mc >= 0 do
+    cents = div(mc, 10_000)
+    yuan = div(cents, 100)
+    rem_cents = rem(cents, 100)
+    "#{yuan}.#{String.pad_leading(Integer.to_string(rem_cents), 2, "0")}"
+  end
 
   defp validate_source_type!(source_type) when source_type in @source_types, do: :ok
 

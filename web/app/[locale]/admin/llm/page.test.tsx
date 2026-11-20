@@ -5,6 +5,8 @@ import {
 	ADMIN_GRANT_USER_LLM_CREDITS,
 	ADMIN_LLM_USAGE_ANALYTICS,
 	ADMIN_TOPUP_WORKSPACE_LLM_POOL,
+	ADMIN_UPDATE_USER_LLM_CONCURRENCY,
+	ADMIN_UPDATE_USER_LLM_WALLET_STATUS,
 } from "@/lib/graphql/llm-gateway";
 import AdminLlmPage from "./page";
 
@@ -228,5 +230,83 @@ describe("/admin/llm 平台算力运营与毛利控制台", () => {
 		expect(await within(form).findByRole("alert")).toHaveTextContent(
 			"user not found",
 		);
+	});
+
+	it("风控操作表单：支持冻结附带原因、解冻与调整并发流上限", async () => {
+		queryMock.mockResolvedValue({ data: { adminLlmUsageAnalytics: [] } });
+		mutateMock
+			.mockResolvedValueOnce({
+				data: {
+					adminUpdateUserLlmWalletStatus: {
+						walletId: "w-1",
+						status: "frozen",
+						frozenReason: "高频异常调用",
+						maxConcurrentStreams: 3,
+					},
+				},
+			})
+			.mockResolvedValueOnce({
+				data: {
+					adminUpdateUserLlmConcurrency: {
+						walletId: "w-1",
+						status: "frozen",
+						frozenReason: "高频异常调用",
+						maxConcurrentStreams: 8,
+					},
+				},
+			});
+
+		render(<AdminLlmPage />);
+		await screen.findByTestId("admin-llm-empty");
+
+		const statusForm = screen.getByTestId("admin-wallet-status-form");
+		fireEvent.change(within(statusForm).getByLabelText("用户 ID"), {
+			target: { value: "user-99" },
+		});
+		fireEvent.change(
+			within(statusForm).getByLabelText("冻结原因（选填，将展示给用户）"),
+			{
+				target: { value: "高频异常调用" },
+			},
+		);
+		fireEvent.click(
+			within(statusForm).getByRole("button", { name: "确认更新状态" }),
+		);
+
+		await waitFor(() =>
+			expect(mutateMock).toHaveBeenCalledWith({
+				mutation: ADMIN_UPDATE_USER_LLM_WALLET_STATUS,
+				variables: {
+					userId: "user-99",
+					status: "frozen",
+					frozenReason: "高频异常调用",
+				},
+			}),
+		);
+		expect(await within(statusForm).findByRole("status")).toHaveTextContent(
+			"user-99",
+		);
+
+		const concForm = screen.getByTestId("admin-wallet-concurrency-form");
+		fireEvent.change(within(concForm).getByLabelText("用户 ID"), {
+			target: { value: "user-99" },
+		});
+		fireEvent.change(within(concForm).getByLabelText(/最大并发流数/), {
+			target: { value: "8" },
+		});
+		fireEvent.click(
+			within(concForm).getByRole("button", { name: "确认更新上限" }),
+		);
+
+		await waitFor(() =>
+			expect(mutateMock).toHaveBeenCalledWith({
+				mutation: ADMIN_UPDATE_USER_LLM_CONCURRENCY,
+				variables: {
+					userId: "user-99",
+					maxConcurrentStreams: 8,
+				},
+			}),
+		);
+		expect(await within(concForm).findByRole("status")).toHaveTextContent("8");
 	});
 });

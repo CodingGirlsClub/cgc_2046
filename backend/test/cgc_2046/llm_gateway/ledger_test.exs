@@ -739,4 +739,131 @@ defmodule Cgc2046.LlmGateway.LedgerTest do
                )
     end
   end
+
+  describe "wallet risk controls & inbox notifications" do
+    test "set_wallet_status/3 freezes with trimmed reason and clears reason on unfreeze" do
+      user = register_user("ledger-risk-status")
+
+      assert {:ok, frozen} =
+               Ledger.set_wallet_status(user.id, :frozen, reason: "  异常并发刷量  ")
+
+      assert frozen.status == "frozen"
+      assert frozen.frozen_reason == "异常并发刷量"
+
+      assert {:ok, active} = Ledger.set_wallet_status(user.id, :active)
+      assert active.status == "active"
+      assert active.frozen_reason == nil
+
+      assert {:error, :invalid_wallet_status} = Ledger.set_wallet_status(user.id, :paused)
+    end
+
+    test "set_max_concurrent_streams/2 enforces 1..20 bounds" do
+      user = register_user("ledger-risk-concurrency")
+
+      assert {:ok, updated} = Ledger.set_max_concurrent_streams(user.id, 10)
+      assert updated.max_concurrent_streams == 10
+
+      assert {:error, :invalid_concurrency_limit} = Ledger.set_max_concurrent_streams(user.id, 0)
+      assert {:error, :invalid_concurrency_limit} = Ledger.set_max_concurrent_streams(user.id, 21)
+    end
+
+    test "settle_usage/4 emits llm_credit_low once per ISO week when crossing below ¥0.50" do
+      user = register_user("ledger-low-balance-notify")
+
+      {:ok, _} =
+        Ledger.grant_personal_credits(user.id, %{amount_mc: 600_000, source_type: :pack})
+
+      {:ok, hold1} = Ledger.acquire_hold(user.id, 200_000)
+
+      {:ok, wallet1} =
+        Ledger.settle_usage(
+          user.id,
+          200_000,
+          %{
+            logical_model: "cgc-default",
+            upstream_channel: "deepseek_official_1",
+            upstream_model: "deepseek-chat",
+            billing_mode: :exact,
+            charged_mc: 200_000,
+            upstream_cost_mc: 100_000
+          },
+          hold_id: hold1.hold_id
+        )
+
+      assert wallet1.cached_balance_mc == 400_000
+
+      notifications =
+        Cgc2046.Notifications.Notification
+        |> Ash.read!(actor: user)
+        |> Enum.filter(&(&1.user_id == user.id and &1.type == "llm_credit_low"))
+
+      assert [notif] = notifications
+      assert notif.deep_link == "/settings/ai-quota"
+      assert notif.payload["title"] == "AI 额度余额不足"
+      assert notif.payload["body"] =~ "¥0.40"
+
+      # 再次充值并跌破 ¥0.50，同一 ISO 周内不重复发送
+      {:ok, _} =
+        Ledger.grant_personal_credits(user.id, %{amount_mc: 200_000, source_type: :pack})
+
+      {:ok, hold2} = Ledger.acquire_hold(user.id, 200_000)
+
+      {:ok, _} =
+        Ledger.settle_usage(
+          user.id,
+          200_000,
+          %{
+            logical_model: "cgc-default",
+            upstream_channel: "deepseek_official_1",
+            upstream_model: "deepseek-chat",
+            billing_mode: :exact,
+            charged_mc: 200_000,
+            upstream_cost_mc: 100_000
+          },
+          hold_id: hold2.hold_id
+        )
+
+      notifications_after =
+        Cgc2046.Notifications.Notification
+        |> Ash.read!(actor: user)
+        |> Enum.filter(&(&1.user_id == user.id and &1.type == "llm_credit_low"))
+
+      assert length(notifications_after) == 1
+    end
+
+    test "CreditExpiryReminderWorker notifies once per grant expiring within 72h" do
+      user = register_user("ledger-expiry-reminder")
+      now = DateTime.utc_now()
+
+      # 24h 后到期 -> 应提醒
+      {:ok, _} =
+        Ledger.grant_personal_credits(user.id, %{
+          amount_mc: 5_000_000,
+          source_type: :subscription,
+          expires_at: DateTime.add(now, 24 * 3_600, :second)
+        })
+
+      # 5 天后到期 -> 不应提醒
+      {:ok, _} =
+        Ledger.grant_personal_credits(user.id, %{
+          amount_mc: 10_000_000,
+          source_type: :subscription,
+          expires_at: DateTime.add(now, 5 * 86_400, :second)
+        })
+
+      assert :ok = Cgc2046.LlmGateway.Workers.CreditExpiryReminderWorker.perform(%Oban.Job{})
+      # 重复执行不产生第二条通知
+      assert :ok = Cgc2046.LlmGateway.Workers.CreditExpiryReminderWorker.perform(%Oban.Job{})
+
+      notifications =
+        Cgc2046.Notifications.Notification
+        |> Ash.read!(actor: user)
+        |> Enum.filter(&(&1.user_id == user.id and &1.type == "llm_credit_expiring"))
+
+      assert [notif] = notifications
+      assert notif.deep_link == "/settings/ai-quota"
+      assert notif.payload["title"] == "AI 额度即将到期"
+      assert notif.payload["body"] =~ "¥5.00"
+    end
+  end
 end
