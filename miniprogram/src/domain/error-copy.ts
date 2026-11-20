@@ -156,7 +156,9 @@ export const COPY: Record<string, string> = {
   insufficient_workspace_pool: '工作台算力池余额不足，请先充值后再派发。',
   no_workspace_members: '工作台当前没有可派发的成员。',
   invalid_target_members: '包含非本工作台成员，无法派发算力。',
-  workspace_not_found: '工作台不存在。'
+  workspace_not_found: '工作台不存在。',
+  invalid_wallet_status: '账户状态必须为 active 或 frozen。',
+  invalid_concurrency_limit: '并发流上限必须为 1 到 20 之间的整数。'
 }
 
 /**

@@ -11,6 +11,16 @@ defmodule Cgc2046.Repo.Migrations.AddExpiredMcToLlmCreditGrants do
     alter table(:llm_credit_grants) do
       add :expired_mc, :bigint, null: false, default: 0
     end
+
+    flush()
+
+    # llm_credit_grants 尚未发布到 main（生产无存量行）；此回填为 dev/staging
+    # 在迁移前已置为 expired 的行兜底，避免被新聚合公式误算为 100% 已消耗。
+    execute("""
+    UPDATE llm_credit_grants
+    SET expired_mc = GREATEST(0, initial_mc - remaining_mc)
+    WHERE status = 'expired' AND expired_mc = 0
+    """)
   end
 
   def down do

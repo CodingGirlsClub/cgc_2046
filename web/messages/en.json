@@ -155,7 +155,9 @@
 		"insufficient_workspace_pool": "Insufficient workspace credit pool balance. Top up before distributing.",
 		"no_workspace_members": "This workspace has no eligible members to distribute credits to.",
 		"invalid_target_members": "One or more selected users are not members of this workspace.",
-		"workspace_not_found": "Workspace not found."
+		"workspace_not_found": "Workspace not found.",
+		"invalid_wallet_status": "Account status must be active or frozen.",
+		"invalid_concurrency_limit": "Concurrency limit must be an integer between 1 and 20."
 	},
 	"auth": {
 		"unified": {
