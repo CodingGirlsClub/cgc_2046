@@ -68,6 +68,16 @@ defmodule Cgc2046.LlmGateway.CreditGrant do
       writable?: false
     )
 
+    # 到期时被 CreditExpiryWorker 清零的未用额度累计；与 remaining_mc 一起让
+    # 「已消耗 = initial - remaining - expired」在到期后仍可还原（派发批次使用率回看）。
+    attribute(:expired_mc, :integer,
+      allow_nil?: false,
+      default: 0,
+      public?: true,
+      writable?: false,
+      constraints: [min: 0]
+    )
+
     attribute(:status, :atom,
       allow_nil?: false,
       default: :active,

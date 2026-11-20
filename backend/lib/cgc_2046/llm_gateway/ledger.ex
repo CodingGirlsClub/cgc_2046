@@ -685,10 +685,10 @@ defmodule Cgc2046.LlmGateway.Ledger do
         Repo.query!(
           """
           UPDATE llm_credit_grants
-          SET remaining_mc = $2, status = $3, updated_at = $4
+          SET remaining_mc = $2, status = $3, expired_mc = expired_mc + $5, updated_at = $4
           WHERE id = $1
           """,
-          [grant_id_bin, new_remaining, new_status, now]
+          [grant_id_bin, new_remaining, new_status, now, take]
         )
 
         {:cont, left - take}

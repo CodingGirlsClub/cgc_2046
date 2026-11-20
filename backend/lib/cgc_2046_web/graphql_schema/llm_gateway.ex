@@ -661,20 +661,14 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
 
   # 汇总本工作台通过派发批次发放出去的额度使用情况（仅按 sponsor_workspace_id 聚合，
   # 不暴露单个成员消耗）。不变量：consumed + remaining + expired == total。
-  # 注：已被 CreditExpiryWorker 置为 status='expired' 的批次其 remaining_mc 已归零，
-  # 在无额外列的情况下整笔归入 expired_mc。
+  # expired_mc 持久化记录被 CreditExpiryWorker 归零的未用额度，加上已到期但尚
+  # 未被 Worker 扫到的 remaining_mc，确保部分消费后过期仍保留历史 consumed。
   defp workspace_distributed_totals(workspace_id, now) do
     {:ok, %{rows: [[total_mc, consumed_mc, remaining_mc]]}} =
       Repo.query(
         """
         SELECT COALESCE(SUM(initial_mc), 0)::bigint AS total_mc,
-               COALESCE(SUM(
-                 CASE
-                   WHEN status = 'expired' THEN 0
-                   WHEN status = 'exhausted' THEN initial_mc
-                   ELSE initial_mc - remaining_mc
-                 END
-               ), 0)::bigint AS consumed_mc,
+               COALESCE(SUM(GREATEST(0, initial_mc - remaining_mc - expired_mc)), 0)::bigint AS consumed_mc,
                COALESCE(SUM(
                  CASE
                    WHEN status = 'active' AND (expires_at IS NULL OR expires_at > $2) THEN remaining_mc
@@ -699,9 +693,7 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
                COALESCE(SUM(
                  CASE
                    WHEN g.id IS NULL THEN 0
-                   WHEN g.status = 'expired' THEN 0
-                   WHEN g.status = 'exhausted' THEN g.initial_mc
-                   ELSE g.initial_mc - g.remaining_mc
+                   ELSE GREATEST(0, g.initial_mc - g.remaining_mc - g.expired_mc)
                  END
                ), 0)::bigint AS consumed_mc,
                COALESCE(SUM(
@@ -714,9 +706,8 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
                COALESCE(SUM(
                  CASE
                    WHEN g.id IS NULL THEN 0
-                   WHEN g.status = 'expired' THEN g.initial_mc
-                   WHEN g.status = 'active' AND g.expires_at IS NOT NULL AND g.expires_at <= $2 THEN g.remaining_mc
-                   ELSE 0
+                   WHEN g.status = 'active' AND g.expires_at IS NOT NULL AND g.expires_at <= $2 THEN g.expired_mc + g.remaining_mc
+                   ELSE g.expired_mc
                  END
                ), 0)::bigint AS expired_mc
         FROM llm_workspace_grant_batches b

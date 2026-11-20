@@ -134,10 +134,16 @@ pub fn api_endpoint() -> String {
 /// 官方域下把 `api.<root>` 映射到站点根域；本地开发回退到 Web dev server。
 /// 不在客户端重做重置 UI：小程序码与邮箱折叠只维护一份（Web）。
 pub fn forgot_password_url() -> String {
-    resolve_forgot_password_url(&api_endpoint())
+    resolve_site_url(&api_endpoint(), "/forgot-password")
 }
 
-fn resolve_forgot_password_url(api: &str) -> String {
+/// 额度到期 / 低余额站内提醒的落点：Web「我的 AI 额度」页（Desktop 无独立额度页，
+/// 额度管理与充值只维护一份 Web）。
+pub fn ai_quota_url() -> String {
+    resolve_site_url(&api_endpoint(), "/settings/ai-quota")
+}
+
+fn resolve_site_url(api: &str, path: &str) -> String {
     let official_suffix = format!(".{OFFICIAL_ROOT_DOMAIN}");
 
     match Url::parse(api) {
@@ -148,9 +154,9 @@ fn resolve_forgot_password_url(api: &str) -> String {
         {
             // Web 只在根域部署（`web/config/deploy.yml` 的 proxy.hosts 仅裸域 + www），
             // 所以 api / staging-api 等官方主机一律收敛到根域，而不是保留一个必然 404 的 API 主机。
-            format!("https://{OFFICIAL_ROOT_DOMAIN}/forgot-password")
+            format!("https://{OFFICIAL_ROOT_DOMAIN}{path}")
         }
-        _ => "http://localhost:3000/forgot-password".to_string(),
+        _ => format!("http://localhost:3000{path}"),
     }
 }
 
@@ -224,18 +230,29 @@ mod tests {
     #[test]
     fn forgot_password_url_maps_api_host_to_site() {
         assert_eq!(
-            resolve_forgot_password_url(PROD),
+            resolve_site_url(PROD, "/forgot-password"),
             "https://codingirlsclub.com/forgot-password"
         );
         // 官方子域一律收敛到根域（Web 只部署在根域）；不会保留 API 主机导致 404
         assert_eq!(
-            resolve_forgot_password_url("https://staging-api.codingirlsclub.com/api/graphql"),
+            resolve_site_url(
+                "https://staging-api.codingirlsclub.com/api/graphql",
+                "/forgot-password"
+            ),
             "https://codingirlsclub.com/forgot-password"
         );
         // 本地开发：Web dev server，而不是 API 端口
         assert_eq!(
-            resolve_forgot_password_url(LOCAL_API_URL),
+            resolve_site_url(LOCAL_API_URL, "/forgot-password"),
             "http://localhost:3000/forgot-password"
+        );
+        assert_eq!(
+            resolve_site_url(PROD, "/settings/ai-quota"),
+            "https://codingirlsclub.com/settings/ai-quota"
+        );
+        assert_eq!(
+            resolve_site_url(LOCAL_API_URL, "/settings/ai-quota"),
+            "http://localhost:3000/settings/ai-quota"
         );
     }
 

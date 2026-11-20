@@ -950,6 +950,23 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
       assert log.billing_mode == :waived_upstream_error
       assert log.charged_mc == 0
     end
+
+    test "waives charges even when upstream sends both usage and a 200 SSE error frame" do
+      settlement =
+        TokenizerAndPricing.calculate_settlement("deepseek-chat", 1_000, %{
+          sse_error?: true,
+          official_usage: %{
+            "prompt_tokens" => 1_000,
+            "prompt_cache_hit_tokens" => 0,
+            "prompt_cache_miss_tokens" => 1_000,
+            "completion_tokens" => 200
+          }
+        })
+
+      assert settlement.billing_mode == :waived_upstream_error
+      assert settlement.charged_mc == 0
+      assert settlement.upstream_cost_mc == 0
+    end
   end
 
   describe "end-to-end SSE streaming via local :gen_tcp upstream" do

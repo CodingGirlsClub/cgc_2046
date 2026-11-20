@@ -640,6 +640,10 @@ impl RootView {
                     self.pending_link = Some(link.path);
                 }
             }
+            Ok(link) if link.path == "/settings/ai-quota" => {
+                cx.open_url(&cgc_platform::runtime::ai_quota_url());
+                should_activate = false;
+            }
             Ok(link) => {
                 self.pending_link = Some(link.path);
                 self.consume_pending_link();
