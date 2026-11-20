@@ -133,7 +133,7 @@ export default function AdminReconciliationPage() {
 								return (
 									<tr key={row.id}>
 										<td>{labelsT(RECONCILIATION_RULE_LABEL[row.rule] ?? row.rule)}</td>
-										<td>
+										<td className="whitespace-nowrap">
 											{jump ? (
 												<Link
 													href={`${jump}?entity_id=${encodeURIComponent(row.entityId)}`}
@@ -145,10 +145,16 @@ export default function AdminReconciliationPage() {
 												entityLabel
 											)}
 										</td>
-										<td className="l-mono">{row.entityId}</td>
-										<td className="l-mono">{row.workspaceId ?? "—"}</td>
-										<td>{formatDateTime(row.firstSeenAt)}</td>
-										<td>{formatDateTime(row.lastSeenAt)}</td>
+										<td className="l-mono whitespace-nowrap">{row.entityId}</td>
+										<td className="l-mono whitespace-nowrap">
+											{row.workspaceId ?? "—"}
+										</td>
+										<td className="whitespace-nowrap">
+											{formatDateTime(row.firstSeenAt)}
+										</td>
+										<td className="whitespace-nowrap">
+											{formatDateTime(row.lastSeenAt)}
+										</td>
 									</tr>
 								);
 							})}
