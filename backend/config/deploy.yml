@@ -15,12 +15,18 @@ servers:
   # strip/ssl 已各踩一次）。api 域流量多为直连（Bearer/webhook），XFF 由
   # proxy append 真实 peer，RemoteIp 从右解析取第一个非信任 IP 即真实值。
   web:
+    # 单节点拓扑约束：LlmGateway.LeaseManager、AffinityStore 与 :fuse 为 BEAM 单节点内存状态。
+    # 将 web 扩容超过 1 台主机前，须把并发流槽位门禁迁移到 llm_wallet_holds 并在 LB 层按
+    # x-session-affinity 配置一致性哈希粘性路由。
     hosts:
       - <SERVER_HOST>
     proxy:
       # ssl:true 时 kamal-proxy 默认丢弃传入 XFF（gem docs proxy.yml:79-80）
       # ——Next rewrite 第二跳带来的真实 client 会被静默重置，限流修复被抵消
       forward_headers: true
+      # LLM Gateway SSE 推理流（如 deepseek-reasoner）首包或长输出易超
+      # kamal-proxy 默认 30s response_timeout；仅设在 web role，避免 ops role 继承
+      response_timeout: 300
   # ops：同一镜像第二个容器，服务主域 /ops/*（浏览器会话唯一归属主域的
   # 架构规则——AshAdmin 等 LiveView 面必须经主域到达，cookie 才随行）。
   # 非 primary role 需显式 proxy map；不 strip prefix（Phoenix 路由本身带 /ops）
@@ -82,6 +88,13 @@ env:
     # 静默回落（#934 评审指正）。
     LANG: C.UTF-8
     LC_ALL: C.UTF-8
+    # LLM Gateway 非敏感配置；Key 在 secret 名单
+    DEEPSEEK_BASE_URL: https://api.deepseek.com
+    DEEPSEEK_DEFAULT_MODEL: deepseek-chat
+    DEEPSEEK_REASONING_MODEL: deepseek-reasoner
+    DEEPSEEK_BACKGROUND_MODEL: deepseek-chat
+    VOLCENGINE_V3_EP: deepseek-v3-250324
+    VOLCENGINE_R1_EP: deepseek-r1-250120
   secret:
     - DATABASE_URL
     - SECRET_KEY_BASE
@@ -108,6 +121,9 @@ env:
     - WECHAT_PAY_PUBLIC_KEY
     - WECHAT_PAY_PUBLIC_KEY_ID
     - PAYMENTS_WEBHOOK_BASE_URL
+    # LLM Gateway 上游渠道（可选门禁：缺省 /v1 503，不阻塞 boot）
+    - DEEPSEEK_API_KEYS
+    - VOLCENGINE_ARK_API_KEY
     - ALIPAY_APP_ID
     - ALIPAY_PRIVATE_KEY
     - ALIPAY_PUBLIC_KEY

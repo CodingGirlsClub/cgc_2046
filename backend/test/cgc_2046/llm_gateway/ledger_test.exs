@@ -273,6 +273,69 @@ defmodule Cgc2046.LlmGateway.LedgerTest do
       assert grant.status == :expired
       assert grant.remaining_mc == 0
     end
+
+    test "returns :wallet_frozen instead of :insufficient_quota for non-active wallets" do
+      user = register_user("ledger-frozen-wallet")
+
+      {:ok, _} =
+        Ledger.grant_personal_credits(user.id, %{amount_mc: 100_000, source_type: :pack})
+
+      Repo.query!(
+        "UPDATE llm_wallets SET status = 'frozen' WHERE user_id = $1",
+        [Ecto.UUID.dump!(user.id)]
+      )
+
+      assert {:error, :wallet_frozen} = Ledger.acquire_hold(user.id, 1_000)
+
+      wallet = Ledger.fetch_wallet!(user.id)
+      assert wallet.status == "frozen"
+      assert wallet.held_mc == 0
+      assert wallet.cached_balance_mc == 100_000
+    end
+
+    test "emits settlement_shortfall telemetry when charged_mc exceeds actual_deduct_mc" do
+      user = register_user("ledger-shortfall-telemetry")
+      {:ok, _} = Ledger.grant_personal_credits(user.id, %{amount_mc: 10_000, source_type: :pack})
+
+      handler_id = "shortfall-test-#{Ecto.UUID.generate()}"
+      test_pid = self()
+
+      :ok =
+        :telemetry.attach(
+          handler_id,
+          [:cgc2046, :llm_gateway, :settlement_shortfall],
+          fn event, measurements, metadata, _config ->
+            send(test_pid, {:telemetry_event, event, measurements, metadata})
+          end,
+          nil
+        )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      assert {:ok, hold_a} = Ledger.acquire_hold(user.id, 6_000)
+      assert {:ok, _hold_b} = Ledger.acquire_hold(user.id, 4_000)
+
+      assert {:ok, _wallet} =
+               Ledger.settle_usage(
+                 user.id,
+                 6_000,
+                 %{
+                   logical_model: "cgc-default",
+                   upstream_channel: "deepseek_official_1",
+                   upstream_model: "deepseek-chat",
+                   billing_mode: :exact,
+                   charged_mc: 10_000,
+                   upstream_cost_mc: 5_000
+                 },
+                 hold_id: hold_a.hold_id
+               )
+
+      expected_user_id = user.id
+
+      assert_received {:telemetry_event, [:cgc2046, :llm_gateway, :settlement_shortfall],
+                       %{uncollected_mc: 4_000, charged_mc: 10_000, actual_deduct_mc: 6_000},
+                       %{user_id: ^expected_user_id, billing_mode: "exact"}}
+    end
   end
 
   describe "CreditExpiryWorker" do
@@ -317,6 +380,12 @@ defmodule Cgc2046.LlmGateway.LedgerTest do
       assert {:ok, held} = Ledger.acquire_hold(user.id, 500)
 
       past = DateTime.add(DateTime.utc_now(), -60, :second)
+      before_expiry = DateTime.add(past, -60, :second)
+
+      Repo.query!(
+        "UPDATE llm_wallet_holds SET inserted_at = $2 WHERE id = $1",
+        [Ecto.UUID.dump!(held.hold_id), before_expiry]
+      )
 
       Repo.query!(
         "UPDATE llm_credit_grants SET expires_at = $2 WHERE user_id = $1 AND status = 'active'",
@@ -402,6 +471,12 @@ defmodule Cgc2046.LlmGateway.LedgerTest do
       assert {:ok, held} = Ledger.acquire_hold(user.id, 10)
 
       past = DateTime.add(DateTime.utc_now(), -60, :second)
+      before_expiry = DateTime.add(past, -60, :second)
+
+      Repo.query!(
+        "UPDATE llm_wallet_holds SET inserted_at = $2 WHERE id = $1",
+        [Ecto.UUID.dump!(held.hold_id), before_expiry]
+      )
 
       Repo.query!(
         "UPDATE llm_credit_grants SET expires_at = $2 WHERE user_id = $1 AND status = 'active'",
@@ -440,6 +515,228 @@ defmodule Cgc2046.LlmGateway.LedgerTest do
 
       assert grant.remaining_mc == 90
       assert grant.status == :active
+    end
+
+    test "prevents a post-expiry hold from spending an expired grant preserved by an older pre-expiry hold, while the pre-expiry hold can still spend it" do
+      user = register_user("ledger-post-expiry-isolation")
+      future = DateTime.add(DateTime.utc_now(), 3_600, :second)
+
+      # Grant A (subscription, 100 mc) + Grant B (permanent pack, 200 mc)
+      {:ok, _} =
+        Ledger.grant_personal_credits(user.id, %{
+          amount_mc: 100,
+          source_type: :subscription,
+          expires_at: future
+        })
+
+      {:ok, _} =
+        Ledger.grant_personal_credits(user.id, %{
+          amount_mc: 200,
+          source_type: :pack
+        })
+
+      # Request 1 acquires hold BEFORE Grant A expires.
+      assert {:ok, pre_expiry_hold} = Ledger.acquire_hold(user.id, 100)
+
+      # Simulate time advancing past Grant A's expiry:
+      # pre_expiry_hold.inserted_at (now - 120s) < Grant A expires_at (now - 60s) <= now.
+      expired_at = DateTime.add(DateTime.utc_now(), -60, :second)
+      acquired_before_expiry = DateTime.add(expired_at, -60, :second)
+
+      Repo.query!(
+        "UPDATE llm_wallet_holds SET inserted_at = $2 WHERE id = $1",
+        [Ecto.UUID.dump!(pre_expiry_hold.hold_id), acquired_before_expiry]
+      )
+
+      Repo.query!(
+        "UPDATE llm_credit_grants SET expires_at = $2 WHERE user_id = $1 AND source_type = 'subscription'",
+        [Ecto.UUID.dump!(user.id), expired_at]
+      )
+
+      # Request 2 arrives AFTER Grant A already expired (Grant A stays active only because
+      # pre_expiry_hold preserves 100 mc). Request 2 is backed by Grant B (200 mc).
+      assert {:ok, post_expiry_hold} = Ledger.acquire_hold(user.id, 100)
+
+      # Request 2 settles first for 80 mc: MUST deduct from Grant B (pack), NEVER Grant A (expired).
+      assert {:ok, wallet_after_req2} =
+               Ledger.settle_usage(
+                 user.id,
+                 100,
+                 %{
+                   logical_model: "cgc-default",
+                   upstream_channel: "deepseek_official_1",
+                   upstream_model: "deepseek-chat",
+                   billing_mode: :exact,
+                   charged_mc: 80,
+                   upstream_cost_mc: 40
+                 },
+                 hold_id: post_expiry_hold.hold_id
+               )
+
+      assert wallet_after_req2.cached_balance_mc == 220
+      assert wallet_after_req2.held_mc == 100
+
+      grants_after_req2 =
+        CreditGrant
+        |> Ash.read!(authorize?: false)
+        |> Enum.filter(&(&1.user_id == user.id))
+        |> Map.new(&{&1.source_type, &1})
+
+      assert grants_after_req2[:subscription].remaining_mc == 100
+      assert grants_after_req2[:subscription].status == :active
+      assert grants_after_req2[:pack].remaining_mc == 120
+      assert grants_after_req2[:pack].status == :active
+
+      # Request 1 (pre-expiry hold) settles for 90 mc: CAN still spend Grant A (expired mid-stream).
+      assert {:ok, wallet_after_req1} =
+               Ledger.settle_usage(
+                 user.id,
+                 100,
+                 %{
+                   logical_model: "cgc-default",
+                   upstream_channel: "deepseek_official_1",
+                   upstream_model: "deepseek-chat",
+                   billing_mode: :exact,
+                   charged_mc: 90,
+                   upstream_cost_mc: 45
+                 },
+                 hold_id: pre_expiry_hold.hold_id
+               )
+
+      assert wallet_after_req1.cached_balance_mc == 130
+      assert wallet_after_req1.held_mc == 0
+
+      grants_after_req1 =
+        CreditGrant
+        |> Ash.read!(authorize?: false)
+        |> Enum.filter(&(&1.user_id == user.id))
+        |> Map.new(&{&1.source_type, &1})
+
+      assert grants_after_req1[:subscription].remaining_mc == 10
+      assert grants_after_req1[:pack].remaining_mc == 120
+    end
+  end
+
+  describe "workspace pool append-only ledger & targeted distribution (Plan 010)" do
+    test "records pool entries on topup/debit and deduplicates order_topup by payment_order_id" do
+      %{owner: owner, workspace: workspace} = workspace_with_member(member_roles: [:learner])
+
+      {:ok, order} =
+        Cgc2046.LlmGateway.PaymentOrders.create(owner, %{
+          order_kind: "llm_workspace_pool_topup",
+          provider: "wechat_native",
+          workspace_id: workspace.id,
+          amount_cents: 10_000,
+          idempotency_key: "ledger-pool-order-idem"
+        })
+
+      assert {:ok, 100_000_000} =
+               Ledger.topup_workspace_pool(workspace.id, order.credits_mc,
+                 entry_type: :order_topup,
+                 payment_order_id: order.id,
+                 actor_user_id: owner.id
+               )
+
+      # 同一 payment_order_id 重复入池走 ON CONFLICT DO NOTHING，余额与账本都不二次增加
+      assert {:ok, 100_000_000} =
+               Ledger.topup_workspace_pool(workspace.id, order.credits_mc,
+                 entry_type: :order_topup,
+                 payment_order_id: order.id,
+                 actor_user_id: owner.id
+               )
+
+      assert {:ok, batch} =
+               Ledger.batch_grant_workspace_members(
+                 owner,
+                 workspace.id,
+                 10_000_000,
+                 "pool-ledger-batch-1"
+               )
+
+      assert batch.total_granted_mc == 20_000_000
+
+      entries =
+        Cgc2046.LlmGateway.WorkspacePoolEntry
+        |> Ash.read!(authorize?: false)
+        |> Enum.filter(&(&1.workspace_id == workspace.id))
+        |> Enum.sort_by(& &1.delta_mc)
+
+      assert [
+               %{
+                 entry_type: :batch_grant_debit,
+                 delta_mc: -20_000_000,
+                 workspace_batch_id: batch_id
+               },
+               %{entry_type: :order_topup, delta_mc: 100_000_000, payment_order_id: order_id}
+             ] = entries
+
+      assert batch_id == batch.batch_id
+      assert order_id == order.id
+    end
+
+    test "supports target_user_ids and target_roles filtering and rejects non-members" do
+      %{owner: owner, member: learner, workspace: workspace} =
+        workspace_with_member(member_roles: [:learner])
+
+      outsider = register_user("ledger-target-outsider")
+
+      assert {:ok, 100_000} = Ledger.topup_workspace_pool(workspace.id, 100_000)
+
+      # 非本工作台成员被拒
+      assert {:error, :invalid_target_members} =
+               Ledger.batch_grant_workspace_members(
+                 owner,
+                 workspace.id,
+                 10_000,
+                 "target-outsider",
+                 target_user_ids: [learner.id, outsider.id]
+               )
+
+      # 空目标列表 -> :no_workspace_members
+      assert {:error, :no_workspace_members} =
+               Ledger.batch_grant_workspace_members(
+                 owner,
+                 workspace.id,
+                 10_000,
+                 "target-empty",
+                 target_user_ids: []
+               )
+
+      # 定向仅派发给 learner（不发给 owner）
+      assert {:ok, %{member_count: 1, total_granted_mc: 10_000}} =
+               Ledger.batch_grant_workspace_members(
+                 owner,
+                 workspace.id,
+                 10_000,
+                 "target-learner-only",
+                 target_user_ids: [learner.id]
+               )
+
+      assert Ledger.fetch_wallet!(learner.id).cached_balance_mc == 10_000
+      assert Ledger.ensure_wallet!(owner.id).cached_balance_mc == 0
+
+      # 按角色派发：仅 learner 角色命中
+      assert {:ok, %{member_count: 1, total_granted_mc: 20_000}} =
+               Ledger.batch_grant_workspace_members(
+                 owner,
+                 workspace.id,
+                 20_000,
+                 "target-role-learner",
+                 target_roles: ["learner"]
+               )
+
+      assert Ledger.fetch_wallet!(learner.id).cached_balance_mc == 30_000
+      assert Ledger.ensure_wallet!(owner.id).cached_balance_mc == 0
+
+      # 无匹配角色 -> :no_workspace_members
+      assert {:error, :no_workspace_members} =
+               Ledger.batch_grant_workspace_members(
+                 owner,
+                 workspace.id,
+                 10_000,
+                 "target-role-none",
+                 target_roles: ["tutor"]
+               )
     end
   end
 end

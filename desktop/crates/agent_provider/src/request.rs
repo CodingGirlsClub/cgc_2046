@@ -95,7 +95,7 @@ impl Message {
 }
 
 /// 工具 schema（JSON Schema 子集）。
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ToolSchema {
     pub name: String,
     pub description: String,
@@ -111,8 +111,30 @@ impl ToolSchema {
         Self {
             name: name.into(),
             description: description.into(),
-            input_schema,
+            input_schema: canonicalize_json(&input_schema),
         }
+    }
+}
+
+/// 递归按字典序规范化 JSON Object 的键顺序，避免 `preserve_order` 或上游动态构造
+/// 破坏请求前缀（KV cache）的字节级确定性。
+pub fn canonicalize_json(value: &serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) => {
+            let mut keys: Vec<&String> = map.keys().collect();
+            keys.sort();
+            let mut ordered = serde_json::Map::with_capacity(keys.len());
+            for key in keys {
+                if let Some(child) = map.get(key) {
+                    ordered.insert(key.clone(), canonicalize_json(child));
+                }
+            }
+            serde_json::Value::Object(ordered)
+        }
+        serde_json::Value::Array(items) => {
+            serde_json::Value::Array(items.iter().map(canonicalize_json).collect())
+        }
+        other => other.clone(),
     }
 }
 
@@ -127,6 +149,8 @@ pub struct Request {
     pub reasoning_effort: Option<String>,
     /// None uses model defaults; Some(false) explicitly disables thinking.
     pub thinking_enabled: Option<bool>,
+    /// 会话粘性路由标识（OpenAI 兼容网关注入 `x-session-affinity`）。
+    pub session_id: Option<String>,
 }
 
 impl Request {
@@ -159,6 +183,17 @@ impl Request {
 
     pub fn with_max_output_tokens(mut self, max_output_tokens: u32) -> Self {
         self.max_output_tokens = Some(max_output_tokens);
+        self
+    }
+
+    pub fn with_session_id(mut self, session_id: impl Into<String>) -> Self {
+        let session_id = session_id.into();
+        self.session_id = (!session_id.trim().is_empty()).then_some(session_id);
+        self
+    }
+
+    pub fn with_optional_session_id(mut self, session_id: Option<String>) -> Self {
+        self.session_id = session_id.filter(|id| !id.trim().is_empty());
         self
     }
 }

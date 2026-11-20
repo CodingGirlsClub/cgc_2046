@@ -56,11 +56,17 @@ impl Owner {
 
     pub(super) fn rebuild_tools(&mut self) {
         if let Some(production) = &self.production {
+            let affinity_session_id = self
+                .agent
+                .as_ref()
+                .map(|agent| agent.thread().id.clone())
+                .unwrap_or_else(|| self.frozen.id.clone());
             let mut registry = factory::base_tools(
                 production,
                 &mut self.config,
                 &self.commands,
                 self.generation,
+                Some(affinity_session_id),
             );
             let context = production
                 .host

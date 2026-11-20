@@ -17,32 +17,32 @@ defmodule Cgc2046.LlmGateway.Workers.CreditExpiryWorker do
   def perform(_job) do
     now = DateTime.utc_now()
 
-    Repo.transaction(fn ->
-      wallet_ids =
-        Repo.query!(
-          """
-          SELECT DISTINCT wallet_id
-          FROM llm_credit_grants
-          WHERE status = 'active'
-            AND expires_at IS NOT NULL
-            AND expires_at <= $1
-          """,
-          [now]
-        ).rows
-        |> Enum.map(fn [wallet_id] -> wallet_id end)
-        |> Enum.sort()
+    wallet_ids =
+      Repo.query!(
+        """
+        SELECT DISTINCT wallet_id
+        FROM llm_credit_grants
+        WHERE status = 'active'
+          AND expires_at IS NOT NULL
+          AND expires_at <= $1
+        """,
+        [now]
+      ).rows
+      |> Enum.map(fn [wallet_id] -> wallet_id end)
+      |> Enum.sort()
 
-      locked_wallet_ids =
-        Enum.filter(wallet_ids, fn wallet_id_bin ->
-          Repo.query!(
-            "SELECT id FROM llm_wallets WHERE id = $1 FOR UPDATE SKIP LOCKED",
-            [wallet_id_bin]
-          ).rows != []
-        end)
+    Enum.each(wallet_ids, fn wallet_id_bin ->
+      Repo.transaction(fn ->
+        case Repo.query!(
+               "SELECT id FROM llm_wallets WHERE id = $1 FOR UPDATE SKIP LOCKED",
+               [wallet_id_bin]
+             ).rows do
+          [[_id]] ->
+            Ledger.expire_wallet_grants!(wallet_id_bin, now)
 
-      Enum.reduce(locked_wallet_ids, 0, fn wallet_id_bin, count ->
-        {expired_count, _expired_sum} = Ledger.expire_wallet_grants!(wallet_id_bin, now)
-        count + expired_count
+          [] ->
+            :skipped
+        end
       end)
     end)
 

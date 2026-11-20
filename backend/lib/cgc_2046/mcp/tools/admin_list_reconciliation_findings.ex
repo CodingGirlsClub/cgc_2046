@@ -2,7 +2,7 @@ defmodule Cgc2046.Mcp.Tools.AdminListReconciliationFindings do
   @moduledoc """
   平台治理：对账发现读面（reconciliation_findings 的 MCP 面）。
 
-  `Cgc2046.Reconciliation.ReconciliationScanWorker` 每 10 分钟扫十二条规则，
+  `Cgc2046.Reconciliation.ReconciliationScanWorker` 按 cron/回调扫描规则，
   命中落 Finding 表（刷新语义：命中 upsert 保 first_seen_at，未命中删除）。
   本工具把该表接到 agent 工作流——owner/管理员问「工作台健康吗」时，
   agent 可查当前孤儿清单并指出消解方向（如：工作台缺协议定义 → 需
@@ -55,7 +55,7 @@ defmodule Cgc2046.Mcp.Tools.AdminListReconciliationFindings do
     field(:workspace_id, :string, description: "按工作台过滤（可选；全局实体如死信 job 无租户）")
   end
 
-  # detail 键白名单（2026-09 取证：4 个 worker / 17 条规则穷举）。fail-closed：
+  # detail 键白名单（4 个 worker / 当前规则全集穷举）。fail-closed：
   # 未登记键一律不出面（新规则新键须在此登记才可见）。
   @detail_keys ~w(event_id course_id user_id sponsor_user_id level title run_id status
                   worker signal_type enrollment_id last_activity_at occupancy
@@ -63,7 +63,8 @@ defmodule Cgc2046.Mcp.Tools.AdminListReconciliationFindings do
                   confirmed_count_sync_version capacity drifts actions window_seconds
                   threshold reason paid_deposit_orders paid_cents template_key platform
                   attempts kind channel_cents channel_status no_local_order local_status
-                  local_cents expire_at since expected_cents)
+                  local_cents expire_at since expected_cents
+                  wallet_id cached_balance_mc grants_remaining_mc held_mc available_mc)
 
   # 原始错误文本键 → 固定摘要（#612 纪律：原文只留服务端）
   @raw_error_keys ~w(error last_error)

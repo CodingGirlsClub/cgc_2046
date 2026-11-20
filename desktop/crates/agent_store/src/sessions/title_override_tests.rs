@@ -48,6 +48,7 @@ fn thinking_entry_roundtrips() {
     thread.entries.push(Entry::Thinking {
         text: "推理过程".to_string(),
         signature: None,
+        duration_ms: Some(850),
         at: 1,
     });
     store.save_thread(&thread).expect("save");
@@ -57,7 +58,11 @@ fn thinking_entry_roundtrips() {
         .expect("thread");
     assert!(matches!(
         loaded.entries.first(),
-        Some(Entry::Thinking { text, .. }) if text == "推理过程"
+        Some(Entry::Thinking {
+            text,
+            duration_ms: Some(850),
+            ..
+        }) if text == "推理过程"
     ));
 }
 

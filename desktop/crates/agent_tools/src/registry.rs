@@ -89,7 +89,16 @@ impl ToolRegistry {
     }
 
     pub fn schemas(&self) -> Vec<ToolSchema> {
-        self.tools.iter().map(|tool| tool.to_schema()).collect()
+        let mut schemas: Vec<ToolSchema> = self
+            .tools
+            .iter()
+            .map(|tool| {
+                let schema = tool.to_schema();
+                ToolSchema::new(schema.name, schema.description, schema.input_schema)
+            })
+            .collect();
+        schemas.sort_by(|left, right| left.name.cmp(&right.name));
+        schemas
     }
 
     pub fn approval(&self, name: &str, args: &serde_json::Value) -> Option<Approval> {
@@ -166,5 +175,79 @@ mod tests {
         .unwrap_err();
         assert!(matches!(error, ToolError::InvalidArgs(_)));
         let _ = std::fs::remove_dir_all(&workspace);
+    }
+
+    struct DummySchemaTool {
+        name: &'static str,
+        schema: serde_json::Value,
+    }
+
+    impl Tool for DummySchemaTool {
+        fn name(&self) -> &str {
+            self.name
+        }
+
+        fn description(&self) -> &str {
+            "dummy tool"
+        }
+
+        fn schema(&self) -> serde_json::Value {
+            self.schema.clone()
+        }
+
+        fn run(
+            &self,
+            _args: serde_json::Value,
+            _context: ToolContext,
+        ) -> BoxFuture<'static, Result<ToolResult, ToolError>> {
+            Box::pin(async { Ok(ToolResult::ok("ok")) })
+        }
+    }
+
+    #[test]
+    fn schemas_are_sorted_lexicographically_and_canonicalized_for_prefix_cache() {
+        let mut left = ToolRegistry::new();
+        let mut schema_a = serde_json::Map::new();
+        schema_a.insert("z_prop".into(), serde_json::json!({"type": "string"}));
+        schema_a.insert("a_prop".into(), serde_json::json!({"type": "number"}));
+        left.register(Arc::new(DummySchemaTool {
+            name: "zeta_tool",
+            schema: serde_json::json!({
+                "required": ["a_prop"],
+                "properties": serde_json::Value::Object(schema_a),
+                "type": "object"
+            }),
+        }));
+        left.register(Arc::new(DummySchemaTool {
+            name: "alpha_tool",
+            schema: serde_json::json!({"type": "object", "properties": {"b": {}, "a": {}}}),
+        }));
+
+        let mut right = ToolRegistry::new();
+        let mut schema_b = serde_json::Map::new();
+        schema_b.insert("a_prop".into(), serde_json::json!({"type": "number"}));
+        schema_b.insert("z_prop".into(), serde_json::json!({"type": "string"}));
+        right.register(Arc::new(DummySchemaTool {
+            name: "alpha_tool",
+            schema: serde_json::json!({"properties": {"a": {}, "b": {}}, "type": "object"}),
+        }));
+        right.register(Arc::new(DummySchemaTool {
+            name: "zeta_tool",
+            schema: serde_json::json!({
+                "type": "object",
+                "properties": serde_json::Value::Object(schema_b),
+                "required": ["a_prop"]
+            }),
+        }));
+
+        let left_schemas = left.schemas();
+        let right_schemas = right.schemas();
+        let names: Vec<_> = left_schemas.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, vec!["alpha_tool", "zeta_tool"]);
+        assert_eq!(
+            serde_json::to_vec(&left_schemas).expect("left bytes"),
+            serde_json::to_vec(&right_schemas).expect("right bytes"),
+            "tool registration order or map insertion order must not change serialized bytes"
+        );
     }
 }

@@ -106,9 +106,15 @@ pub(crate) fn token_ratio(part: u64, max: u64) -> f32 {
 }
 
 /// 仅在没有可用 Provider 凭据（Echo 回退）时提示离线回显。
-/// 认证 / 凭据类错误的额外指引（对齐 Zed 的 credentials 提示）。
+/// 认证 / 凭据 / 并发上限类错误的额外指引（对齐 Zed 的 credentials 提示）。
 pub(crate) fn retry_hint_for_error(error: &str) -> Option<&'static str> {
     let lower = error.to_lowercase();
+    if lower.contains("concurrency limit exceeded") || lower.contains("concurrency_limit_exceeded")
+    {
+        return Some(
+            "当前并发对话或 Subagent 已达上限，请等待其他正在运行的会话/子任务完成后再试。",
+        );
+    }
     let credentials_issue = [
         "401",
         "403",
@@ -330,9 +336,15 @@ mod tests {
         let dir = temp_dir("prompt");
         std::fs::write(dir.join("AGENTS.md"), "规则：先读文件").unwrap();
         let prompt = build_workspace_system_prompt(&dir);
+        let second = build_workspace_system_prompt(&dir);
         assert!(prompt.contains("你运行在用户的本地工作区"));
         assert!(prompt.contains("<workspace_rules source=\"AGENTS.md\">"));
         assert!(prompt.contains("规则：先读文件"));
+        assert_eq!(
+            prompt.as_bytes(),
+            second.as_bytes(),
+            "连续构造的 system prompt 字节序列必须完全一致（不含秒/分钟动态时间）"
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 

@@ -234,6 +234,8 @@ pub enum Entry {
     Thinking {
         text: String,
         expanded: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        duration_ms: Option<u64>,
     },
     ToolCall {
         tool_call_id: String,
@@ -349,6 +351,18 @@ impl ConversationThread {
         )
     }
 
+    /// 更新指定 Thinking 行的耗时毫秒数（由视图侧实时计时写入，不放入纯事件 reducer，
+    /// 以保持两轨 `apply(ThreadEvent)` 的确定性）。
+    pub fn set_thinking_duration(&mut self, index: usize, duration_ms: u64) {
+        if let Some(Entry::Thinking {
+            duration_ms: stored,
+            ..
+        }) = self.entries.get_mut(index)
+        {
+            *stored = Some(duration_ms);
+        }
+    }
+
     /// 统一 reducer：两轨的 ingestion 都只调用它。
     pub fn apply(&mut self, event: ThreadEvent) {
         match event {
@@ -382,6 +396,7 @@ impl ConversationThread {
                     _ => self.entries.push(Entry::Thinking {
                         text,
                         expanded: true,
+                        duration_ms: None,
                     }),
                 }
             }

@@ -62,8 +62,9 @@ jobs:
         run: |
           test -n "$REGISTRY" && test -n "$REGISTRY_USER" && test -n "$TCR_PASSWORD"
           printf '%s' "$TCR_PASSWORD" | docker login "$REGISTRY" -u "$REGISTRY_USER" --password-stdin
-          LOCK_HASH=$(sha256sum candidate/backend/mix.lock | cut -c1-16)
-          DEPS_IMAGE="$REGISTRY/codingirlsclub/cgc2046-backend-deps:$LOCK_HASH"
+          # 与 ci.yml / deploy.yml 保持同一 4 文件公式（含编译期 config 输入）
+          DEPS_HASH=$(cat candidate/backend/mix.lock candidate/backend/Dockerfile.deps candidate/backend/config/config.exs candidate/backend/config/prod.exs | sha256sum | cut -c1-16)
+          DEPS_IMAGE="$REGISTRY/codingirlsclub/cgc2046-backend-deps:$DEPS_HASH"
           docker pull --platform linux/amd64 "$DEPS_IMAGE"
           test "$(docker image inspect "$DEPS_IMAGE" --format '{{.Architecture}}')" = amd64
           echo "image=$DEPS_IMAGE" >> "$GITHUB_OUTPUT"
@@ -111,6 +112,17 @@ jobs:
               echo '::error::Release verification failed; output withheld to protect private content'
               exit 1
             }
+          docker run --rm --network none --read-only --tmpfs /tmp \
+            -e RELEASE_TMP=/tmp \
+            -e DATABASE_URL=ecto://verify:verify@localhost/verify \
+            -e CORS_ORIGIN=https://verify.invalid -e WEB_BASE_URL=https://verify.invalid \
+            -e SECRET_KEY_BASE=verification-only-not-a-production-secret-000000000000000000000000 \
+            -e TOKEN_SIGNING_SECRET=verification-only-not-a-production-secret \
+            -e SENDCLOUD_API_USER=verify -e SENDCLOUD_API_KEY=verify \
+            -e SENDCLOUD_FROM=verify@example.invalid -e SENDCLOUD_FROM_NAME=verify \
+            -e SENDCLOUD_SMS_USER=verify -e SENDCLOUD_SMS_KEY=verify \
+            -e SENDCLOUD_SMS_TEMPLATE_ID=verify \
+            cgc-release-verify:local eval ':ok = Cgc2046.LlmGateway.TokenizerAndPricing.verify_tokenizer!()'
           echo "Release verification passed: pb$EXPECTED_HASH (no deploy)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Remove private build material

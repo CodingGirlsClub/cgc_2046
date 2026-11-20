@@ -562,6 +562,8 @@ impl NativeAgentView {
                     }))
 
                     .children(pending_chip)
+                    .children(self.render_wallet_frozen_notice(&palette, cx))
+                    .children(self.render_quota_card(&palette, cx))
 
                     .child(
                         cgc_agent_ui::message_editor::MessageEditor::new(
@@ -683,6 +685,7 @@ impl NativeAgentView {
                                     }),
                             )
                             .child(zap_button)
+                            .children(self.wallet_badge(&palette, cx))
                             .child(div().flex_1())
                             .children((can_review_changes && change_count > 0).then(|| {
                                 div()

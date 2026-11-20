@@ -36,7 +36,7 @@ use crate::native_context::{
 use crate::native_panel_host::SubagentCard;
 use crate::native_runtime::{
     ApprovalMode, CheckpointAction, ModelSetup, NativeRuntimeEvent, NativeRuntimeHandle,
-    NativeRuntimeSnapshot, PreparedNativeTurn, RuntimeChange, RuntimePhase,
+    NativeRuntimeSnapshot, NativeTurnErrorKind, PreparedNativeTurn, RuntimeChange, RuntimePhase,
 };
 use crate::native_view_model::{
     build_message_row_kinds, needs_checkpoint_confirm, subagent_cards_for_rows,
@@ -245,12 +245,13 @@ fn apply_thread_entries(
             cgc_agent_core::Entry::Assistant { text, .. } if !text.is_empty() => thread
                 .entries
                 .push(ConversationEntry::Assistant { text: text.clone() }),
-            cgc_agent_core::Entry::Thinking { text, .. } => {
-                thread.entries.push(ConversationEntry::Thinking {
-                    text: text.clone(),
-                    expanded: false,
-                })
-            }
+            cgc_agent_core::Entry::Thinking {
+                text, duration_ms, ..
+            } => thread.entries.push(ConversationEntry::Thinking {
+                text: text.clone(),
+                expanded: false,
+                duration_ms: *duration_ms,
+            }),
             cgc_agent_core::Entry::ToolResult {
                 tool_use_id,
                 tool_name,
@@ -290,6 +291,7 @@ mod composer;
 mod input;
 mod panel;
 mod panels;
+mod quota;
 mod render;
 mod rows;
 mod runtime_ops;
@@ -343,6 +345,8 @@ pub struct NativeAgentView {
     expanded_tools: std::collections::HashSet<String>,
     /// 已展开的思考折叠块（UI message index）。
     expanded_thinking: std::collections::HashSet<usize>,
+    /// 流式思考块开始时间（UI message index → Instant），用于实时统计与收尾耗时。
+    thinking_started_at: HashMap<usize, std::time::Instant>,
     /// 正在编辑的用户消息（UI message index）。
     editing_user: Option<usize>,
     /// 编辑态输入框；仅在 editing_user 有值时存在。
@@ -369,6 +373,33 @@ pub struct NativeAgentView {
     /// 最近点了 Copy 的操作栏 key：短暂把复制图标换成 Check。
     copied_actions: Option<SharedString>,
     copied_actions_serial: u64,
+    /// CGC Cloud 钱包摘要（登录态异步刷新；不持久化）。
+    wallet: Option<cgc_platform::gateway::WalletSummary>,
+    wallet_refresh_serial: u64,
+    /// 用户主动点击状态栏算力徽章展开的钱包/续费面板开关。
+    wallet_panel_open: bool,
+    /// HTTP 403 / 钱包冻结时的客服提示（不触发充值卡片）。
+    wallet_frozen_notice: Option<String>,
+    /// 最近一次流式错误是否为算力不足；驱动 composer 上方的续费卡片。
+    insufficient_quota: bool,
+    quota_checkout: Option<QuotaCheckout>,
+    quota_checkout_serial: u64,
+}
+
+#[derive(Clone)]
+struct QuotaCheckout {
+    state: QuotaCheckoutState,
+    qr: Option<crate::qr::QrMatrix>,
+    price_cents: i64,
+    provider: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum QuotaCheckoutState {
+    Creating,
+    Ready,
+    Paid,
+    Failed(String),
 }
 
 #[cfg(test)]

@@ -17,13 +17,19 @@ defmodule Cgc2046Web.LlmGatewayController do
   alias Cgc2046.LlmGateway.LeaseManager
   alias Cgc2046.LlmGateway.Ledger
   alias Cgc2046.LlmGateway.TokenizerAndPricing
+  alias Cgc2046Web.Plugs.RateLimit
 
   @process_state_key :llm_gateway_stream_state
+  @default_receive_timeout_ms 180_000
+  @default_pool_timeout_ms 15_000
+  @max_request_messages 500
+  @default_max_prompt_tokens 250_000
 
   def chat_completions(conn, params) do
     session_id = extract_session_affinity(conn, params)
 
     with {:ok, user} <- fetch_user(conn),
+         :ok <- check_user_rate_limit(user.id),
          :ok <- validate_request(params),
          [_ | _] = candidates <- AffinityRouter.candidate_channels(user.id, session_id) do
       primary = hd(candidates)
@@ -33,42 +39,57 @@ defmodule Cgc2046Web.LlmGatewayController do
         AffinityRouter.prepare_upstream_payload(params, primary)
 
       initial_pricing_model = AffinityRouter.pricing_model(primary, logical_model)
-      prompt_tokens = TokenizerAndPricing.count_request_prompt_tokens(params)
+      prompt_tokens = TokenizerAndPricing.count_request_prompt_tokens(initial_payload)
 
-      hold_mc =
-        TokenizerAndPricing.estimate_pre_flight_hold_mc(initial_payload, initial_pricing_model)
+      max_prompt_tokens =
+        Application.get_env(
+          :cgc_2046,
+          :llm_gateway_max_prompt_tokens,
+          @default_max_prompt_tokens
+        )
 
-      case LeaseManager.acquire_slot(user.id, wallet.max_concurrent_streams) do
-        :ok ->
-          case Ledger.acquire_hold(user.id, hold_mc) do
-            {:ok, held_wallet} ->
-              run_stream(
-                conn,
-                params,
-                user,
-                session_id,
-                candidates,
-                primary,
-                logical_model,
-                initial_upstream_model,
-                initial_pricing_model,
-                prompt_tokens,
-                hold_mc,
-                held_wallet.hold_id
-              )
+      if prompt_tokens > max_prompt_tokens do
+        prompt_too_large_error(conn)
+      else
+        hold_mc =
+          TokenizerAndPricing.estimate_pre_flight_hold_mc(
+            initial_payload,
+            initial_pricing_model,
+            prompt_tokens
+          )
 
-            {:error, reason} ->
-              LeaseManager.release_slot(user.id)
-              hold_error(conn, reason)
-          end
+        case LeaseManager.acquire_slot(user.id, wallet.max_concurrent_streams) do
+          :ok ->
+            case Ledger.acquire_hold(user.id, hold_mc) do
+              {:ok, held_wallet} ->
+                run_stream(
+                  conn,
+                  params,
+                  user,
+                  session_id,
+                  candidates,
+                  primary,
+                  logical_model,
+                  initial_upstream_model,
+                  initial_pricing_model,
+                  prompt_tokens,
+                  hold_mc,
+                  held_wallet.hold_id
+                )
 
-        {:error, :too_many_concurrent_streams} ->
-          concurrency_error(conn)
+              {:error, reason} ->
+                LeaseManager.release_slot(user.id)
+                hold_error(conn, reason)
+            end
+
+          {:error, :too_many_concurrent_streams} ->
+            concurrency_error(conn)
+        end
       end
     else
       [] -> upstream_unavailable(conn)
       {:error, :unauthorized} -> unauthorized(conn)
-      {:error, :forbidden} -> forbidden(conn)
+      {:error, :rate_limited} -> rate_limit_error(conn)
       {:error, :invalid_request} -> invalid_request(conn)
     end
   end
@@ -92,6 +113,7 @@ defmodule Cgc2046Web.LlmGatewayController do
     initial_state = %{
       conn: conn,
       channel_id: primary.id,
+      channel_provider: Map.get(primary, :provider, :deepseek),
       logical_model: logical_model,
       upstream_model: initial_upstream_model,
       pricing_model: initial_pricing_model,
@@ -145,6 +167,9 @@ defmodule Cgc2046Web.LlmGatewayController do
          hold_id
        ) do
     try do
+      flushed_state = flush_remaining_sse_buffer()
+      state = if map_size(flushed_state) > 0, do: flushed_state, else: state
+
       settlement =
         TokenizerAndPricing.calculate_settlement(
           Map.get(state, :pricing_model, Map.get(state, :upstream_model)),
@@ -182,12 +207,28 @@ defmodule Cgc2046Web.LlmGatewayController do
 
     update_process_state(%{
       channel_id: channel.id,
+      channel_provider: Map.get(channel, :provider, :deepseek),
       logical_model: logical_model,
       upstream_model: upstream_model,
-      pricing_model: AffinityRouter.pricing_model(channel, logical_model)
+      pricing_model: AffinityRouter.pricing_model(channel, logical_model),
+      error_body: []
     })
 
     finch_name = Application.get_env(:cgc_2046, :llm_gateway_finch, Cgc2046.LlmGateway.Finch)
+
+    receive_timeout =
+      Application.get_env(
+        :cgc_2046,
+        :llm_gateway_receive_timeout_ms,
+        @default_receive_timeout_ms
+      )
+
+    pool_timeout =
+      Application.get_env(
+        :cgc_2046,
+        :llm_gateway_pool_timeout_ms,
+        @default_pool_timeout_ms
+      )
 
     req =
       Req.new(
@@ -200,6 +241,8 @@ defmodule Cgc2046Web.LlmGatewayController do
         ],
         body: Jason.encode!(upstream_payload),
         finch: finch_name,
+        receive_timeout: receive_timeout,
+        pool_timeout: pool_timeout,
         retry: false,
         redirect: false,
         decode_body: false,
@@ -222,6 +265,8 @@ defmodule Cgc2046Web.LlmGatewayController do
               Map.get(state, :conn, conn)
 
             status in 200..299 ->
+              _ = flush_remaining_sse_buffer()
+
               if Map.get(state, :chunked_started?, false) do
                 Map.get(state, :conn, conn)
               else
@@ -325,6 +370,29 @@ defmodule Cgc2046Web.LlmGatewayController do
     |> send_chunked(200)
   end
 
+  defp flush_remaining_sse_buffer do
+    state = Process.get(@process_state_key, %{})
+    buffer = Map.get(state, :sse_buffer, "")
+
+    if is_binary(buffer) and String.trim(buffer) != "" do
+      {content_fragments, reasoning_fragments, maybe_usage} = safe_parse_sse_frames([buffer])
+
+      new_state =
+        state
+        |> Map.put(:sse_buffer, "")
+        |> Map.put(:output_iodata, [Map.get(state, :output_iodata, []) | content_fragments])
+        |> Map.put(:reasoning_iodata, [
+          Map.get(state, :reasoning_iodata, []) | reasoning_fragments
+        ])
+        |> Map.put(:official_usage, maybe_usage || Map.get(state, :official_usage))
+
+      Process.put(@process_state_key, new_state)
+      new_state
+    else
+      state
+    end
+  end
+
   defp split_sse_frames(buffer) do
     normalized = String.replace(buffer, "\r\n", "\n")
     parts = String.split(normalized, "\n\n")
@@ -423,14 +491,27 @@ defmodule Cgc2046Web.LlmGatewayController do
       committed? ->
         update_process_state(%{upstream_error?: true})
         error_conn = Map.get(state, :conn, conn)
-        _ = Plug.Conn.chunk(error_conn, mid_stream_error_frame())
-        error_conn
+        send_mid_stream_error_frame(error_conn)
 
       Map.get(state, :first_chunk_sent?, false) ->
         update_process_state(%{upstream_error?: true})
         error_conn = Map.get(state, :conn, conn)
-        _ = Plug.Conn.chunk(error_conn, mid_stream_error_frame())
-        error_conn
+        send_mid_stream_error_frame(error_conn)
+
+      non_retryable_client_error?(reason) ->
+        {:http_error, status, raw_body} = reason
+        update_process_state(%{upstream_error?: true})
+        {http_status, error_code, safe_message} = classify_upstream_client_error(status, raw_body)
+
+        conn
+        |> put_status(http_status)
+        |> json(%{
+          error: %{
+            code: error_code,
+            type: "invalid_request_error",
+            message: safe_message
+          }
+        })
 
       true ->
         update_process_state(%{upstream_error?: true})
@@ -447,6 +528,13 @@ defmodule Cgc2046Web.LlmGatewayController do
     end
   end
 
+  defp send_mid_stream_error_frame(conn) do
+    case Plug.Conn.chunk(conn, mid_stream_error_frame()) do
+      {:ok, next_conn} -> next_conn
+      {:error, _} -> conn
+    end
+  end
+
   defp mid_stream_error_frame do
     "data: " <>
       Jason.encode!(%{
@@ -457,24 +545,103 @@ defmodule Cgc2046Web.LlmGatewayController do
       }) <> "\n\n"
   end
 
-  defp retryable_failure?({:http_error, status, _}) when status in [408, 429, 500, 502, 503, 504],
-    do: true
+  defp retryable_failure?({:http_error, status, _})
+       when status in [401, 403, 408, 429, 500, 502, 503, 504],
+       do: true
 
   defp retryable_failure?({:transport_error, _}), do: true
   defp retryable_failure?(_), do: false
 
+  defp non_retryable_client_error?({:http_error, status, _})
+       when is_integer(status) and status in 400..499 and status not in [401, 403, 408, 429],
+       do: true
+
+  defp non_retryable_client_error?(_), do: false
+
+  defp classify_upstream_client_error(status, raw_body) do
+    {upstream_code, raw_message} = extract_upstream_error(raw_body)
+
+    context_length_exceeded? =
+      status == 413 or
+        upstream_code == "context_length_exceeded" or
+        (is_binary(raw_message) and
+           Regex.match?(~r/maximum context length|context_length_exceeded/i, raw_message))
+
+    if context_length_exceeded? do
+      safe_message =
+        sanitize_upstream_message(
+          raw_message,
+          "Request exceeds the model's maximum context length."
+        )
+
+      {413, "context_length_exceeded", safe_message}
+    else
+      safe_message =
+        sanitize_upstream_message(raw_message, "Upstream rejected the request parameters.")
+
+      {400, "invalid_request", safe_message}
+    end
+  end
+
+  defp extract_upstream_error(raw_body) when is_binary(raw_body) do
+    case Jason.decode(raw_body) do
+      {:ok, %{"error" => %{} = error}} ->
+        code =
+          case Map.get(error, "code") do
+            value when is_binary(value) -> value
+            _ -> nil
+          end
+
+        message =
+          case Map.get(error, "message") do
+            value when is_binary(value) -> value
+            _ -> nil
+          end
+
+        {code, message}
+
+      _ ->
+        {nil, nil}
+    end
+  end
+
+  defp extract_upstream_error(_), do: {nil, nil}
+
+  defp sanitize_upstream_message(message, fallback) when is_binary(message) do
+    cleaned =
+      message
+      |> String.replace(~r/https?:\/\/\S+/i, "[redacted-url]")
+      |> String.replace(~r/Bearer\s+[A-Za-z0-9._~+\/=-]+/i, "Bearer [redacted]")
+      |> String.replace(~r/\b(?:sk|ark)-[A-Za-z0-9_-]{6,}\b/i, "[redacted-key]")
+      |> String.trim()
+      |> String.slice(0, 500)
+
+    if cleaned == "", do: fallback, else: cleaned
+  end
+
+  defp sanitize_upstream_message(_message, fallback), do: fallback
+
   defp fetch_user(conn) do
-    case {conn.assigns[:current_user], conn.assigns[:mcp_token_kind]} do
-      {%{id: _} = user, :terminal} -> {:ok, user}
-      {%{id: _}, _restricted_kind} -> {:error, :forbidden}
+    case conn.assigns[:current_user] do
+      %{id: _} = user -> {:ok, user}
       _ -> {:error, :unauthorized}
+    end
+  end
+
+  defp check_user_rate_limit(user_id) do
+    key = RateLimit.build_key("llm_gateway:user", user_id)
+
+    case RateLimit.check(key, limit: :llm_gateway_user_rpm, window_seconds: 60) do
+      :ok -> :ok
+      :error -> {:error, :rate_limited}
     end
   end
 
   defp validate_request(params) when is_map(params) do
     messages = Map.get(params, "messages")
 
-    if is_list(messages) and messages != [] and Enum.all?(messages, &is_map/1) do
+    if is_list(messages) and messages != [] and length(messages) <= @max_request_messages and
+         Enum.all?(messages, &is_map/1) do
       :ok
     else
       {:error, :invalid_request}
@@ -499,6 +666,18 @@ defmodule Cgc2046Web.LlmGatewayController do
   defp update_process_state(updates) do
     current = Process.get(@process_state_key, %{})
     Process.put(@process_state_key, Map.merge(current, updates))
+  end
+
+  defp hold_error(conn, :wallet_frozen) do
+    conn
+    |> put_status(403)
+    |> json(%{
+      error: %{
+        code: "wallet_frozen",
+        type: "permission_error",
+        message: "Your LLM wallet is frozen. Please contact support."
+      }
+    })
   end
 
   defp hold_error(conn, _reason) do
@@ -526,6 +705,30 @@ defmodule Cgc2046Web.LlmGatewayController do
     })
   end
 
+  defp rate_limit_error(conn) do
+    conn
+    |> put_status(429)
+    |> json(%{
+      error: %{
+        code: "rate_limit_exceeded",
+        type: "rate_limit_error",
+        message: "Too many LLM requests. Please slow down."
+      }
+    })
+  end
+
+  defp prompt_too_large_error(conn) do
+    conn
+    |> put_status(413)
+    |> json(%{
+      error: %{
+        code: "context_length_exceeded",
+        type: "invalid_request_error",
+        message: "Prompt exceeds maximum allowed token limit."
+      }
+    })
+  end
+
   defp invalid_request(conn) do
     conn
     |> put_status(400)
@@ -545,20 +748,7 @@ defmodule Cgc2046Web.LlmGatewayController do
       error: %{
         code: "unauthorized",
         type: "authentication_error",
-        message: "A valid MCP bearer token is required."
-      }
-    })
-  end
-
-  defp forbidden(conn) do
-    conn
-    |> put_status(403)
-    |> json(%{
-      error: %{
-        code: "forbidden",
-        type: "authorization_error",
-        message:
-          "This endpoint requires a terminal MCP token; learning-host tokens cannot spend wallet credits."
+        message: "A valid first-party session bearer token is required."
       }
     })
   end

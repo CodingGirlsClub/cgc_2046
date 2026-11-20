@@ -26,7 +26,10 @@ defmodule Cgc2046.Reconciliation.ScanDetections do
     "Cgc2046.Notifications.NotificationWorker",
     "Cgc2046.Notifications.Workers.DeliveryWorker",
     "Cgc2046.Payments.Workers.DepositForfeitWorker",
-    "Cgc2046.Payments.Workers.PaymentRefundWorker"
+    "Cgc2046.Payments.Workers.PaymentRefundWorker",
+    # Phase 3B：LLM 独立收银台落账重试耗尽后必须在对账页可见；
+    # 丢弃行 = 渠道已收款但钱包/工作台池未入账的潜在资金缺口。
+    "Cgc2046.LlmGateway.Workers.LlmPaymentSettlementWorker"
   ]
 
   # 白名单只读访问器（ADR-0010 W1):worker 改名后字符串易漂移,测试经本函数

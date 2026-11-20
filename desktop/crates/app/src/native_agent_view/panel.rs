@@ -10,6 +10,15 @@ impl NativeAgentView {
         }
     }
 
+    pub(crate) fn set_status_message(
+        &mut self,
+        message: impl Into<String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.status = message.into();
+        cx.notify();
+    }
+
     pub(crate) fn new(
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -140,6 +149,13 @@ impl NativeAgentView {
             initial_snapshot_requested: false,
             copied_actions: None,
             copied_actions_serial: 0,
+            wallet: None,
+            wallet_refresh_serial: 0,
+            wallet_panel_open: false,
+            wallet_frozen_notice: None,
+            insufficient_quota: false,
+            quota_checkout: None,
+            quota_checkout_serial: 0,
             page_context,
             language,
             composer_context: Default::default(),
@@ -152,6 +168,7 @@ impl NativeAgentView {
 
             expanded_tools: Default::default(),
             expanded_thinking: Default::default(),
+            thinking_started_at: HashMap::new(),
             editing_user: None,
             user_edit_input: None,
             edit_serial: 0,
@@ -200,6 +217,7 @@ impl NativeAgentView {
                 self.state.session.thread.status = cgc_agent_ui::conversation::ThreadStatus::Idle;
                 self.state.session.thread.pending_permission = None;
                 self.sent_images.clear();
+                self.thinking_started_at.clear();
                 self.pending_agent_call = None;
                 self.state.session.last_error = None;
                 self.status = "对话显示已清空".to_string();

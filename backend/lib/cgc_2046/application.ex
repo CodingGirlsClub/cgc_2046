@@ -12,7 +12,9 @@ defmodule Cgc2046.Application do
       Cgc2046.Repo,
       {Phoenix.PubSub, name: Cgc2046.PubSub},
       # LLM Gateway Phase 2：上游 Finch 池、会话粘性 ETS 持有者、并发流租约。
-      {Finch, name: Cgc2046.LlmGateway.Finch},
+      {Finch,
+       name: Cgc2046.LlmGateway.Finch,
+       pools: %{:default => [size: 100, count: 2, protocols: [:http1]]}},
       Cgc2046.LlmGateway.AffinityStore,
       Cgc2046.LlmGateway.LeaseManager,
       # Start a worker by calling: Cgc2046.Worker.start_link(arg)

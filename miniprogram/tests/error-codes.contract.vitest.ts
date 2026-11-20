@@ -38,4 +38,26 @@ describe('error-copy 错误码契约', () => {
   it('database_error 有文案（#241 F4 回归钉：DB 故障不得英文直出）', () => {
     expect(COPY.database_error).toBeTruthy()
   })
+
+  it('LLM 收银台与工作台派发错误码均有文案（#1297 回归钉）', () => {
+    const llmCodes = [
+      'llm_payment_order_invalid_kind',
+      'llm_payment_order_invalid_provider',
+      'llm_payment_order_invalid_amount',
+      'llm_payment_order_invalid_workspace',
+      'llm_payment_order_invalid_idempotency_key',
+      'llm_payment_order_workspace_required',
+      'llm_payment_order_forbidden',
+      'llm_payment_order_provider_failed',
+      'llm_payment_order_idempotency_conflict',
+      'llm_payment_order_not_found',
+      'llm_payment_order_database_error',
+      'insufficient_workspace_pool',
+      'no_workspace_members',
+      'workspace_not_found'
+    ]
+    for (const code of llmCodes) {
+      expect(COPY[code], `miniprogram error-copy.ts 缺少 ${code} 文案`).toBeTruthy()
+    }
+  })
 })

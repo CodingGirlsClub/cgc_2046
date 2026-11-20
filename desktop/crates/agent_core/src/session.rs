@@ -28,7 +28,7 @@ pub use events::{
     ToolTurnOutcome, TurnObserver, TurnOutcome,
 };
 use stream::{run_stream, StreamOutcome};
-pub use subagent::run_subagent;
+pub use subagent::{run_subagent, run_subagent_with_affinity};
 
 /// 单轮工具循环的保险丝：正常任务不触发；到上限时优雅收尾而不是报错。
 /// Zed 的 native agent 没有轮次上限（模型不再调工具/用户取消才停）；
@@ -156,6 +156,8 @@ pub struct Agent {
     context_steer_rx: mpsc::Receiver<SteerMessage>,
     reasoning_effort: Option<String>,
     thinking_enabled: Option<bool>,
+    /// 后台压缩（compaction）专用模型；为空时回退当前 turn 的 `model`。
+    background_model: Option<Model>,
     /// 采样温度；`None` = 不下发（provider 默认）。由 app 从用户设置文件解析。
     temperature: Option<f32>,
     /// 下一轮用户消息要携带的图片附件（MIME, base64）；发送一次后清空。
@@ -163,6 +165,9 @@ pub struct Agent {
     /// 下一条用户消息的 UI 展示文本（不含注入上下文）；发送一次后清空。
     pending_user_display: Option<String>,
     pending_user_draft: Option<serde_json::Value>,
+    /// 可选覆盖发往 provider 的会话粘性键（`x-session-affinity`）；
+    /// 子 agent 继承父会话 ID，避免碎片化网关 ETS 路由表，同时保持本地 `thread.id` 唯一。
+    affinity_session_id: Option<String>,
 }
 
 impl Agent {
@@ -185,11 +190,20 @@ impl Agent {
             context_steer_rx,
             reasoning_effort: None,
             thinking_enabled: None,
+            background_model: None,
             temperature: None,
             pending_images: Vec::new(),
             pending_user_display: None,
             pending_user_draft: None,
+            affinity_session_id: None,
         }
+    }
+
+    /// 设置发往 provider 的会话粘性 ID（优先于 `thread.id` 写入 `Request.session_id`）。
+    pub fn set_affinity_session_id(&mut self, affinity_session_id: Option<String>) {
+        self.affinity_session_id = affinity_session_id
+            .map(|id| id.trim().to_string())
+            .filter(|id| !id.is_empty());
     }
 
     /// 设置本轮请求的采样温度；`None` 表示不下发 temperature。
@@ -266,6 +280,11 @@ impl Agent {
 
     pub fn set_thinking_enabled(&mut self, enabled: bool) {
         self.thinking_enabled = Some(enabled);
+    }
+
+    /// 设置后台压缩（compaction）逻辑模型（如 `cgc-background`）；`None` 表示沿用主对话模型。
+    pub fn set_background_model(&mut self, model: Option<Model>) {
+        self.background_model = model;
     }
 
     /// 用磁盘上最新的 thread 替换当前会话（多视图共享会话）。
@@ -361,12 +380,13 @@ impl Agent {
                     text,
                     thinking,
                     thinking_signature,
+                    thinking_duration_ms,
                     replay_content,
                     usage,
                     stop_reason,
                     tool_calls,
                 } => {
-                    self.record_thinking(thinking, thinking_signature);
+                    self.record_thinking(thinking, thinking_signature, thinking_duration_ms);
                     self.record_turn(text.clone(), tool_calls.clone(), usage, replay_content);
                     // 插话只在 turn 边界生效（对齐 Zed 的 end_turn_at_next_boundary）：
                     // 已产生的文本保留，本轮结果不返回，直接进入下一轮。
@@ -447,27 +467,37 @@ impl Agent {
                     .await?;
                 let stream_outcome =
                     run_stream(provider, model, request, &self.cancel, observer).await?;
-                let (text, thinking, signature, replay, usage, stop_reason, tool_calls) =
-                    match stream_outcome {
-                        StreamOutcome::Finished {
-                            text,
-                            thinking,
-                            thinking_signature,
-                            replay_content,
-                            usage,
-                            stop_reason,
-                            tool_calls,
-                        } => (
-                            text,
-                            thinking,
-                            thinking_signature,
-                            replay_content,
-                            usage,
-                            stop_reason,
-                            tool_calls,
-                        ),
-                    };
-                self.record_thinking(thinking, signature);
+                let (
+                    text,
+                    thinking,
+                    signature,
+                    thinking_duration_ms,
+                    replay,
+                    usage,
+                    stop_reason,
+                    tool_calls,
+                ) = match stream_outcome {
+                    StreamOutcome::Finished {
+                        text,
+                        thinking,
+                        thinking_signature,
+                        thinking_duration_ms,
+                        replay_content,
+                        usage,
+                        stop_reason,
+                        tool_calls,
+                    } => (
+                        text,
+                        thinking,
+                        thinking_signature,
+                        thinking_duration_ms,
+                        replay_content,
+                        usage,
+                        stop_reason,
+                        tool_calls,
+                    ),
+                };
+                self.record_thinking(thinking, signature, thinking_duration_ms);
                 self.record_turn(text.clone(), tool_calls.clone(), usage, replay);
                 observer.on_usage(usage, self.thread.usage_total);
                 all_text.push_str(&text);
@@ -546,9 +576,15 @@ impl Agent {
         Ok(())
     }
 
-    fn record_thinking(&mut self, thinking: String, signature: Option<String>) {
+    fn record_thinking(
+        &mut self,
+        thinking: String,
+        signature: Option<String>,
+        duration_ms: Option<u64>,
+    ) {
         if !thinking.is_empty() {
-            self.thread.push_thinking(thinking);
+            self.thread
+                .push_thinking_with_duration(thinking, duration_ms);
             if let Some(Entry::Thinking {
                 signature: stored, ..
             }) = self.thread.entries.last_mut()

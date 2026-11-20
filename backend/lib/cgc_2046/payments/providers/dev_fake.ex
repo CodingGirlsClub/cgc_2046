@@ -19,6 +19,7 @@ defmodule Cgc2046.Payments.Providers.DevFake do
 
   require Ash.Query
 
+  alias Cgc2046.LlmGateway.PaymentOrders, as: LlmPaymentOrders
   alias Cgc2046.Payments.Order
 
   @impl Cgc2046.Payments.Provider
@@ -33,6 +34,24 @@ defmodule Cgc2046.Payments.Providers.DevFake do
   end
 
   @impl Cgc2046.Payments.Provider
+  def fetch_transaction("LLM_" <> _ = out_trade_no) do
+    case LlmPaymentOrders.find_by_out_trade_no(out_trade_no) do
+      {:ok, order} ->
+        {:ok,
+         %{
+           status: :paid,
+           amount_cents: order.amount_cents,
+           transaction_id: "dev-fake-" <> out_trade_no
+         }}
+
+      {:error, :not_found} ->
+        {:error, :order_not_found}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   def fetch_transaction(out_trade_no) do
     case Order
          |> Ash.Query.filter(out_trade_no == ^out_trade_no)

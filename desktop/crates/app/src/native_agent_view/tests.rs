@@ -180,6 +180,7 @@ mod workspace_prompt_tests {
             Entry::Thinking {
                 text: "想一下".into(),
                 signature: None,
+                duration_ms: Some(1_200),
                 at: 0,
             },
         ];
@@ -210,7 +211,11 @@ mod workspace_prompt_tests {
         assert_eq!(output.as_deref(), Some("hi"));
         assert!(matches!(
             &state.session.thread.entries[2],
-            ConversationEntry::Thinking { text, .. } if text == "想一下"
+            ConversationEntry::Thinking {
+                text,
+                duration_ms: Some(1_200),
+                ..
+            } if text == "想一下"
         ));
     }
 
@@ -341,6 +346,7 @@ mod workspace_prompt_tests {
             ConversationEntry::Thinking {
                 text: "t".into(),
                 expanded: false,
+                duration_ms: None,
             },
         ];
         assert_eq!(super::thread_entry_ordinal(&entries, 0), Some(1));
@@ -381,7 +387,8 @@ mod workspace_prompt_tests {
         assert_eq!(
             super::ViewRow::from_entry(&ConversationEntry::Thinking {
                 text: "t".into(),
-                expanded: false
+                expanded: false,
+                duration_ms: Some(900),
             })
             .role,
             super::ViewRole::Thinking
@@ -418,10 +425,14 @@ mod workspace_prompt_tests {
     }
 
     #[test]
-    fn retry_hint_only_for_credentials_errors() {
+    fn retry_hint_covers_credentials_and_concurrency_errors() {
         assert!(super::retry_hint_for_error("api 401: invalid key").is_some());
         assert!(super::retry_hint_for_error("No credentials configured").is_some());
         assert!(super::retry_hint_for_error("API Key 不能为空").is_some());
+        let concurrency =
+            super::retry_hint_for_error("concurrency limit exceeded: max 2 active streams")
+                .expect("concurrency hint");
+        assert!(concurrency.contains("Subagent") || concurrency.contains("会话"));
         assert!(super::retry_hint_for_error("provider 500: internal error").is_none());
         assert!(super::retry_hint_for_error("network timeout").is_none());
     }

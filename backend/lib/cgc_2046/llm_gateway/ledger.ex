@@ -12,6 +12,8 @@ defmodule Cgc2046.LlmGateway.Ledger do
   资源层只读；任何调用方都不得绕过本模块直接改钱包/批次表。
   """
 
+  require Logger
+
   alias Cgc2046.Accounts.{MembershipContext, Role}
   alias Cgc2046.Repo
 
@@ -130,31 +132,73 @@ defmodule Cgc2046.LlmGateway.Ledger do
   end
 
   @doc """
-  给工作台算力池充值（订单结算或平台管理员操作）。
+  给工作台算力池充值（订单结算或平台管理员操作），同时写入 `llm_workspace_pool_entries`
+  追加账本。`payment_order_id` 非空时以部分唯一索引提供数据库级幂等：同单重复入池不二次加余额。
   """
-  def topup_workspace_pool(workspace_id, amount_mc)
-      when is_integer(amount_mc) and amount_mc > 0 do
-    now = DateTime.utc_now()
+  def topup_workspace_pool(workspace_id, amount_mc, opts \\ [])
+      when is_integer(amount_mc) and amount_mc > 0 and is_list(opts) do
+    entry_type = opts |> Keyword.get(:entry_type, :admin_topup) |> normalize_topup_entry_type!()
+    payment_order_id = Keyword.get(opts, :payment_order_id)
+    actor_user_id = Keyword.get(opts, :actor_user_id)
 
-    case Repo.query!(
-           """
-           UPDATE workspaces
-           SET credit_pool_mc = credit_pool_mc + $2, updated_at = $3
-           WHERE id = $1
-           RETURNING credit_pool_mc
-           """,
-           [dump_uuid!(workspace_id), amount_mc, now]
-         ).rows do
-      [[new_pool_mc]] -> {:ok, new_pool_mc}
-      [] -> {:error, :workspace_not_found}
-    end
+    Repo.transaction(fn ->
+      now = DateTime.utc_now()
+      ws_uuid = dump_uuid!(workspace_id)
+
+      case Repo.query!(
+             "SELECT credit_pool_mc FROM workspaces WHERE id = $1 FOR UPDATE",
+             [ws_uuid]
+           ).rows do
+        [] ->
+          Repo.rollback(:workspace_not_found)
+
+        [[current_pool_mc]] ->
+          %{rows: inserted} =
+            Repo.query!(
+              """
+              INSERT INTO llm_workspace_pool_entries (
+                id, workspace_id, entry_type, delta_mc, payment_order_id, actor_user_id, inserted_at
+              )
+              VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6)
+              ON CONFLICT (payment_order_id) WHERE payment_order_id IS NOT NULL DO NOTHING
+              RETURNING id
+              """,
+              [
+                ws_uuid,
+                entry_type,
+                amount_mc,
+                maybe_dump_uuid(payment_order_id),
+                maybe_dump_uuid(actor_user_id),
+                now
+              ]
+            )
+
+          if inserted != [] do
+            %{rows: [[new_pool_mc]]} =
+              Repo.query!(
+                """
+                UPDATE workspaces
+                SET credit_pool_mc = credit_pool_mc + $2, updated_at = $3
+                WHERE id = $1
+                RETURNING credit_pool_mc
+                """,
+                [ws_uuid, amount_mc, now]
+              )
+
+            new_pool_mc
+          else
+            current_pool_mc
+          end
+      end
+    end)
   end
 
   @doc """
-  工作台 Owner/Admin 从工作台算力池向当前全部成员派发额度。
+  工作台 Owner/Admin 从工作台算力池向目标成员（默认全部成员，支持 `target_user_ids` /
+  `target_roles` 筛选）派发额度。
 
   额度进入成员个人钱包后可跨工作台消费。重复 `idempotency_key` 返回原批次，
-  不二次扣池。
+  不二次扣池；同事务写入负值 `batch_grant_debit` 到 `llm_workspace_pool_entries`。
   """
   def batch_grant_workspace_members(
         actor,
@@ -165,6 +209,8 @@ defmodule Cgc2046.LlmGateway.Ledger do
       )
       when is_integer(per_member_mc) and per_member_mc > 0 and is_binary(idempotency_key) do
     expires_at = Keyword.get(opts, :expires_at)
+    target_user_ids = Keyword.get(opts, :target_user_ids)
+    target_roles = Keyword.get(opts, :target_roles)
 
     with :ok <- authorize_workspace_admin(actor, workspace_id) do
       Repo.transaction(fn ->
@@ -186,7 +232,12 @@ defmodule Cgc2046.LlmGateway.Ledger do
                 batch
 
               :not_found ->
-                member_ids = member_user_ids(workspace_id)
+                member_ids =
+                  case resolve_target_member_ids(workspace_id, target_user_ids, target_roles) do
+                    {:ok, ids} -> ids
+                    {:error, reason} -> Repo.rollback(reason)
+                  end
+
                 member_count = length(member_ids)
 
                 if member_count == 0 do
@@ -230,6 +281,16 @@ defmodule Cgc2046.LlmGateway.Ledger do
                     idempotency_key,
                     now
                   ]
+                )
+
+                Repo.query!(
+                  """
+                  INSERT INTO llm_workspace_pool_entries (
+                    id, workspace_id, entry_type, delta_mc, workspace_batch_id, actor_user_id, inserted_at
+                  )
+                  VALUES (gen_random_uuid(), $1, 'batch_grant_debit', $2, $3, $4, $5)
+                  """,
+                  [ws_uuid, -total_required_mc, batch_uuid, dump_uuid!(actor.id), now]
                 )
 
                 Enum.each(member_ids, fn member_id ->
@@ -295,7 +356,7 @@ defmodule Cgc2046.LlmGateway.Ledger do
 
         case Repo.query!(
                """
-               SELECT id
+               SELECT id, status
                FROM llm_wallets
                WHERE user_id = $1
                FOR UPDATE
@@ -305,7 +366,10 @@ defmodule Cgc2046.LlmGateway.Ledger do
           [] ->
             Repo.rollback(:wallet_not_found)
 
-          [[wallet_id_bin]] ->
+          [[_wallet_id_bin, status]] when status != "active" ->
+            {:error, :wallet_frozen}
+
+          [[wallet_id_bin, "active"]] ->
             # 过期批次的 cached_balance 在 Worker 跑之前仍存在；先在钱包锁内收口，
             # 否则过期-only 钱包会被错误授权，结算时又因过期无法扣费 → 免费推理。
             {_expired_count, _expired_sum} = expire_wallet_grants!(wallet_id_bin, now)
@@ -371,105 +435,133 @@ defmodule Cgc2046.LlmGateway.Ledger do
     validate_billing_mode!(billing_mode)
     hold_id = Keyword.get(opts, :hold_id)
 
-    Repo.transaction(fn ->
-      now = DateTime.utc_now()
-      user_uuid = dump_uuid!(user_id)
+    tx_result =
+      Repo.transaction(fn ->
+        now = DateTime.utc_now()
+        user_uuid = dump_uuid!(user_id)
 
-      case Repo.query!(
-             """
-             SELECT id, cached_balance_mc, held_mc
-             FROM llm_wallets
-             WHERE user_id = $1
-             FOR UPDATE
-             """,
-             [user_uuid]
-           ).rows do
-        [] ->
-          Repo.rollback(:wallet_not_found)
+        case Repo.query!(
+               """
+               SELECT id, cached_balance_mc, held_mc
+               FROM llm_wallets
+               WHERE user_id = $1
+               FOR UPDATE
+               """,
+               [user_uuid]
+             ).rows do
+          [] ->
+            Repo.rollback(:wallet_not_found)
 
-        [[wallet_id_bin, current_balance, current_held]] ->
-          hold_to_release_mc =
-            case hold_id do
-              nil ->
-                min(hold_mc, current_held)
+          [[wallet_id_bin, current_balance, current_held]] ->
+            {hold_to_release_mc, hold_acquired_at} =
+              case hold_id do
+                nil ->
+                  {min(hold_mc, current_held), nil}
 
-              id ->
-                case Repo.query!(
-                       """
-                       DELETE FROM llm_wallet_holds
-                       WHERE id = $1 AND wallet_id = $2
-                       RETURNING hold_mc
-                       """,
-                       [dump_uuid!(id), wallet_id_bin]
-                     ).rows do
-                  [[held_mc]] -> held_mc
-                  [] -> 0
-                end
-            end
+                id ->
+                  case Repo.query!(
+                         """
+                         DELETE FROM llm_wallet_holds
+                         WHERE id = $1 AND wallet_id = $2
+                         RETURNING hold_mc, inserted_at
+                         """,
+                         [dump_uuid!(id), wallet_id_bin]
+                       ).rows do
+                    [[held_mc, inserted_at]] -> {held_mc, inserted_at}
+                    [] -> {0, nil}
+                  end
+              end
 
-          # 不在此处收口过期 grants：在 hold 有效期内到期的批次仍是本次请求的
-          # 已授权额度，必须可用于扣费；Worker 会按 held_mc 保留它们。
-          available_mc = max(0, current_balance - max(0, current_held - hold_to_release_mc))
-          actual_deduct_mc = min(charged_mc, available_mc)
+            # 不在此处收口过期 grants：在本次 hold 签发时尚未过期的批次仍可用于本次结算；
+            # 签发时已经过期的批次（仅因更早的并发 hold 被保活）不得被本次请求扣用。
+            available_mc = max(0, current_balance - max(0, current_held - hold_to_release_mc))
+            actual_deduct_mc = min(charged_mc, available_mc)
 
-          leftover_mc =
-            deduct_from_grants_fifo!(wallet_id_bin, actual_deduct_mc, now,
-              expired_budget_mc: hold_to_release_mc
+            leftover_mc =
+              deduct_from_grants_fifo!(wallet_id_bin, actual_deduct_mc, now,
+                expired_budget_mc: hold_to_release_mc,
+                hold_acquired_at: hold_acquired_at
+              )
+
+            actual_deduct_mc = actual_deduct_mc - leftover_mc
+            uncollected_mc = max(0, charged_mc - actual_deduct_mc)
+
+            Repo.query!(
+              """
+              UPDATE llm_wallets
+              SET cached_balance_mc = GREATEST(0, cached_balance_mc - $2),
+                  held_mc = GREATEST(0, held_mc - $3),
+                  updated_at = $4
+              WHERE id = $1
+              """,
+              [wallet_id_bin, actual_deduct_mc, hold_to_release_mc, now]
             )
 
-          actual_deduct_mc = actual_deduct_mc - leftover_mc
+            Repo.query!(
+              """
+              INSERT INTO llm_usage_logs (
+                id, wallet_id, user_id, session_id, logical_model,
+                upstream_channel, upstream_model, billing_mode,
+                prompt_cache_hit_tokens, prompt_cache_miss_tokens,
+                completion_tokens, reasoning_tokens,
+                charged_mc, upstream_cost_mc, ttfb_ms, duration_ms, inserted_at
+              )
+              VALUES (
+                gen_random_uuid(), $1, $2, $3, $4,
+                $5, $6, $7,
+                $8, $9,
+                $10, $11,
+                $12, $13, $14, $15, $16
+              )
+              """,
+              [
+                wallet_id_bin,
+                user_uuid,
+                Map.get(usage_attrs, :session_id),
+                Map.fetch!(usage_attrs, :logical_model),
+                Map.fetch!(usage_attrs, :upstream_channel),
+                Map.fetch!(usage_attrs, :upstream_model),
+                billing_mode,
+                Map.get(usage_attrs, :prompt_cache_hit_tokens, 0),
+                Map.get(usage_attrs, :prompt_cache_miss_tokens, 0),
+                Map.get(usage_attrs, :completion_tokens, 0),
+                Map.get(usage_attrs, :reasoning_tokens, 0),
+                actual_deduct_mc,
+                upstream_cost_mc,
+                Map.get(usage_attrs, :ttfb_ms),
+                Map.get(usage_attrs, :duration_ms),
+                now
+              ]
+            )
 
-          Repo.query!(
-            """
-            UPDATE llm_wallets
-            SET cached_balance_mc = GREATEST(0, cached_balance_mc - $2),
-                held_mc = GREATEST(0, held_mc - $3),
-                updated_at = $4
-            WHERE id = $1
-            """,
-            [wallet_id_bin, actual_deduct_mc, hold_to_release_mc, now]
+            {fetch_wallet!(user_id), actual_deduct_mc, uncollected_mc}
+        end
+      end)
+
+    case tx_result do
+      {:ok, {wallet, actual_deduct_mc, uncollected_mc}} ->
+        if uncollected_mc > 0 do
+          Logger.warning(
+            "llm gateway settlement shortfall: user_id=#{user_id} billing_mode=#{billing_mode} " <>
+              "charged_mc=#{charged_mc} actual_deduct_mc=#{actual_deduct_mc} uncollected_mc=#{uncollected_mc}"
           )
 
-          Repo.query!(
-            """
-            INSERT INTO llm_usage_logs (
-              id, wallet_id, user_id, session_id, logical_model,
-              upstream_channel, upstream_model, billing_mode,
-              prompt_cache_hit_tokens, prompt_cache_miss_tokens,
-              completion_tokens, reasoning_tokens,
-              charged_mc, upstream_cost_mc, ttfb_ms, duration_ms, inserted_at
-            )
-            VALUES (
-              gen_random_uuid(), $1, $2, $3, $4,
-              $5, $6, $7,
-              $8, $9,
-              $10, $11,
-              $12, $13, $14, $15, $16
-            )
-            """,
-            [
-              wallet_id_bin,
-              user_uuid,
-              Map.get(usage_attrs, :session_id),
-              Map.fetch!(usage_attrs, :logical_model),
-              Map.fetch!(usage_attrs, :upstream_channel),
-              Map.fetch!(usage_attrs, :upstream_model),
-              billing_mode,
-              Map.get(usage_attrs, :prompt_cache_hit_tokens, 0),
-              Map.get(usage_attrs, :prompt_cache_miss_tokens, 0),
-              Map.get(usage_attrs, :completion_tokens, 0),
-              Map.get(usage_attrs, :reasoning_tokens, 0),
-              actual_deduct_mc,
-              upstream_cost_mc,
-              Map.get(usage_attrs, :ttfb_ms),
-              Map.get(usage_attrs, :duration_ms),
-              now
-            ]
+          :telemetry.execute(
+            [:cgc2046, :llm_gateway, :settlement_shortfall],
+            %{
+              uncollected_mc: uncollected_mc,
+              charged_mc: charged_mc,
+              actual_deduct_mc: actual_deduct_mc
+            },
+            %{user_id: user_id, billing_mode: billing_mode}
           )
+        end
 
-          fetch_wallet!(user_id)
-      end
-    end)
+        {:ok, wallet}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   @doc false
@@ -533,7 +625,6 @@ defmodule Cgc2046.LlmGateway.Ledger do
         """
         UPDATE llm_wallets
         SET cached_balance_mc = GREATEST(0, cached_balance_mc - $2),
-            held_mc = LEAST(held_mc, GREATEST(0, cached_balance_mc - $2)),
             updated_at = $3
         WHERE id = $1
         """,
@@ -549,11 +640,12 @@ defmodule Cgc2046.LlmGateway.Ledger do
   defp deduct_from_grants_fifo!(wallet_id_bin, amount_to_deduct, now, opts)
        when amount_to_deduct > 0 do
     expired_budget_mc = max(0, Keyword.get(opts, :expired_budget_mc, 0))
+    hold_acquired_at = Keyword.get(opts, :hold_acquired_at)
 
     %{rows: grants} =
       Repo.query!(
         """
-        SELECT id, remaining_mc, (expires_at IS NOT NULL AND expires_at <= $2) AS expired
+        SELECT id, remaining_mc, expires_at, (expires_at IS NOT NULL AND expires_at <= $2) AS expired
         FROM llm_credit_grants
         WHERE wallet_id = $1
           AND status = 'active'
@@ -568,15 +660,20 @@ defmodule Cgc2046.LlmGateway.Ledger do
       Enum.reduce_while(
         grants,
         {amount_to_deduct, expired_budget_mc},
-        fn [grant_id_bin, remaining, expired], {left, budget} ->
+        fn [grant_id_bin, remaining, expires_at, expired], {left, budget} ->
           if left <= 0 do
             {:halt, {0, budget}}
           else
             take =
-              if expired do
-                min(remaining, min(left, budget))
-              else
-                min(remaining, left)
+              cond do
+                not expired ->
+                  min(remaining, left)
+
+                valid_at_hold_acquisition?(expires_at, hold_acquired_at) ->
+                  min(remaining, min(left, budget))
+
+                true ->
+                  0
               end
 
             if take > 0 do
@@ -604,6 +701,22 @@ defmodule Cgc2046.LlmGateway.Ledger do
     leftover_mc
   end
 
+  defp valid_at_hold_acquisition?(_expires_at, nil), do: true
+
+  defp valid_at_hold_acquisition?(%DateTime{} = exp, %DateTime{} = acquired_at),
+    do: DateTime.compare(exp, acquired_at) == :gt
+
+  defp valid_at_hold_acquisition?(%NaiveDateTime{} = exp, %NaiveDateTime{} = acquired_at),
+    do: NaiveDateTime.compare(exp, acquired_at) == :gt
+
+  defp valid_at_hold_acquisition?(%DateTime{} = exp, %NaiveDateTime{} = acquired_at),
+    do: NaiveDateTime.compare(DateTime.to_naive(exp), acquired_at) == :gt
+
+  defp valid_at_hold_acquisition?(%NaiveDateTime{} = exp, %DateTime{} = acquired_at),
+    do: NaiveDateTime.compare(exp, DateTime.to_naive(acquired_at)) == :gt
+
+  defp valid_at_hold_acquisition?(_, _), do: false
+
   defp fetch_batch(ws_uuid, idempotency_key) do
     case Repo.query!(
            """
@@ -625,6 +738,101 @@ defmodule Cgc2046.LlmGateway.Ledger do
       [] ->
         :not_found
     end
+  end
+
+  defp resolve_target_member_ids(workspace_id, nil, nil), do: {:ok, member_user_ids(workspace_id)}
+
+  defp resolve_target_member_ids(workspace_id, nil, target_roles) when is_list(target_roles) do
+    {:ok, member_user_ids_by_roles(workspace_id, target_roles)}
+  end
+
+  defp resolve_target_member_ids(workspace_id, target_user_ids, target_roles)
+       when is_list(target_user_ids) do
+    with {:ok, requested_ids} <- cast_uuid_list(target_user_ids) do
+      if requested_ids == [] do
+        {:ok, []}
+      else
+        all_members = MapSet.new(member_user_ids(workspace_id))
+
+        if Enum.all?(requested_ids, &MapSet.member?(all_members, &1)) do
+          filtered =
+            case target_roles do
+              nil ->
+                requested_ids
+
+              roles when is_list(roles) ->
+                role_members = MapSet.new(member_user_ids_by_roles(workspace_id, roles))
+                Enum.filter(requested_ids, &MapSet.member?(role_members, &1))
+
+              _ ->
+                []
+            end
+
+          {:ok, Enum.sort(filtered)}
+        else
+          {:error, :invalid_target_members}
+        end
+      end
+    end
+  end
+
+  defp resolve_target_member_ids(_workspace_id, _target_user_ids, _target_roles),
+    do: {:error, :invalid_target_members}
+
+  defp cast_uuid_list(values) do
+    values
+    |> Enum.reduce_while({:ok, []}, fn value, {:ok, acc} ->
+      case value do
+        id when is_binary(id) ->
+          case Ecto.UUID.cast(id) do
+            {:ok, uuid} -> {:cont, {:ok, [uuid | acc]}}
+            :error -> {:halt, {:error, :invalid_target_members}}
+          end
+
+        _ ->
+          {:halt, {:error, :invalid_target_members}}
+      end
+    end)
+    |> case do
+      {:ok, ids} -> {:ok, ids |> Enum.reverse() |> Enum.uniq()}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp member_user_ids_by_roles(workspace_id, roles) do
+    role_names =
+      roles
+      |> Enum.map(&(to_string(&1) |> String.trim()))
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.uniq()
+
+    if role_names == [] do
+      []
+    else
+      Repo.query!(
+        """
+        SELECT DISTINCT wm.user_id
+        FROM workspace_memberships wm
+        JOIN membership_roles mr ON mr.membership_id = wm.id AND mr.workspace_id = wm.workspace_id
+        JOIN roles r ON r.id = mr.role_id AND r.workspace_id = wm.workspace_id
+        WHERE wm.workspace_id = $1
+          AND r.name = ANY($2)
+        ORDER BY wm.user_id
+        """,
+        [dump_uuid!(workspace_id), role_names]
+      ).rows
+      |> Enum.map(fn [user_id] -> Ecto.UUID.load!(user_id) end)
+      |> Enum.uniq()
+    end
+  end
+
+  defp normalize_topup_entry_type!(type) when type in [:order_topup, :admin_topup],
+    do: Atom.to_string(type)
+
+  defp normalize_topup_entry_type!(type) when type in ["order_topup", "admin_topup"], do: type
+
+  defp normalize_topup_entry_type!(type) do
+    raise ArgumentError, "unknown topup entry_type #{inspect(type)}"
   end
 
   defp member_user_ids(workspace_id) do
@@ -654,6 +862,16 @@ defmodule Cgc2046.LlmGateway.Ledger do
   end
 
   defp authorize_workspace_admin(_, _), do: {:error, :forbidden}
+
+  @doc false
+  # 工作台派发/充值的稳定错误码（GraphQL resolver 经此映射；AST 错误码契约
+  # 扫描 `defp domain_error_code` 子句，新增/改名后必须重跑 generator）。
+  def error_code(reason), do: domain_error_code(reason)
+
+  defp domain_error_code(:insufficient_workspace_pool), do: "insufficient_workspace_pool"
+  defp domain_error_code(:no_workspace_members), do: "no_workspace_members"
+  defp domain_error_code(:workspace_not_found), do: "workspace_not_found"
+  defp domain_error_code(:invalid_target_members), do: "invalid_target_members"
 
   defp validate_source_type!(source_type) when source_type in @source_types, do: :ok
 
