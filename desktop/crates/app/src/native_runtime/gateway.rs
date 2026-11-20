@@ -59,7 +59,7 @@ mod tests {
             "CGC Cloud",
             id,
             id,
-            ModelLimits::new(1_000_000, 65_536),
+            ModelLimits::new(250_000, 32_768),
         )
     }
 

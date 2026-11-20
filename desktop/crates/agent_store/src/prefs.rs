@@ -299,15 +299,17 @@ pub fn cgc_cloud_provider() -> ProviderPrefs {
         models_fetched_at: 0,
     };
 
-    for (id, supports_thinking) in [
-        ("cgc-default", true),
-        ("cgc-reasoning", true),
-        ("cgc-background", false),
+    // 与后端 LlmGatewayController 的 llm_gateway_max_prompt_tokens (250_000) 及
+    // 各逻辑模型 max_tokens 上限保持对齐，避免客户端低估预算导致网关 413 拒绝。
+    for (id, supports_thinking, max_output_tokens) in [
+        ("cgc-default", true, 8_192),
+        ("cgc-reasoning", true, 32_768),
+        ("cgc-background", false, 4_096),
     ] {
         provider.upsert_model(ModelPrefs {
             id: id.to_string(),
-            context_window: 1_000_000,
-            max_output_tokens: 65_536,
+            context_window: 250_000,
+            max_output_tokens,
             supports_thinking,
             enabled: true,
             supports_tools: true,
@@ -711,6 +713,16 @@ mod model_param_tests {
         assert!(managed.models.contains(&"cgc-default".to_string()));
         assert!(managed.models.contains(&"cgc-reasoning".to_string()));
         assert!(managed.models.contains(&"cgc-background".to_string()));
+        for (model_id, expected_output) in [
+            ("cgc-default", 8_192),
+            ("cgc-reasoning", 32_768),
+            ("cgc-background", 4_096),
+        ] {
+            let cfg = managed.model_config(model_id);
+            assert_eq!(cfg.context_window, 250_000);
+            assert_eq!(cfg.max_output_tokens, expected_output);
+            assert!(cfg.context_window.saturating_sub(cfg.max_output_tokens) <= 250_000);
+        }
         assert!(providers.iter().all(|provider| provider.builtin));
         let deepseek = providers.iter().find(|p| p.id == "deepseek").unwrap();
         assert_eq!(
