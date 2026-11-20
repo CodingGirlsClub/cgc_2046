@@ -273,17 +273,34 @@ impl NativeAgentView {
             .into_any_element()
     }
 
-    /// 当前流式思考行（默认展开，可折叠）。
+    fn friendly_error_message(error: &str) -> String {
+        let lower = error.to_lowercase();
+        if lower.contains("concurrency limit exceeded")
+            || lower.contains("concurrency_limit_exceeded")
+        {
+            return "请求并发已达上限".to_string();
+        }
+        error.to_string()
+    }
+
+    pub(super) fn should_suppress_error_row(&self) -> bool {
+        self.insufficient_quota || self.wallet_frozen_notice.is_some()
+    }
+
     /// 失败回调行（带重试）。
     pub(super) fn render_error_row(
         &self,
         palette: theme::Palette,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        if self.should_suppress_error_row() {
+            return div().into_any_element();
+        }
         let Some(error) = self.state.session.last_error.clone() else {
             return div().into_any_element();
         };
         let hint = retry_hint_for_error(&error);
+        let message = Self::friendly_error_message(&error);
         let can_retry = self.state.retry_available()
             && !self.is_generating()
             && self
@@ -296,7 +313,7 @@ impl NativeAgentView {
         shared_render_error_row(ErrorRowSpec {
             row_id: SharedString::from("native-agent-error"),
             retry_id: SharedString::from("native-agent-retry"),
-            message: error,
+            message,
             hint: hint.map(str::to_string),
             can_retry,
             style: native_row_palette(&palette),
@@ -433,7 +450,7 @@ impl NativeAgentView {
         let mut kinds = build_message_row_kinds(
             &self.state.session.thread.entries,
             subagents,
-            self.state.session.last_error.is_some(),
+            self.state.session.last_error.is_some() && !self.should_suppress_error_row(),
         );
         if self
             .state
@@ -562,5 +579,24 @@ impl NativeAgentView {
             MessageRowKind::Error => self.render_error_row(palette, cx),
             MessageRowKind::TrailingActions => self.render_trailing_actions(palette, cx),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::NativeAgentView;
+
+    #[test]
+    fn friendly_error_message_maps_concurrency_limit_to_concise_chinese() {
+        assert_eq!(
+            NativeAgentView::friendly_error_message(
+                "Internal error: \"native turn failed: provider error: concurrency limit exceeded: Too many concurrent active streams\""
+            ),
+            "请求并发已达上限"
+        );
+        assert_eq!(
+            NativeAgentView::friendly_error_message("network timeout"),
+            "network timeout"
+        );
     }
 }

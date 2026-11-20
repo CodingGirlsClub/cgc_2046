@@ -424,7 +424,7 @@ export default function WorkspaceShell({
 								<Icon name="guide" />
 								<span>{t("navMyLearning")}</span>
 							</Link>
-							<Link href="/settings/llm-wallet" className="ws-shell-item">
+							<Link href="/settings/ai-quota" className="ws-shell-item">
 								<Icon name="activity" />
 								<span>{t("navMyLlmWallet")}</span>
 							</Link>

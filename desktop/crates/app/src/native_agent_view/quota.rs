@@ -52,6 +52,16 @@ fn format_mc_as_cny(mc: i64) -> String {
     format!("¥{:.2}", mc as f64 / 1_000_000.0)
 }
 
+fn wallet_badge_label(available_mc: i64, percentage: i64, frozen: bool) -> String {
+    if frozen {
+        return "额度已冻结".to_string();
+    }
+    if percentage < 10 {
+        return format!("额度 {} ({percentage}%)", format_mc_as_cny(available_mc));
+    }
+    format!("额度 {}", format_mc_as_cny(available_mc))
+}
+
 fn format_price_cents(price_cents: i64) -> String {
     if price_cents % 100 == 0 {
         format!("¥{}", price_cents / 100)
@@ -66,7 +76,7 @@ fn grant_source_label(source_type: &str) -> &'static str {
         "pack" => "永久加油包",
         "workspace_grant" => "工作台额度",
         "admin_gift" => "赠送额度",
-        _ => "算力额度",
+        _ => "通用额度",
     }
 }
 
@@ -121,13 +131,13 @@ impl NativeAgentView {
         cx.notify();
     }
 
-    /// 主动打开时关闭钱包面板；非 402 模式下同步停止旧订单轮询。
+    /// 主动打开或 402 触发时关闭钱包面板，并同步清理未支付轮询与 402 提示态。
     pub(super) fn close_wallet_panel(&mut self, cx: &mut Context<Self>) {
-        self.wallet_panel_open = false;
-        if !self.insufficient_quota {
-            self.quota_checkout = None;
-            self.quota_checkout_serial = self.quota_checkout_serial.wrapping_add(1);
+        if self.insufficient_quota {
+            self.state.session.last_error = None;
         }
+        self.wallet_panel_open = false;
+        self.clear_quota_state();
         cx.notify();
     }
 
@@ -172,25 +182,43 @@ impl NativeAgentView {
     ) -> Option<AnyElement> {
         let wallet = self.wallet.as_ref()?;
         let percentage = wallet.remaining_percentage.clamp(0, 100);
-        let color = if wallet.status == "frozen" || percentage < 10 {
+        let frozen = wallet.status == "frozen";
+        let color = if frozen || percentage < 10 {
             palette.danger
         } else {
             palette.ink_3
         };
+        let dot_color = if frozen || percentage < 10 {
+            palette.danger
+        } else if percentage < 30 {
+            palette.warning
+        } else {
+            palette.accent
+        };
+        let label = wallet_badge_label(wallet.available_mc, percentage, frozen);
+        let aria_label = format!(
+            "额度详情：可用 {}，剩余 {percentage}%",
+            format_mc_as_cny(wallet.available_mc)
+        );
         Some(
             div()
                 .id("native-agent-wallet")
                 .test_support()
                 .role(Role::Button)
-                .aria_label("算力钱包")
+                .aria_label(aria_label)
                 .cursor_pointer()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(5.0))
                 .px(space(1))
                 .py(px(2.0))
                 .rounded(px(RADIUS_SMALL))
                 .text_size(px(11.0))
                 .text_color(color)
                 .hover(|style| style.bg(palette.soft))
-                .child(format!("⚡ 算力 {percentage}%"))
+                .child(div().w(px(6.0)).h(px(6.0)).rounded_full().bg(dot_color))
+                .child(label)
                 .on_click(cx.listener(|this, _, _window, cx| {
                     this.toggle_wallet_panel(cx);
                 }))
@@ -362,21 +390,26 @@ impl NativeAgentView {
                 .bg(palette.soft)
                 .child(
                     div()
+                        .flex_1()
+                        .min_w_0()
                         .text_size(px(12.0))
                         .text_color(palette.danger)
                         .child(notice.clone()),
                 )
                 .child(
-                    Button::new("native-agent-wallet-frozen-dismiss")
-                        .label("关闭")
-                        .xsmall()
-                        .ghost()
-                        .on_click(move |_, _, cx| {
-                            let _ = dismiss.update(cx, |this, cx| {
-                                this.wallet_frozen_notice = None;
-                                cx.notify();
-                            });
-                        }),
+                    div().flex_shrink_0().child(
+                        Button::new("native-agent-wallet-frozen-dismiss")
+                            .label("关闭")
+                            .xsmall()
+                            .ghost()
+                            .on_click(move |_, _, cx| {
+                                let _ = dismiss.update(cx, |this, cx| {
+                                    this.wallet_frozen_notice = None;
+                                    this.state.session.last_error = None;
+                                    cx.notify();
+                                });
+                            }),
+                    ),
                 )
                 .into_any_element(),
         )
@@ -391,13 +424,13 @@ impl NativeAgentView {
             return None;
         }
         let weak = cx.entity().downgrade();
-        let proactive = !self.insufficient_quota;
         let header_title = if self.insufficient_quota {
-            "算力余额不足，充值后即可继续生成。"
+            "额度余额不足，充值后即可继续生成。"
         } else {
-            "CGC 算力钱包"
+            "CGC 额度"
         };
-        let mut header = div()
+        let close_weak = weak.clone();
+        let header = div()
             .flex()
             .flex_row()
             .items_center()
@@ -405,24 +438,25 @@ impl NativeAgentView {
             .gap(px(8.0))
             .child(
                 div()
+                    .flex_1()
+                    .min_w_0()
                     .text_size(px(12.0))
                     .text_color(palette.ink)
                     .child(header_title),
+            )
+            .child(
+                div().flex_shrink_0().child(
+                    Button::new("native-agent-wallet-close")
+                        .label("关闭")
+                        .xsmall()
+                        .ghost()
+                        .on_click(move |_, _, cx| {
+                            let _ = close_weak.update(cx, |this, cx| {
+                                this.close_wallet_panel(cx);
+                            });
+                        }),
+                ),
             );
-        if proactive {
-            let close_weak = weak.clone();
-            header = header.child(
-                Button::new("native-agent-wallet-close")
-                    .label("关闭")
-                    .xsmall()
-                    .ghost()
-                    .on_click(move |_, _, cx| {
-                        let _ = close_weak.update(cx, |this, cx| {
-                            this.close_wallet_panel(cx);
-                        });
-                    }),
-            );
-        }
 
         let mut card = div()
             .id("native-agent-quota-card")
@@ -509,7 +543,7 @@ impl NativeAgentView {
                             div()
                                 .text_size(px(11.0))
                                 .text_color(palette.accent)
-                                .child("算力已到账，可以继续生成。"),
+                                .child("额度已到账，可以继续生成。"),
                         )
                         .child(
                             Button::new("native-agent-quota-continue")
@@ -521,7 +555,7 @@ impl NativeAgentView {
                                         this.quota_checkout = None;
                                         this.insufficient_quota = false;
                                         this.wallet_panel_open = false;
-                                        this.status = "算力已到账，继续生成".into();
+                                        this.status = "额度已到账，继续生成".into();
                                         this.retry_last_turn(cx);
                                         cx.notify();
                                     });
@@ -640,8 +674,8 @@ fn render_wallet_breakdown(wallet: &WalletSummary, palette: &theme::Palette) -> 
 mod tests {
     use super::{
         format_grant_expiry, format_mc_as_cny, format_price_cents, grant_source_label,
-        paid_state_action, polling_error_is_transient, provider_label, wallet_card_visible,
-        CheckoutSku, PaidStateAction, CHECKOUT_SKUS,
+        paid_state_action, polling_error_is_transient, provider_label, wallet_badge_label,
+        wallet_card_visible, CheckoutSku, PaidStateAction, CHECKOUT_SKUS,
     };
     use cgc_platform::gateway::GatewayError;
 
@@ -696,7 +730,7 @@ mod tests {
         assert_eq!(grant_source_label("pack"), "永久加油包");
         assert_eq!(grant_source_label("workspace_grant"), "工作台额度");
         assert_eq!(grant_source_label("admin_gift"), "赠送额度");
-        assert_eq!(grant_source_label("other"), "算力额度");
+        assert_eq!(grant_source_label("other"), "通用额度");
 
         assert_eq!(format_grant_expiry(None), "永久有效");
         assert_eq!(format_grant_expiry(Some("")), "永久有效");
@@ -716,5 +750,12 @@ mod tests {
             code: Some("llm_payment_order_not_found".into()),
             message: "missing".into(),
         }));
+    }
+
+    #[test]
+    fn wallet_badge_includes_available_balance_and_percentage() {
+        assert_eq!(wallet_badge_label(52_984_724, 92, false), "额度 ¥52.98");
+        assert_eq!(wallet_badge_label(0, 0, false), "额度 ¥0.00 (0%)");
+        assert_eq!(wallet_badge_label(52_984_724, 92, true), "额度已冻结");
     }
 }

@@ -291,6 +291,7 @@ mod composer;
 mod input;
 mod panel;
 mod panels;
+mod quota;
 mod render;
 mod rows;
 mod runtime_ops;
@@ -298,7 +299,6 @@ mod session;
 mod state;
 mod turn;
 mod view_ops;
-mod wallet;
 mod widgets;
 
 pub use state::NativeThreadState;

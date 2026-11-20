@@ -98,7 +98,7 @@ afterEach(() => {
 	cleanup();
 });
 
-describe("/settings/llm-wallet 个人 LLM 算力钱包页", () => {
+describe("/settings/ai-quota 个人 AI 额度页", () => {
 	it("未登录时提示登录引导", () => {
 		useAuthedMock.mockReturnValue({ authed: false, confirmed: true });
 
@@ -106,7 +106,7 @@ describe("/settings/llm-wallet 个人 LLM 算力钱包页", () => {
 
 		expect(screen.getByRole("link", { name: "前往登录" })).toHaveAttribute(
 			"href",
-			"/login?next=/settings/llm-wallet",
+			"/login?next=/settings/ai-quota",
 		);
 	});
 
@@ -147,7 +147,7 @@ describe("/settings/llm-wallet 个人 LLM 算力钱包页", () => {
 
 		const grantsTable = screen.getByTestId("grants-table");
 		expect(within(grantsTable).getByText("月度订阅")).toBeInTheDocument();
-		expect(within(grantsTable).getByText("永久算力包")).toBeInTheDocument();
+		expect(within(grantsTable).getByText("永久加油包")).toBeInTheDocument();
 		expect(within(grantsTable).getByText("永久有效")).toBeInTheDocument();
 		expect(
 			within(grantsTable).getByText(
@@ -352,6 +352,24 @@ describe("/settings/llm-wallet 个人 LLM 算力钱包页", () => {
 		);
 		expect(
 			screen.queryByTestId("usage-logs-load-more"),
+		).not.toBeInTheDocument();
+	});
+
+	it("Apollo 500 底层错误回退为本地化文案而不是英文堆栈", async () => {
+		queryMock.mockImplementation(({ query }) => {
+			if (query === MY_LLM_WALLET) {
+				return Promise.reject(
+					new Error("Response not successful: Received status code 500"),
+				);
+			}
+			return Promise.resolve({ data: { myLlmUsageLogs: [] } });
+		});
+
+		render(<PersonalLlmWalletPage />);
+
+		expect(await screen.findByText("加载额度信息失败")).toBeInTheDocument();
+		expect(
+			screen.queryByText(/Response not successful/),
 		).not.toBeInTheDocument();
 	});
 });

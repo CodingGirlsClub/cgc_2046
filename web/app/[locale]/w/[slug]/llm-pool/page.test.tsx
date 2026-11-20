@@ -8,6 +8,7 @@ import {
 	LLM_PAYMENT_ORDER,
 	WORKSPACE_LLM_POOL,
 } from "@/lib/graphql/llm-gateway";
+import { WORKSPACE_MEMBERS } from "@/lib/graphql/workspace";
 import WorkspaceLlmPoolPage from "./page";
 
 const { queryMock, mutateMock, toDataUrlMock, useWorkspaceBySlugMock } =
@@ -71,6 +72,26 @@ const POOL_FIXTURE = {
 			totalGrantedMc: "50000000",
 			expiresAt: "2026-12-31T23:59:00Z",
 			idempotencyKey: "idem-batch-1",
+			insertedAt: "2026-11-18T12:00:00Z",
+		},
+	],
+	recentPoolEntries: [
+		{
+			id: "entry-1",
+			entryType: "order_topup",
+			deltaMc: "100000000",
+			paymentOrderId: "ord-topup-1",
+			workspaceBatchId: null,
+			actorUserId: "u-owner-1",
+			insertedAt: "2026-11-19T07:00:00Z",
+		},
+		{
+			id: "entry-2",
+			entryType: "batch_grant_debit",
+			deltaMc: "-50000000",
+			paymentOrderId: null,
+			workspaceBatchId: "batch-1",
+			actorUserId: "u-owner-1",
 			insertedAt: "2026-11-18T12:00:00Z",
 		},
 	],
@@ -282,5 +303,113 @@ describe("/w/[slug]/llm-pool 工作台算力池页", () => {
 			await vi.advanceTimersByTimeAsync(10_000);
 		});
 		expect(queryMock.mock.calls.length).toBe(callsBeforeUnmount);
+	});
+
+	it("渲染共享池账本流水，并支持按角色或指定成员派发", async () => {
+		queryMock.mockImplementation(({ query }) => {
+			if (query === WORKSPACE_LLM_POOL) {
+				return Promise.resolve({ data: { workspaceLlmPool: POOL_FIXTURE } });
+			}
+			if (query === WORKSPACE_MEMBERS) {
+				return Promise.resolve({
+					data: {
+						workspaceMembers: {
+							count: 2,
+							results: [
+								{
+									id: "mem-1",
+									workspaceId: "ws-lab-1",
+									userId: "user-tutor-1",
+									userDisplayName: "林导师",
+									userEmail: "tutor@example.com",
+									roles: [{ id: "role-tutor", name: "tutor" }],
+								},
+								{
+									id: "mem-2",
+									workspaceId: "ws-lab-1",
+									userId: "user-learner-1",
+									userDisplayName: "张学员",
+									userEmail: "learner@example.com",
+									roles: [{ id: "role-learner", name: "learner" }],
+								},
+							],
+						},
+					},
+				});
+			}
+			return Promise.resolve({ data: {} });
+		});
+
+		mutateMock.mockResolvedValue({
+			data: {
+				distributeWorkspaceLlmCredits: {
+					id: "batch-targeted-1",
+					perMemberMc: "5000000",
+					memberCount: 1,
+					totalGrantedMc: "5000000",
+					idempotentReplay: false,
+				},
+			},
+		});
+
+		render(<WorkspaceLlmPoolPage />);
+
+		const entriesTable = await screen.findByTestId(
+			"workspace-pool-entries-table",
+		);
+		expect(within(entriesTable).getByText("订单充值")).toBeInTheDocument();
+		expect(within(entriesTable).getByText("+¥100.00")).toBeInTheDocument();
+		expect(within(entriesTable).getByText("批量派发扣减")).toBeInTheDocument();
+		expect(within(entriesTable).getByText("-¥50.00")).toBeInTheDocument();
+
+		const form = screen.getByTestId("workspace-distribute-form");
+		fireEvent.change(within(form).getByPlaceholderText("10.00"), {
+			target: { value: "5" },
+		});
+
+		// 按角色派发：未选角色先校验拦截，勾选 tutor 后正常提交
+		fireEvent.click(screen.getByTestId("target-mode-roles"));
+		fireEvent.submit(form);
+		expect(
+			await screen.findByText("请至少选择一个接收角色。"),
+		).toBeInTheDocument();
+
+		const roleSelector = screen.getByTestId("target-roles-selector");
+		expect(within(roleSelector).queryByLabelText("admin")).not.toBeInTheDocument();
+		expect(within(roleSelector).queryByLabelText("owner")).not.toBeInTheDocument();
+		expect(within(roleSelector).getByLabelText("learner")).toBeInTheDocument();
+		fireEvent.click(within(roleSelector).getByLabelText("tutor"));
+		fireEvent.submit(form);
+
+		await waitFor(() =>
+			expect(mutateMock).toHaveBeenCalledWith({
+				mutation: DISTRIBUTE_WORKSPACE_LLM_CREDITS,
+				variables: expect.objectContaining({
+					workspaceId: "ws-lab-1",
+					perMemberMc: "5000000",
+					targetRoles: ["tutor"],
+				}),
+			}),
+		);
+
+		// 按指定成员派发
+		fireEvent.click(screen.getByTestId("target-mode-members"));
+		const memberSelector = await screen.findByTestId("target-members-selector");
+		fireEvent.change(within(form).getByPlaceholderText("10.00"), {
+			target: { value: "5" },
+		});
+		fireEvent.click(within(memberSelector).getByLabelText(/林导师/));
+		fireEvent.submit(form);
+
+		await waitFor(() =>
+			expect(mutateMock).toHaveBeenLastCalledWith({
+				mutation: DISTRIBUTE_WORKSPACE_LLM_CREDITS,
+				variables: expect.objectContaining({
+					workspaceId: "ws-lab-1",
+					perMemberMc: "5000000",
+					targetUserIds: ["user-tutor-1"],
+				}),
+			}),
+		);
 	});
 });

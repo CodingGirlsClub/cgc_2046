@@ -22,6 +22,10 @@ import {
 	type LlmWorkspacePoolSummary,
 } from "@/lib/graphql/llm-gateway";
 import {
+	WORKSPACE_MEMBERS,
+	type WorkspaceMembership,
+} from "@/lib/graphql/workspace";
+import {
 	formatMcAsCny,
 	formatMcInteger,
 	parseCnyInputToCents,
@@ -37,9 +41,38 @@ const TOPUP_PRESETS_CNY = ["100", "500", "1000", "5000"] as const;
 const MIN_TOPUP_CENTS = 10_000; // ¥100
 const MAX_TOPUP_CENTS = 10_000_000; // ¥100,000
 const PROVIDERS: readonly LlmPaymentProvider[] = ["wechat_native", "alipay_qr"];
+const ROLE_DISPLAY_ORDER = ["owner", "admin", "tutor", "learner"] as const;
+
+type DistributeTargetMode = "all" | "roles" | "members";
+
+const POOL_ENTRY_TYPE_KEYS: Record<string, string> = {
+	migration_baseline: "entryMigrationBaseline",
+	order_topup: "entryOrderTopup",
+	admin_topup: "entryAdminTopup",
+	batch_grant_debit: "entryBatchGrantDebit",
+};
+
+function formatSignedDeltaMc(deltaMc: string | number): string {
+	const raw = typeof deltaMc === "number" ? BigInt(Math.trunc(deltaMc)) : BigInt(deltaMc);
+	if (raw < BigInt(0)) {
+		return `-${formatMcAsCny((-raw).toString())}`;
+	}
+	if (raw > BigInt(0)) {
+		return `+${formatMcAsCny(raw.toString())}`;
+	}
+	return formatMcAsCny("0");
+}
 
 function errorMessage(err: unknown, fallback: string): string {
-	return err instanceof Error && err.message ? err.message : fallback;
+	if (!(err instanceof Error) || !err.message) return fallback;
+	if (
+		/^(Response not successful|Failed to fetch|NetworkError|Load failed)/i.test(
+			err.message,
+		)
+	) {
+		return fallback;
+	}
+	return err.message;
 }
 
 export default function WorkspaceLlmPoolPage() {
@@ -70,6 +103,10 @@ export default function WorkspaceLlmPoolPage() {
 	} | null>(null);
 
 	// 批量派发状态
+	const [targetMode, setTargetMode] = useState<DistributeTargetMode>("all");
+	const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
+	const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+	const [members, setMembers] = useState<WorkspaceMembership[]>([]);
 	const [perMemberCny, setPerMemberCny] = useState("");
 	const [expiresAtInput, setExpiresAtInput] = useState("");
 	const [distributing, setDistributing] = useState(false);
@@ -130,6 +167,46 @@ export default function WorkspaceLlmPoolPage() {
 			cancelled = true;
 		};
 	}, [workspaceId, t]);
+
+	useEffect(() => {
+		if (!workspaceId || !canManage) return;
+		let cancelled = false;
+		client
+			.query({
+				query: WORKSPACE_MEMBERS,
+				variables: {
+					filter: { workspaceId: { eq: workspaceId } },
+					first: 100,
+				},
+				fetchPolicy: "network-only",
+			})
+			.then(({ data }) => {
+				if (cancelled) return;
+				setMembers(data?.workspaceMembers?.results ?? []);
+			})
+			.catch(() => {
+				if (cancelled) return;
+				setMembers([]);
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	}, [workspaceId, canManage]);
+
+	const availableRoles = useMemo(() => {
+		const present = new Set<string>();
+		for (const member of members) {
+			for (const role of member.roles ?? []) {
+				if (role.name) present.add(role.name);
+			}
+		}
+		const ordered: string[] = [];
+		for (const role of ROLE_DISPLAY_ORDER) {
+			if (present.delete(role)) ordered.push(role);
+		}
+		return [...ordered, ...Array.from(present).sort()];
+	}, [members]);
 
 	const perMemberMcPreview = useMemo(
 		() => parseCnyInputToMc(perMemberCny),
@@ -194,6 +271,14 @@ export default function WorkspaceLlmPoolPage() {
 			setDistributeError(t("validationPerMember"));
 			return;
 		}
+		if (targetMode === "roles" && selectedRoles.length === 0) {
+			setDistributeError(t("validationTargetRoles"));
+			return;
+		}
+		if (targetMode === "members" && selectedUserIds.length === 0) {
+			setDistributeError(t("validationTargetMembers"));
+			return;
+		}
 
 		const idempotencyKey =
 			pendingDistributeKeyRef.current ?? crypto.randomUUID();
@@ -209,6 +294,8 @@ export default function WorkspaceLlmPoolPage() {
 					perMemberMc: perMemberMc.toString(),
 					idempotencyKey,
 					expiresAt,
+					...(targetMode === "roles" ? { targetRoles: selectedRoles } : {}),
+					...(targetMode === "members" ? { targetUserIds: selectedUserIds } : {}),
 				},
 			});
 			const result = data?.distributeWorkspaceLlmCredits;
@@ -456,6 +543,133 @@ export default function WorkspaceLlmPoolPage() {
 										</p>
 									</div>
 
+									<div className="grid gap-1.5 text-xs text-ink-2">
+										<span>{t("targetModeLabel")}</span>
+										<div className="flex flex-wrap gap-2">
+											{(["all", "roles", "members"] as const).map((mode) => (
+												<button
+													key={mode}
+													type="button"
+													data-testid={`target-mode-${mode}`}
+													aria-pressed={targetMode === mode}
+													onClick={() => {
+														pendingDistributeKeyRef.current = null;
+														setDistributeError(null);
+														setTargetMode(mode);
+													}}
+													className={`l-btn-secondary ${
+														targetMode === mode
+															? "border-accent text-ink"
+															: ""
+													}`}
+												>
+													{mode === "all"
+														? t("targetModeAll")
+														: mode === "roles"
+															? t("targetModeRoles")
+															: t("targetModeMembers")}
+												</button>
+											))}
+										</div>
+									</div>
+
+									{targetMode === "roles" && (
+										<div
+											className="grid gap-1.5 text-xs text-ink-2"
+											data-testid="target-roles-selector"
+										>
+											<span>{t("targetRolesLabel")}</span>
+											{availableRoles.length === 0 ? (
+												<p className="text-xs text-ink-3">
+													{t("targetMembersEmpty")}
+												</p>
+											) : (
+												<div className="flex flex-wrap gap-3">
+													{availableRoles.map((role) => {
+														const checked = selectedRoles.includes(role);
+														return (
+															<label
+																key={role}
+																className="inline-flex items-center gap-1.5 text-xs text-ink"
+															>
+																<input
+																	type="checkbox"
+																	checked={checked}
+																	onChange={() => {
+																		pendingDistributeKeyRef.current = null;
+																		setSelectedRoles((prev) =>
+																			checked
+																				? prev.filter((item) => item !== role)
+																				: [...prev, role],
+																		);
+																	}}
+																/>
+																<span>{role}</span>
+															</label>
+														);
+													})}
+												</div>
+											)}
+										</div>
+									)}
+
+									{targetMode === "members" && (
+										<div
+											className="grid gap-1.5 text-xs text-ink-2"
+											data-testid="target-members-selector"
+										>
+											<span>{t("targetMembersLabel")}</span>
+											{members.length === 0 ? (
+												<p className="text-xs text-ink-3">
+													{t("targetMembersEmpty")}
+												</p>
+											) : (
+												<div className="grid max-h-36 gap-1.5 overflow-y-auto rounded border border-border-1 p-2">
+													{members.map((member) => {
+														const checked = selectedUserIds.includes(
+															member.userId,
+														);
+														const label =
+															member.userDisplayName ||
+															member.userEmail ||
+															member.userId;
+														const roleNames = (member.roles ?? [])
+															.map((r) => r.name)
+															.filter(Boolean)
+															.join(", ");
+														return (
+															<label
+																key={member.userId}
+																className="inline-flex items-center gap-2 text-xs text-ink"
+															>
+																<input
+																	type="checkbox"
+																	checked={checked}
+																	onChange={() => {
+																		pendingDistributeKeyRef.current = null;
+																		setSelectedUserIds((prev) =>
+																			checked
+																				? prev.filter(
+																						(id) => id !== member.userId,
+																					)
+																				: [...prev, member.userId],
+																		);
+																	}}
+																/>
+																<span>{label}</span>
+																{roleNames && (
+																	<span className="text-ink-3">
+																		({roleNames})
+																	</span>
+																)}
+															</label>
+														);
+													})}
+												</div>
+											)}
+										</div>
+									)}
+
 									<label className="grid gap-1.5 text-xs text-ink-2">
 										<span>{t("perMemberLabel")}</span>
 										<input
@@ -567,6 +781,60 @@ export default function WorkspaceLlmPoolPage() {
 													<td className="l-mono">{batch.idempotencyKey}</td>
 												</tr>
 											))}
+										</tbody>
+									</table>
+								</div>
+							)}
+						</div>
+
+						{/* 共享池账本流水 */}
+						<div>
+							<h2 className="admin-section-title">{t("entriesTitle")}</h2>
+							{(pool.recentPoolEntries ?? []).length === 0 ? (
+								<div
+									className="admin-card admin-empty"
+									data-testid="workspace-pool-entries-empty"
+								>
+									{t("entriesEmpty")}
+								</div>
+							) : (
+								<div className="admin-card admin-table-wrap">
+									<table
+										className="admin-table"
+										data-testid="workspace-pool-entries-table"
+									>
+										<thead>
+											<tr>
+												<th>{t("thEntryTime")}</th>
+												<th>{t("thEntryType")}</th>
+												<th className="admin-table__num">{t("thEntryDelta")}</th>
+												<th>{t("thEntryRef")}</th>
+												<th>{t("thActor")}</th>
+											</tr>
+										</thead>
+										<tbody>
+											{(pool.recentPoolEntries ?? []).map((entry) => {
+												const typeKey = POOL_ENTRY_TYPE_KEYS[entry.entryType];
+												const refId =
+													entry.paymentOrderId ??
+													entry.workspaceBatchId ??
+													"—";
+												return (
+													<tr key={entry.id}>
+														<td>{formatDateTime(entry.insertedAt)}</td>
+														<td>
+															{typeKey ? t(typeKey) : entry.entryType}
+														</td>
+														<td className="admin-table__num admin-table__primary">
+															{formatSignedDeltaMc(entry.deltaMc)}
+														</td>
+														<td className="l-mono">{refId}</td>
+														<td className="l-mono">
+															{entry.actorUserId ?? "—"}
+														</td>
+													</tr>
+												);
+											})}
 										</tbody>
 									</table>
 								</div>

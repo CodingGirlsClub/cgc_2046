@@ -2,7 +2,7 @@
 use super::*;
 
 pub(super) const WALLET_FROZEN_NOTICE: &str =
-    "当前 CGC 算力钱包已被冻结，暂无法继续对话或充值。请联系客服处理。";
+    "当前 CGC 额度账户已被冻结，暂无法继续对话或充值。请联系客服处理。";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct TurnErrorEffect {
@@ -27,6 +27,36 @@ fn turn_error_effect(kind: NativeTurnErrorKind) -> TurnErrorEffect {
     }
 }
 
+fn is_structured_gateway_error_notice(entry: &ConversationEntry) -> bool {
+    let ConversationEntry::Notice {
+        level: cgc_agent_ui::conversation::NoticeLevel::Error,
+        text,
+    } = entry
+    else {
+        return false;
+    };
+    let lower = text.to_lowercase();
+    [
+        "insufficient quota",
+        "insufficient_quota",
+        "wallet is frozen",
+        "wallet_frozen",
+        "concurrency limit exceeded",
+        "concurrency_limit_exceeded",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
+}
+
+fn strip_structured_error_notices(entries: &mut Vec<ConversationEntry>) {
+    while entries
+        .last()
+        .is_some_and(is_structured_gateway_error_notice)
+    {
+        entries.pop();
+    }
+}
+
 impl NativeAgentView {
     pub(super) fn apply_turn_error(
         &mut self,
@@ -36,15 +66,21 @@ impl NativeAgentView {
     ) {
         let effect = turn_error_effect(kind);
         self.insufficient_quota = effect.opens_quota_card;
+        if !matches!(kind, NativeTurnErrorKind::Other) {
+            strip_structured_error_notices(&mut self.state.session.thread.entries);
+        }
         if effect.shows_frozen_notice {
             self.quota_checkout = None;
             self.quota_checkout_serial = self.quota_checkout_serial.wrapping_add(1);
             self.wallet_frozen_notice = Some(WALLET_FROZEN_NOTICE.to_string());
             self.status = WALLET_FROZEN_NOTICE.to_string();
-            self.state.push_notice(WALLET_FROZEN_NOTICE);
         } else {
             self.wallet_frozen_notice = None;
-            self.status = format!("错误：{message}");
+            self.status = if effect.opens_quota_card {
+                "额度余额不足，充值后即可继续生成。".to_string()
+            } else {
+                format!("错误：{message}")
+            };
         }
         cx.notify();
     }
@@ -224,7 +260,8 @@ impl NativeAgentView {
             self.page_context
                 .observe_event(&self.conversation_scope(), &event);
             if let HostEvent::Error { message } = &event {
-                if self.wallet_frozen_notice.is_none() {
+                strip_structured_error_notices(&mut self.state.session.thread.entries);
+                if self.wallet_frozen_notice.is_none() && !self.insufficient_quota {
                     self.status = format!("错误：{message}");
                 }
             }
@@ -393,8 +430,12 @@ fn should_clear_quota_state(had_error: bool, completed: bool) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{should_clear_quota_state, should_dispatch, turn_error_effect, TurnErrorEffect};
+    use super::{
+        should_clear_quota_state, should_dispatch, strip_structured_error_notices,
+        turn_error_effect, TurnErrorEffect,
+    };
     use crate::native_runtime::NativeTurnErrorKind;
+    use cgc_agent_ui::conversation::{Entry, NoticeLevel};
 
     #[test]
     fn dispatch_requires_queued_work_idle_runtime_and_model() {
@@ -441,5 +482,34 @@ mod tests {
                 shows_frozen_notice: false,
             }
         );
+    }
+
+    #[test]
+    fn strip_structured_error_notices_removes_raw_402_403_429_and_keeps_other_errors() {
+        let mut entries = vec![
+            Entry::User { text: "hi".into() },
+            Entry::Notice {
+                level: NoticeLevel::Error,
+                text: "Internal error: \"native turn failed: provider error: insufficient quota: Insufficient LLM credits\"".into(),
+            },
+            Entry::Notice {
+                level: NoticeLevel::Error,
+                text: "Internal error: \"native turn failed: provider error: Permission: Your LLM wallet is frozen.\"".into(),
+            },
+            Entry::Notice {
+                level: NoticeLevel::Error,
+                text: "Internal error: \"native turn failed: provider error: concurrency limit exceeded\"".into(),
+            },
+        ];
+        strip_structured_error_notices(&mut entries);
+        assert_eq!(entries.len(), 1);
+        assert!(matches!(entries[0], Entry::User { .. }));
+
+        entries.push(Entry::Notice {
+            level: NoticeLevel::Error,
+            text: "network timeout".into(),
+        });
+        strip_structured_error_notices(&mut entries);
+        assert_eq!(entries.len(), 2);
     }
 }

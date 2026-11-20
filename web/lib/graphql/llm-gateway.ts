@@ -72,11 +72,22 @@ export interface LlmWorkspaceGrantBatch {
 	insertedAt: string;
 }
 
+export interface LlmWorkspacePoolEntry {
+	id: string;
+	entryType: string;
+	deltaMc: BigIntScalar;
+	paymentOrderId?: string | null;
+	workspaceBatchId?: string | null;
+	actorUserId?: string | null;
+	insertedAt: string;
+}
+
 export interface LlmWorkspacePoolSummary {
 	workspaceId: string;
 	creditPoolMc: BigIntScalar;
 	updatedAt: string;
 	recentBatches: LlmWorkspaceGrantBatch[];
+	recentPoolEntries?: LlmWorkspacePoolEntry[] | null;
 }
 
 export interface LlmWorkspaceGrantResult {
@@ -210,6 +221,15 @@ export const WORKSPACE_LLM_POOL: TypedDocumentNode<
 				idempotencyKey
 				insertedAt
 			}
+			recentPoolEntries {
+				id
+				entryType
+				deltaMc
+				paymentOrderId
+				workspaceBatchId
+				actorUserId
+				insertedAt
+			}
 		}
 	}
 `;
@@ -303,6 +323,8 @@ export const DISTRIBUTE_WORKSPACE_LLM_CREDITS: TypedDocumentNode<
 		perMemberMc: BigIntScalar;
 		idempotencyKey: string;
 		expiresAt?: string | null;
+		targetUserIds?: string[] | null;
+		targetRoles?: string[] | null;
 	}
 > = gql`
 	mutation DistributeWorkspaceLlmCredits(
@@ -310,12 +332,16 @@ export const DISTRIBUTE_WORKSPACE_LLM_CREDITS: TypedDocumentNode<
 		$perMemberMc: BigInt!
 		$idempotencyKey: String!
 		$expiresAt: DateTime
+		$targetUserIds: [ID!]
+		$targetRoles: [String!]
 	) {
 		distributeWorkspaceLlmCredits(
 			workspaceId: $workspaceId
 			perMemberMc: $perMemberMc
 			idempotencyKey: $idempotencyKey
 			expiresAt: $expiresAt
+			targetUserIds: $targetUserIds
+			targetRoles: $targetRoles
 		) {
 			id
 			perMemberMc
@@ -343,6 +369,15 @@ export const ADMIN_TOPUP_WORKSPACE_LLM_POOL: TypedDocumentNode<
 				totalGrantedMc
 				expiresAt
 				idempotencyKey
+				insertedAt
+			}
+			recentPoolEntries {
+				id
+				entryType
+				deltaMc
+				paymentOrderId
+				workspaceBatchId
+				actorUserId
 				insertedAt
 			}
 		}

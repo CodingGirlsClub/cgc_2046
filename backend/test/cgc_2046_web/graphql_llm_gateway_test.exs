@@ -982,7 +982,9 @@ defmodule Cgc2046Web.GraphqlLlmGatewayTest do
           sourceType
           initialMc
           remainingMc
+          expiresAt
           status
+          insertedAt
         }
       }
     }
@@ -995,7 +997,9 @@ defmodule Cgc2046Web.GraphqlLlmGatewayTest do
       workspaceLlmPool(workspaceId: "#{workspace_id}") {
         workspaceId
         creditPoolMc
-        recentBatches { id perMemberMc memberCount totalGrantedMc idempotencyKey }
+        updatedAt
+        recentBatches { id perMemberMc memberCount totalGrantedMc expiresAt idempotencyKey insertedAt }
+        recentPoolEntries { id entryType deltaMc paymentOrderId workspaceBatchId actorUserId insertedAt }
       }
     }
     """

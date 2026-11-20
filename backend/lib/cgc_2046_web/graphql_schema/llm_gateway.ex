@@ -448,9 +448,9 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
           source_type: source_type,
           initial_mc: initial_mc,
           remaining_mc: remaining_mc,
-          expires_at: expires_at,
+          expires_at: to_utc_datetime(expires_at),
           status: status,
-          inserted_at: inserted_at
+          inserted_at: to_utc_datetime(inserted_at)
         }
       end)
 
@@ -573,9 +573,9 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
         per_member_mc: per_member_mc,
         member_count: member_count,
         total_granted_mc: total_granted_mc,
-        expires_at: expires_at,
+        expires_at: to_utc_datetime(expires_at),
         idempotency_key: idempotency_key,
-        inserted_at: inserted_at
+        inserted_at: to_utc_datetime(inserted_at)
       }
     end)
   end
@@ -706,6 +706,7 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
 
   defp clamp_int(_value, default, _min_val, _max_val), do: default
 
+  defp to_utc_datetime(nil), do: nil
   defp to_utc_datetime(%DateTime{} = dt), do: dt
   defp to_utc_datetime(%NaiveDateTime{} = dt), do: DateTime.from_naive!(dt, "Etc/UTC")
 

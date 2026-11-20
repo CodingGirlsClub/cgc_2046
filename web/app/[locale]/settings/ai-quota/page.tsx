@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * 个人 LLM 算力钱包与用量明细页 /settings/llm-wallet（Plan 008 Slice 3）。
+ * 个人 AI 额度与用量明细页 /settings/ai-quota（Plan 008 Slice 3）。
  *
  * - 展示 myLlmWallet 余额、冻结额度、活跃授信批次与到期时间
  * - 扫码收银台：月度订阅（¥29 / ¥99）与永久算力包（¥10 / ¥50 / ¥100 / ¥500）
@@ -68,7 +68,15 @@ const BILLING_MODE_KEYS: Record<string, string> = {
 };
 
 function errorMessage(err: unknown, fallback: string): string {
-	return err instanceof Error && err.message ? err.message : fallback;
+	if (!(err instanceof Error) || !err.message) return fallback;
+	if (
+		/^(Response not successful|Failed to fetch|NetworkError|Load failed)/i.test(
+			err.message,
+		)
+	) {
+		return fallback;
+	}
+	return err.message;
 }
 
 export default function PersonalLlmWalletPage() {
@@ -276,7 +284,7 @@ export default function PersonalLlmWalletPage() {
 						<p className="text-sm text-ink-3">{t("loginDesc")}</p>
 						<div>
 							<Link
-								href="/login?next=/settings/llm-wallet"
+								href="/login?next=/settings/ai-quota"
 								className="l-btn-primary inline-flex"
 							>
 								{t("loginCta")}
@@ -477,7 +485,7 @@ export default function PersonalLlmWalletPage() {
 								onReset={() => setActiveCheckout(null)}
 							/>
 						) : (
-							<div className="grid gap-4 lg:grid-cols-2">
+							<div className="grid items-start gap-4 lg:grid-cols-2">
 								<div className="grid gap-2">
 									<h3 className="text-sm font-medium text-ink">
 										{t("subscriptionTitle")}
