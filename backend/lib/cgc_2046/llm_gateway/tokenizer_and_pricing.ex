@@ -231,7 +231,24 @@ defmodule Cgc2046.LlmGateway.TokenizerAndPricing do
     settled_at = Map.get(stream_state, :settled_at) || DateTime.utc_now()
     upstream_multiplier = upstream_rate_multiplier(provider, settled_at)
 
-    case Map.get(stream_state, :official_usage) do
+    # SSE 200 错误帧优先于 usage：上游即便随错误帧附带 usage，失败流也一律免单。
+    usage_or_error =
+      if Map.get(stream_state, :sse_error?, false),
+        do: :sse_error,
+        else: Map.get(stream_state, :official_usage)
+
+    case usage_or_error do
+      :sse_error ->
+        %{
+          billing_mode: :waived_upstream_error,
+          prompt_cache_hit_tokens: 0,
+          prompt_cache_miss_tokens: 0,
+          completion_tokens: 0,
+          reasoning_tokens: 0,
+          upstream_cost_mc: 0,
+          charged_mc: 0
+        }
+
       usage when is_map(usage) ->
         {hit_tokens, miss_tokens, completion_tokens, reasoning_tokens} =
           extract_official_tokens(usage)

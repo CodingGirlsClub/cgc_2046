@@ -62,6 +62,9 @@ const MOCK_WS = {
 const POOL_FIXTURE = {
 	workspaceId: "ws-lab-1",
 	creditPoolMc: "500000000",
+	distributedTotalMc: "50000000",
+	distributedConsumedMc: "15000000",
+	distributedRemainingMc: "35000000",
 	updatedAt: "2026-11-19T08:00:00Z",
 	recentBatches: [
 		{
@@ -70,6 +73,9 @@ const POOL_FIXTURE = {
 			perMemberMc: "10000000",
 			memberCount: 5,
 			totalGrantedMc: "50000000",
+			consumedMc: "15000000",
+			remainingMc: "35000000",
+			expiredMc: "0",
 			expiresAt: "2026-12-31T23:59:00Z",
 			idempotencyKey: "idem-batch-1",
 			insertedAt: "2026-11-18T12:00:00Z",
@@ -132,10 +138,21 @@ describe("/w/[slug]/llm-pool 工作台算力池页", () => {
 		expect(screen.getByTestId("workspace-pool-mc")).toHaveTextContent(
 			"500,000,000 mc",
 		);
+		expect(
+			screen.getByTestId("workspace-distributed-total"),
+		).toHaveTextContent("¥50.00");
+		expect(
+			screen.getByTestId("workspace-distributed-consumed"),
+		).toHaveTextContent("¥15.00 (30.0%)");
+		expect(
+			screen.getByTestId("workspace-distributed-remaining"),
+		).toHaveTextContent("¥35.00");
 
 		const table = screen.getByTestId("workspace-batches-table");
 		expect(within(table).getByText("¥10.00")).toBeInTheDocument();
 		expect(within(table).getByText("¥50.00")).toBeInTheDocument();
+		expect(within(table).getByText("¥15.00 (30.0%)")).toBeInTheDocument();
+		expect(within(table).getByText("剩余 ¥35.00")).toBeInTheDocument();
 		expect(within(table).getByText("idem-batch-1")).toBeInTheDocument();
 		expect(
 			within(table).getByText(formatDateTime(POOL_FIXTURE.recentBatches[0].insertedAt)),

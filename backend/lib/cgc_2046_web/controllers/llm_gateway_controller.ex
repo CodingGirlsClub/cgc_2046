@@ -79,7 +79,7 @@ defmodule Cgc2046Web.LlmGatewayController do
 
               {:error, reason} ->
                 LeaseManager.release_slot(user.id)
-                hold_error(conn, reason)
+                hold_error(conn, reason, user.id)
             end
 
           {:error, :too_many_concurrent_streams} ->
@@ -126,7 +126,8 @@ defmodule Cgc2046Web.LlmGatewayController do
       chunked_started?: false,
       ttfb_ms: nil,
       aborted?: false,
-      upstream_error?: false
+      upstream_error?: false,
+      sse_error?: false
     }
 
     Process.put(@process_state_key, initial_state)
@@ -338,7 +339,13 @@ defmodule Cgc2046Web.LlmGatewayController do
 
     buffer = Map.get(state, :sse_buffer, "") <> data
     {frames, remaining_buffer} = split_sse_frames(buffer)
-    {content_fragments, reasoning_fragments, maybe_usage} = safe_parse_sse_frames(frames)
+
+    {content_fragments, reasoning_fragments, maybe_usage, sse_error?} =
+      safe_parse_sse_frames(frames)
+
+    if sse_error? and not Map.get(state, :sse_error?, false) do
+      if channel_id = Map.get(state, :channel_id), do: AffinityRouter.report_failure(channel_id)
+    end
 
     new_state = %{
       state
@@ -347,7 +354,9 @@ defmodule Cgc2046Web.LlmGatewayController do
         sse_buffer: remaining_buffer,
         output_iodata: [Map.get(state, :output_iodata, []) | content_fragments],
         reasoning_iodata: [Map.get(state, :reasoning_iodata, []) | reasoning_fragments],
-        official_usage: maybe_usage || Map.get(state, :official_usage)
+        official_usage: maybe_usage || Map.get(state, :official_usage),
+        upstream_error?: Map.get(state, :upstream_error?, false) or sse_error?,
+        sse_error?: Map.get(state, :sse_error?, false) or sse_error?
     }
 
     Process.put(@process_state_key, new_state)
@@ -375,7 +384,12 @@ defmodule Cgc2046Web.LlmGatewayController do
     buffer = Map.get(state, :sse_buffer, "")
 
     if is_binary(buffer) and String.trim(buffer) != "" do
-      {content_fragments, reasoning_fragments, maybe_usage} = safe_parse_sse_frames([buffer])
+      {content_fragments, reasoning_fragments, maybe_usage, sse_error?} =
+        safe_parse_sse_frames([buffer])
+
+      if sse_error? and not Map.get(state, :sse_error?, false) do
+        if channel_id = Map.get(state, :channel_id), do: AffinityRouter.report_failure(channel_id)
+      end
 
       new_state =
         state
@@ -385,6 +399,8 @@ defmodule Cgc2046Web.LlmGatewayController do
           Map.get(state, :reasoning_iodata, []) | reasoning_fragments
         ])
         |> Map.put(:official_usage, maybe_usage || Map.get(state, :official_usage))
+        |> Map.put(:upstream_error?, Map.get(state, :upstream_error?, false) or sse_error?)
+        |> Map.put(:sse_error?, Map.get(state, :sse_error?, false) or sse_error?)
 
       Process.put(@process_state_key, new_state)
       new_state
@@ -399,13 +415,13 @@ defmodule Cgc2046Web.LlmGatewayController do
     {Enum.drop(parts, -1), List.last(parts) || ""}
   end
 
-  defp safe_parse_sse_frames([]), do: {[], [], nil}
+  defp safe_parse_sse_frames([]), do: {[], [], nil, false}
 
   defp safe_parse_sse_frames(frames) do
     try do
-      parse_sse_metrics(Enum.join(frames, "\n\n"))
+      parse_sse_metrics_with_error(Enum.join(frames, "\n\n"))
     rescue
-      _ -> {[], [], nil}
+      _ -> {[], [], nil, false}
     end
   end
 
@@ -414,19 +430,32 @@ defmodule Cgc2046Web.LlmGatewayController do
   最终 usage；原始字节仍原样转发给客户端。
   """
   def parse_sse_metrics(raw_chunk) when is_binary(raw_chunk) do
+    {content_acc, reasoning_acc, usage_acc, _sse_error?} =
+      parse_sse_metrics_with_error(raw_chunk)
+
+    {content_acc, reasoning_acc, usage_acc}
+  end
+
+  @doc """
+  与 `parse_sse_metrics/1` 相同，但额外返回 `sse_error?`：当上游在 HTTP 200 SSE 流内
+  返回 `{"error": ...}` 帧时置为 `true`，供结算免单与熔断上报使用。
+  """
+  def parse_sse_metrics_with_error(raw_chunk) when is_binary(raw_chunk) do
     raw_chunk
     |> String.split("\n")
-    |> Enum.reduce({[], [], nil}, fn line, {content_acc, reasoning_acc, usage_acc} ->
+    |> Enum.reduce({[], [], nil, false}, fn line,
+                                            {content_acc, reasoning_acc, usage_acc, err_acc} ->
       line = String.trim(line)
 
       if String.starts_with?(line, "data:") do
         payload = line |> String.replace_prefix("data:", "") |> String.trim()
 
         if payload in ["", "[DONE]"] do
-          {content_acc, reasoning_acc, usage_acc}
+          {content_acc, reasoning_acc, usage_acc, err_acc}
         else
           case Jason.decode(payload) do
             {:ok, decoded} when is_map(decoded) ->
+              has_error? = sse_error_payload?(Map.get(decoded, "error"))
               delta = get_in(decoded, ["choices", Access.at(0), "delta"]) || %{}
               content = Map.get(delta, "content")
               reasoning = Map.get(delta, "reasoning_content")
@@ -444,17 +473,21 @@ defmodule Cgc2046Web.LlmGatewayController do
                 |> maybe_append(tool_args)
 
               next_reasoning = maybe_append(reasoning_acc, reasoning)
-              {next_content, next_reasoning, usage || usage_acc}
+              {next_content, next_reasoning, usage || usage_acc, err_acc or has_error?}
 
             _ ->
-              {content_acc, reasoning_acc, usage_acc}
+              {content_acc, reasoning_acc, usage_acc, err_acc}
           end
         end
       else
-        {content_acc, reasoning_acc, usage_acc}
+        {content_acc, reasoning_acc, usage_acc, err_acc}
       end
     end)
   end
+
+  defp sse_error_payload?(err) when is_map(err) and map_size(err) > 0, do: true
+  defp sse_error_payload?(err) when is_binary(err) and byte_size(err) > 0, do: true
+  defp sse_error_payload?(_), do: false
 
   defp extract_tool_call_args(%{"tool_calls" => calls}) when is_list(calls) do
     Enum.map_join(calls, "", fn call ->
@@ -668,19 +701,33 @@ defmodule Cgc2046Web.LlmGatewayController do
     Process.put(@process_state_key, Map.merge(current, updates))
   end
 
-  defp hold_error(conn, :wallet_frozen) do
+  defp hold_error(conn, :wallet_frozen, user_id) do
+    reason =
+      try do
+        Ledger.fetch_wallet!(user_id).frozen_reason
+      rescue
+        _ -> nil
+      end
+
+    error_body = %{
+      code: "wallet_frozen",
+      type: "permission_error",
+      message: "Your LLM wallet is frozen. Please contact support."
+    }
+
+    error_body =
+      if is_binary(reason) and String.trim(reason) != "" do
+        Map.put(error_body, :reason, reason)
+      else
+        error_body
+      end
+
     conn
     |> put_status(403)
-    |> json(%{
-      error: %{
-        code: "wallet_frozen",
-        type: "permission_error",
-        message: "Your LLM wallet is frozen. Please contact support."
-      }
-    })
+    |> json(%{error: error_body})
   end
 
-  defp hold_error(conn, _reason) do
+  defp hold_error(conn, _reason, _user_id) do
     conn
     |> put_status(402)
     |> json(%{

@@ -262,6 +262,8 @@ config :cgc_2046, Oban,
        # LLM Gateway Phase 1：到期额度批次清理（release 未用余额 + 标记 expired）。
        # 分钟级粒度对订阅额度足够；SKIP LOCKED 保证多实例重入安全。
        {"*/5 * * * *", Cgc2046.LlmGateway.Workers.CreditExpiryWorker},
+       # LLM Gateway：到期前 72h 站内提醒（按 grant_id 幂等，每批次仅提醒一次）。
+       {"7 * * * *", Cgc2046.LlmGateway.Workers.CreditExpiryReminderWorker},
        # LLM Gateway Phase 2：孤儿 hold 回收（进程被杀/BEAM 重启未结算的租约）。
        {"*/5 * * * *", Cgc2046.LlmGateway.Workers.HoldReaperWorker}
      ]}

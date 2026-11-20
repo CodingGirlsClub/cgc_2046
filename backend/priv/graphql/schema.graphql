@@ -6466,6 +6466,12 @@ type RootMutationType {
   "PlatformAdmin 向个人钱包赠予算力（source=admin_gift）；与 AdminActionLog 同事务"
   adminGrantUserLlmCredits(userId: ID!, amountMc: BigInt!, expiresAt: DateTime): LlmWalletSummary
 
+  "PlatformAdmin 冻结或解冻用户 LLM 额度账户（解冻清空 frozenReason）；与 AdminActionLog 同事务"
+  adminUpdateUserLlmWalletStatus(userId: ID!, status: String!, frozenReason: String): LlmWalletSummary
+
+  "PlatformAdmin 调整用户 LLM 并发流上限（范围 1..20）；与 AdminActionLog 同事务"
+  adminUpdateUserLlmConcurrency(userId: ID!, maxConcurrentStreams: Int!): LlmWalletSummary
+
   "Owner\/Admin 创建一次性工作台邀请小程序码"
   generateMiniProgramCode(workspaceId: ID!, platform: String!): MiniprogramCodeResult
 
@@ -6690,6 +6696,9 @@ type LlmWalletSummary {
   "active | frozen"
   status: String!
 
+  "账户冻结原因（仅冻结且管理员填写时非空）"
+  frozenReason: String
+
   "活跃授信剩余百分比 0-100"
   remainingPercentage: Int!
 
@@ -6702,6 +6711,15 @@ type LlmWorkspacePoolSummary {
 
   "待派发池余额（微积分）"
   creditPoolMc: BigInt!
+
+  "累计已派发给成员的额度总额（微积分）"
+  distributedTotalMc: BigInt!
+
+  "已派发额度中累计已消耗金额（微积分）"
+  distributedConsumedMc: BigInt!
+
+  "已派发额度中当前尚未到期且未消耗的余额（微积分）"
+  distributedRemainingMc: BigInt!
 
   updatedAt: DateTime!
 
@@ -6732,12 +6750,28 @@ type LlmWorkspacePoolEntry {
 "工作台批量派发审计行"
 type LlmWorkspaceGrantBatch {
   id: ID!
+
   actorUserId: ID!
+
   perMemberMc: BigInt!
+
   memberCount: Int!
+
   totalGrantedMc: BigInt!
+
+  "该批次汇总已消耗额度（微积分）"
+  consumedMc: BigInt!
+
+  "该批次当前未到期剩余额度（微积分）"
+  remainingMc: BigInt!
+
+  "该批次已过期未用额度（微积分）"
+  expiredMc: BigInt!
+
   expiresAt: DateTime
+
   idempotencyKey: String!
+
   insertedAt: DateTime!
 }
 

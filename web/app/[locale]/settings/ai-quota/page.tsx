@@ -396,6 +396,14 @@ export default function PersonalLlmWalletPage() {
 								<span className="admin-stat__label mt-1">
 									{t("maxStreams", { count: wallet.maxConcurrentStreams })}
 								</span>
+								{wallet.status === "frozen" && wallet.frozenReason ? (
+									<span
+										className="mt-1 text-xs text-red-400"
+										data-testid="wallet-frozen-reason"
+									>
+										{t("frozenReasonLabel", { reason: wallet.frozenReason })}
+									</span>
+								) : null}
 							</div>
 						</div>
 

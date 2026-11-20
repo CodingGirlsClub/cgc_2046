@@ -4,6 +4,19 @@ use super::*;
 pub(super) const WALLET_FROZEN_NOTICE: &str =
     "当前 CGC 额度账户已被冻结，暂无法继续对话或充值。请联系客服处理。";
 
+pub(super) fn format_wallet_frozen_notice(error_message: &str) -> String {
+    if let Some((_, tail)) = error_message.rsplit_once(" (reason: ") {
+        if let Some(reason) = tail.strip_suffix(')').map(str::trim) {
+            if !reason.is_empty() {
+                return format!(
+                    "当前 CGC 额度账户已被冻结（原因：{reason}），暂无法继续对话或充值。请联系客服处理。"
+                );
+            }
+        }
+    }
+    WALLET_FROZEN_NOTICE.to_string()
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct TurnErrorEffect {
     opens_quota_card: bool,
@@ -72,8 +85,9 @@ impl NativeAgentView {
         if effect.shows_frozen_notice {
             self.quota_checkout = None;
             self.quota_checkout_serial = self.quota_checkout_serial.wrapping_add(1);
-            self.wallet_frozen_notice = Some(WALLET_FROZEN_NOTICE.to_string());
-            self.status = WALLET_FROZEN_NOTICE.to_string();
+            let notice = format_wallet_frozen_notice(message);
+            self.wallet_frozen_notice = Some(notice.clone());
+            self.status = notice;
         } else {
             self.wallet_frozen_notice = None;
             self.status = if effect.opens_quota_card {
@@ -431,8 +445,8 @@ fn should_clear_quota_state(had_error: bool, completed: bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        should_clear_quota_state, should_dispatch, strip_structured_error_notices,
-        turn_error_effect, TurnErrorEffect,
+        format_wallet_frozen_notice, should_clear_quota_state, should_dispatch,
+        strip_structured_error_notices, turn_error_effect, TurnErrorEffect, WALLET_FROZEN_NOTICE,
     };
     use crate::native_runtime::NativeTurnErrorKind;
     use cgc_agent_ui::conversation::{Entry, NoticeLevel};
@@ -511,5 +525,21 @@ mod tests {
         });
         strip_structured_error_notices(&mut entries);
         assert_eq!(entries.len(), 2);
+    }
+
+    #[test]
+    fn format_wallet_frozen_notice_renders_reason_when_present() {
+        assert_eq!(
+            format_wallet_frozen_notice(
+                "provider error: Permission: Your LLM wallet is frozen. Please contact support."
+            ),
+            WALLET_FROZEN_NOTICE
+        );
+        assert_eq!(
+            format_wallet_frozen_notice(
+                "provider error: Permission: Your LLM wallet is frozen. Please contact support. (reason: 异常并发刷量)"
+            ),
+            "当前 CGC 额度账户已被冻结（原因：异常并发刷量），暂无法继续对话或充值。请联系客服处理。"
+        );
     }
 }

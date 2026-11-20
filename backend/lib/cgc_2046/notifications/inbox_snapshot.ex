@@ -2,6 +2,7 @@ defmodule Cgc2046.Notifications.InboxSnapshot do
   @moduledoc "既有 registry 的用户文本投影。新类型不得自动透传渠道载荷。"
   @enrollments "/pages/my-enrollments/index"
   @workspace "/pages/workspace/index"
+  @ai_quota "/settings/ai-quota"
 
   def build(type, data, meta) do
     case content(type, data) do
@@ -168,10 +169,32 @@ defmodule Cgc2046.Notifications.InboxSnapshot do
   defp content("flashback_wish_echo", d),
     do: {"主办方收到你的提议", named(text(d["content_preview"], 20), "来看看主办方的回应。"), :wish}
 
+  defp content("llm_credit_expiring", d) do
+    body =
+      join([
+        remaining_cny(d["remaining_cny"]),
+        expire_notice(d["expires_at"]),
+        "请及时使用，避免额度过期失效。"
+      ])
+
+    {"AI 额度即将到期", body, :ai_quota}
+  end
+
+  defp content("llm_credit_low", d) do
+    body =
+      join([
+        remaining_cny(d["remaining_cny"]),
+        "可用 AI 额度已低于 ¥0.50，请前往充值或续费。"
+      ])
+
+    {"AI 额度余额不足", body, :ai_quota}
+  end
+
   defp content(_, _), do: nil
 
   defp link(:enrollments, _, _), do: @enrollments
   defp link(:workspace, _, _), do: @workspace
+  defp link(:ai_quota, _, _), do: @ai_quota
 
   defp link(:event, d, m),
     do: uuid_link("/pages/event-detail/index", "id", d["event_id"] || m["event_id"])
@@ -196,6 +219,17 @@ defmodule Cgc2046.Notifications.InboxSnapshot do
   defp join(parts), do: parts |> Enum.reject(&(&1 == "")) |> Enum.join("：")
   defp amount(value) when is_binary(value) or is_number(value), do: "金额 ¥" <> to_string(value)
   defp amount(_), do: ""
+
+  defp remaining_cny(value) when is_binary(value) and value != "", do: "剩余额度 ¥" <> value
+  defp remaining_cny(value) when is_number(value), do: "剩余额度 ¥" <> to_string(value)
+  defp remaining_cny(_), do: ""
+
+  defp expire_notice(value) do
+    case date(value) do
+      "" -> ""
+      formatted -> "将于 " <> formatted <> " 到期"
+    end
+  end
 
   defp date(%DateTime{} = value),
     do: value |> DateTime.add(8, :hour) |> Calendar.strftime("%Y-%m-%d %H:%M")

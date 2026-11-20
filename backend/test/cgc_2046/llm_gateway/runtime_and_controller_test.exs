@@ -586,6 +586,35 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
 
       assert LeaseManager.active_streams_count(user.id) == 0
       assert Ledger.fetch_wallet!(user.id).held_mc == 0
+      refute Map.has_key?(json_response(conn, 403)["error"], "reason")
+    end
+
+    test "returns 403 wallet_frozen with reason when frozen_reason is recorded" do
+      user = register_user("gateway-frozen-reason")
+      raw_token = desktop_token(user)
+
+      {:ok, _} =
+        Ledger.grant_personal_credits(user.id, %{amount_mc: 500_000, source_type: :pack})
+
+      {:ok, _} = Ledger.set_wallet_status(user.id, :frozen, reason: "疑似脚本高频刷量")
+
+      conn =
+        build_conn()
+        |> put_req_header("authorization", "Bearer #{raw_token}")
+        |> put_req_header("content-type", "application/json")
+        |> put_req_header("accept", "text/event-stream")
+        |> post("/v1/chat/completions", %{
+          "model" => "cgc-default",
+          "messages" => [%{"role" => "user", "content" => "Hello frozen wallet"}]
+        })
+
+      assert %{
+               "error" => %{
+                 "code" => "wallet_frozen",
+                 "type" => "permission_error",
+                 "reason" => "疑似脚本高频刷量"
+               }
+             } = json_response(conn, 403)
     end
 
     test "returns 429 rate_limit_exceeded when user exceeds llm_gateway_user_rpm" do
@@ -836,6 +865,107 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
       wallet = Ledger.fetch_wallet!(user.id)
       assert wallet.cached_balance_mc == 500_000
       assert wallet.held_mc == 0
+    end
+  end
+
+  describe "SSE 200 OK mid-stream error frame waiving" do
+    test "waives charges and melts fuse when upstream returns HTTP 200 with data: {\"error\": ...} and zero output" do
+      user = register_user("gateway-sse-error-zero")
+      raw_token = desktop_token(user)
+
+      {:ok, _} =
+        Ledger.grant_personal_credits(user.id, %{amount_mc: 500_000, source_type: :pack})
+
+      server =
+        start_sse_server(fn socket, _request ->
+          send_sse_chunks(socket, [
+            sse_data_frame(%{
+              "error" => %{"message" => "upstream overloaded", "type" => "server_error"}
+            }),
+            "data: [DONE]\n\n"
+          ])
+        end)
+
+      configure_local_channels([local_channel("local_sse_err_zero", server.base_url)])
+
+      conn =
+        build_conn()
+        |> put_req_header("authorization", "Bearer #{raw_token}")
+        |> put_req_header("content-type", "application/json")
+        |> put_req_header("accept", "text/event-stream")
+        |> post("/v1/chat/completions", %{
+          "model" => "cgc-default",
+          "messages" => [%{"role" => "user", "content" => "Trigger mid-stream error"}]
+        })
+
+      assert conn.status == 200
+
+      wallet = Ledger.fetch_wallet!(user.id)
+      assert wallet.cached_balance_mc == 500_000
+      assert wallet.held_mc == 0
+      assert LeaseManager.active_streams_count(user.id) == 0
+
+      [log] = user_usage_logs(user.id)
+      assert log.billing_mode == :waived_upstream_error
+      assert log.charged_mc == 0
+    end
+
+    test "waives charges even when partial content was streamed before a 200 SSE error frame" do
+      user = register_user("gateway-sse-error-partial")
+      raw_token = desktop_token(user)
+
+      {:ok, _} =
+        Ledger.grant_personal_credits(user.id, %{amount_mc: 500_000, source_type: :pack})
+
+      server =
+        start_sse_server(fn socket, _request ->
+          send_sse_chunks(socket, [
+            sse_data_frame(%{"choices" => [%{"delta" => %{"content" => "Partial reply..."}}]}),
+            sse_data_frame(%{
+              "error" => %{"message" => "internal stream failure", "code" => "server_error"}
+            })
+          ])
+        end)
+
+      configure_local_channels([local_channel("local_sse_err_partial", server.base_url)])
+
+      conn =
+        build_conn()
+        |> put_req_header("authorization", "Bearer #{raw_token}")
+        |> put_req_header("content-type", "application/json")
+        |> put_req_header("accept", "text/event-stream")
+        |> post("/v1/chat/completions", %{
+          "model" => "cgc-default",
+          "messages" => [%{"role" => "user", "content" => "Partial then error"}]
+        })
+
+      assert conn.status == 200
+      assert conn.resp_body =~ "Partial reply..."
+
+      wallet = Ledger.fetch_wallet!(user.id)
+      assert wallet.cached_balance_mc == 500_000
+      assert wallet.held_mc == 0
+
+      [log] = user_usage_logs(user.id)
+      assert log.billing_mode == :waived_upstream_error
+      assert log.charged_mc == 0
+    end
+
+    test "waives charges even when upstream sends both usage and a 200 SSE error frame" do
+      settlement =
+        TokenizerAndPricing.calculate_settlement("deepseek-chat", 1_000, %{
+          sse_error?: true,
+          official_usage: %{
+            "prompt_tokens" => 1_000,
+            "prompt_cache_hit_tokens" => 0,
+            "prompt_cache_miss_tokens" => 1_000,
+            "completion_tokens" => 200
+          }
+        })
+
+      assert settlement.billing_mode == :waived_upstream_error
+      assert settlement.charged_mc == 0
+      assert settlement.upstream_cost_mc == 0
     end
   end
 

@@ -3927,6 +3927,8 @@ export type LlmWalletSummary = {
   availableMc: Scalars['BigInt']['output'];
   /** 缓存总余额（含冻结） */
   cachedBalanceMc: Scalars['BigInt']['output'];
+  /** 账户冻结原因（仅冻结且管理员填写时非空） */
+  frozenReason?: Maybe<Scalars['String']['output']>;
   /** 在途流式请求冻结额度 */
   heldMc: Scalars['BigInt']['output'];
   maxConcurrentStreams: Scalars['Int']['output'];
@@ -3940,12 +3942,18 @@ export type LlmWalletSummary = {
 /** 工作台批量派发审计行 */
 export type LlmWorkspaceGrantBatch = {
   actorUserId: Scalars['ID']['output'];
+  /** 该批次汇总已消耗额度（微积分） */
+  consumedMc: Scalars['BigInt']['output'];
+  /** 该批次已过期未用额度（微积分） */
+  expiredMc: Scalars['BigInt']['output'];
   expiresAt?: Maybe<Scalars['DateTime']['output']>;
   id: Scalars['ID']['output'];
   idempotencyKey: Scalars['String']['output'];
   insertedAt: Scalars['DateTime']['output'];
   memberCount: Scalars['Int']['output'];
   perMemberMc: Scalars['BigInt']['output'];
+  /** 该批次当前未到期剩余额度（微积分） */
+  remainingMc: Scalars['BigInt']['output'];
   totalGrantedMc: Scalars['BigInt']['output'];
 };
 
@@ -3975,6 +3983,12 @@ export type LlmWorkspacePoolEntry = {
 export type LlmWorkspacePoolSummary = {
   /** 待派发池余额（微积分） */
   creditPoolMc: Scalars['BigInt']['output'];
+  /** 已派发额度中累计已消耗金额（微积分） */
+  distributedConsumedMc: Scalars['BigInt']['output'];
+  /** 已派发额度中当前尚未到期且未消耗的余额（微积分） */
+  distributedRemainingMc: Scalars['BigInt']['output'];
+  /** 累计已派发给成员的额度总额（微积分） */
+  distributedTotalMc: Scalars['BigInt']['output'];
   recentBatches: Array<LlmWorkspaceGrantBatch>;
   recentPoolEntries: Array<LlmWorkspacePoolEntry>;
   updatedAt: Scalars['DateTime']['output'];
@@ -4944,6 +4958,10 @@ export type RootMutationType = {
   adminUpdateCourse?: Maybe<AdminCoursePayload>;
   /** 平台管理员：编辑活动元数据（R5 标准元数据全集；slug 锁与教研内容不放行） */
   adminUpdateEvent?: Maybe<AdminEventPayload>;
+  /** PlatformAdmin 调整用户 LLM 并发流上限（范围 1..20）；与 AdminActionLog 同事务 */
+  adminUpdateUserLlmConcurrency?: Maybe<LlmWalletSummary>;
+  /** PlatformAdmin 冻结或解冻用户 LLM 额度账户（解冻清空 frozenReason）；与 AdminActionLog 同事务 */
+  adminUpdateUserLlmWalletStatus?: Maybe<LlmWalletSummary>;
   /** 使用一次性小程序 scene 接受工作台邀请 */
   admitMemberByToken?: Maybe<Invitation>;
   /** 初审通过：submitted → interview（Owner/Admin ∪ platform_admin；非法段位 → volunteer_application_invalid_transition） */
@@ -5307,6 +5325,19 @@ export type RootMutationTypeAdminUpdateCourseArgs = {
 export type RootMutationTypeAdminUpdateEventArgs = {
   id: Scalars['ID']['input'];
   input: AdminEventUpdateInput;
+};
+
+
+export type RootMutationTypeAdminUpdateUserLlmConcurrencyArgs = {
+  maxConcurrentStreams: Scalars['Int']['input'];
+  userId: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeAdminUpdateUserLlmWalletStatusArgs = {
+  frozenReason?: InputMaybe<Scalars['String']['input']>;
+  status: Scalars['String']['input'];
+  userId: Scalars['ID']['input'];
 };
 
 

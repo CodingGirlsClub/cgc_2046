@@ -42,6 +42,7 @@ export interface LlmWalletSummary {
 	maxConcurrentStreams: number;
 	/** active | frozen */
 	status: string;
+	frozenReason?: string | null;
 	remainingPercentage: number;
 	activeGrants: LlmCreditGrantItem[];
 }
@@ -67,6 +68,9 @@ export interface LlmWorkspaceGrantBatch {
 	perMemberMc: BigIntScalar;
 	memberCount: number;
 	totalGrantedMc: BigIntScalar;
+	consumedMc?: BigIntScalar;
+	remainingMc?: BigIntScalar;
+	expiredMc?: BigIntScalar;
 	expiresAt?: string | null;
 	idempotencyKey: string;
 	insertedAt: string;
@@ -85,6 +89,9 @@ export interface LlmWorkspacePoolEntry {
 export interface LlmWorkspacePoolSummary {
 	workspaceId: string;
 	creditPoolMc: BigIntScalar;
+	distributedTotalMc?: BigIntScalar;
+	distributedConsumedMc?: BigIntScalar;
+	distributedRemainingMc?: BigIntScalar;
 	updatedAt: string;
 	recentBatches: LlmWorkspaceGrantBatch[];
 	recentPoolEntries?: LlmWorkspacePoolEntry[] | null;
@@ -152,6 +159,11 @@ export type AdminGrantUserLlmWallet = Pick<
 	| "status"
 >;
 
+export type AdminRiskWalletSummary = Pick<
+	LlmWalletSummary,
+	"walletId" | "status" | "frozenReason" | "maxConcurrentStreams"
+>;
+
 /* ---------------- Queries ---------------- */
 
 export const MY_LLM_WALLET: TypedDocumentNode<
@@ -166,6 +178,7 @@ export const MY_LLM_WALLET: TypedDocumentNode<
 			availableMc
 			maxConcurrentStreams
 			status
+			frozenReason
 			remainingPercentage
 			activeGrants {
 				id
@@ -210,6 +223,9 @@ export const WORKSPACE_LLM_POOL: TypedDocumentNode<
 		workspaceLlmPool(workspaceId: $workspaceId) {
 			workspaceId
 			creditPoolMc
+			distributedTotalMc
+			distributedConsumedMc
+			distributedRemainingMc
 			updatedAt
 			recentBatches {
 				id
@@ -217,6 +233,9 @@ export const WORKSPACE_LLM_POOL: TypedDocumentNode<
 				perMemberMc
 				memberCount
 				totalGrantedMc
+				consumedMc
+				remainingMc
+				expiredMc
 				expiresAt
 				idempotencyKey
 				insertedAt
@@ -404,6 +423,48 @@ export const ADMIN_GRANT_USER_LLM_CREDITS: TypedDocumentNode<
 			availableMc
 			remainingPercentage
 			status
+		}
+	}
+`;
+
+export const ADMIN_UPDATE_USER_LLM_WALLET_STATUS: TypedDocumentNode<
+	{ adminUpdateUserLlmWalletStatus: AdminRiskWalletSummary | null },
+	{ userId: string; status: "active" | "frozen"; frozenReason?: string | null }
+> = gql`
+	mutation AdminUpdateUserLlmWalletStatus(
+		$userId: ID!
+		$status: String!
+		$frozenReason: String
+	) {
+		adminUpdateUserLlmWalletStatus(
+			userId: $userId
+			status: $status
+			frozenReason: $frozenReason
+		) {
+			walletId
+			status
+			frozenReason
+			maxConcurrentStreams
+		}
+	}
+`;
+
+export const ADMIN_UPDATE_USER_LLM_CONCURRENCY: TypedDocumentNode<
+	{ adminUpdateUserLlmConcurrency: AdminRiskWalletSummary | null },
+	{ userId: string; maxConcurrentStreams: number }
+> = gql`
+	mutation AdminUpdateUserLlmConcurrency(
+		$userId: ID!
+		$maxConcurrentStreams: Int!
+	) {
+		adminUpdateUserLlmConcurrency(
+			userId: $userId
+			maxConcurrentStreams: $maxConcurrentStreams
+		) {
+			walletId
+			status
+			frozenReason
+			maxConcurrentStreams
 		}
 	}
 `;

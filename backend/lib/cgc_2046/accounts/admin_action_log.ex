@@ -94,7 +94,10 @@ defmodule Cgc2046.Accounts.AdminActionLog do
           :flashback_outreach_resend,
           # Phase 3A：平台管理员向工作台算力池充值 / 向个人钱包赠予算力
           :llm_workspace_topup,
-          :llm_user_credit_grant
+          :llm_user_credit_grant,
+          # Phase 4 补齐：平台管理员冻结/解冻用户 LLM 额度账户、调整并发流上限
+          :llm_wallet_status_update,
+          :llm_wallet_concurrency_update
         ]
       ],
       description: "治理动作类型"

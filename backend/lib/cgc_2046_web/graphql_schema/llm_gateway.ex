@@ -93,6 +93,7 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
     field(:available_mc, non_null(:bigint), description: "可用额度（未过期授信与缓存余额取小后扣除冻结）")
     field(:max_concurrent_streams, non_null(:integer))
     field(:status, non_null(:string), description: "active | frozen")
+    field(:frozen_reason, :string, description: "账户冻结原因（仅冻结且管理员填写时非空）")
     field(:remaining_percentage, non_null(:integer), description: "活跃授信剩余百分比 0-100")
     field(:active_grants, non_null(list_of(non_null(:llm_credit_grant_item))))
   end
@@ -101,6 +102,9 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
   object :llm_workspace_pool_summary do
     field(:workspace_id, non_null(:id))
     field(:credit_pool_mc, non_null(:bigint), description: "待派发池余额（微积分）")
+    field(:distributed_total_mc, non_null(:bigint), description: "累计已派发给成员的额度总额（微积分）")
+    field(:distributed_consumed_mc, non_null(:bigint), description: "已派发额度中累计已消耗金额（微积分）")
+    field(:distributed_remaining_mc, non_null(:bigint), description: "已派发额度中当前尚未到期且未消耗的余额（微积分）")
     field(:updated_at, non_null(:datetime))
     field(:recent_batches, non_null(list_of(non_null(:llm_workspace_grant_batch))))
     field(:recent_pool_entries, non_null(list_of(non_null(:llm_workspace_pool_entry))))
@@ -128,6 +132,9 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
     field(:per_member_mc, non_null(:bigint))
     field(:member_count, non_null(:integer))
     field(:total_granted_mc, non_null(:bigint))
+    field(:consumed_mc, non_null(:bigint), description: "该批次汇总已消耗额度（微积分）")
+    field(:remaining_mc, non_null(:bigint), description: "该批次当前未到期剩余额度（微积分）")
+    field(:expired_mc, non_null(:bigint), description: "该批次已过期未用额度（微积分）")
     field(:expires_at, :datetime)
     field(:idempotency_key, non_null(:string))
     field(:inserted_at, non_null(:datetime))
@@ -385,6 +392,106 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
         end)
       end)
     end
+
+    @desc "PlatformAdmin 冻结或解冻用户 LLM 额度账户（解冻清空 frozenReason）；与 AdminActionLog 同事务"
+    field :admin_update_user_llm_wallet_status, :llm_wallet_summary do
+      arg(:user_id, non_null(:id))
+      arg(:status, non_null(:string))
+      arg(:frozen_reason, :string)
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn actor ->
+          with {:ok, user_id} <- cast_uuid(args.user_id) do
+            case Ash.get(User, user_id, authorize?: false) do
+              {:ok, nil} ->
+                {:error, [message: "user not found", code: "user_not_found"]}
+
+              {:ok, _user} ->
+                update_admin_wallet_status(actor, user_id, args.status, args[:frozen_reason])
+
+              {:error, _error} ->
+                {:error, [message: "user not found", code: "user_not_found"]}
+            end
+          end
+        end)
+      end)
+    end
+
+    @desc "PlatformAdmin 调整用户 LLM 并发流上限（范围 1..20）；与 AdminActionLog 同事务"
+    field :admin_update_user_llm_concurrency, :llm_wallet_summary do
+      arg(:user_id, non_null(:id))
+      arg(:max_concurrent_streams, non_null(:integer))
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn actor ->
+          with {:ok, user_id} <- cast_uuid(args.user_id) do
+            case Ash.get(User, user_id, authorize?: false) do
+              {:ok, nil} ->
+                {:error, [message: "user not found", code: "user_not_found"]}
+
+              {:ok, _user} ->
+                update_admin_wallet_concurrency(actor, user_id, args.max_concurrent_streams)
+
+              {:error, _error} ->
+                {:error, [message: "user not found", code: "user_not_found"]}
+            end
+          end
+        end)
+      end)
+    end
+  end
+
+  defp update_admin_wallet_status(actor, user_id, status, frozen_reason) do
+    case Repo.transaction(fn ->
+           case Ledger.set_wallet_status(user_id, status, reason: frozen_reason) do
+             {:ok, wallet} ->
+               AdminActionLog.log!(%{
+                 actor_id: actor.id,
+                 action: :llm_wallet_status_update,
+                 target_type: :user,
+                 target_id: user_id,
+                 metadata: %{
+                   status: wallet.status,
+                   frozen_reason: wallet.frozen_reason,
+                   wallet_id: wallet.id
+                 }
+               })
+
+               wallet
+
+             {:error, reason} ->
+               Repo.rollback(reason)
+           end
+         end) do
+      {:ok, _wallet} -> build_wallet_summary(user_id)
+      {:error, reason} -> {:error, ledger_error(reason)}
+    end
+  end
+
+  defp update_admin_wallet_concurrency(actor, user_id, max_concurrent_streams) do
+    case Repo.transaction(fn ->
+           case Ledger.set_max_concurrent_streams(user_id, max_concurrent_streams) do
+             {:ok, wallet} ->
+               AdminActionLog.log!(%{
+                 actor_id: actor.id,
+                 action: :llm_wallet_concurrency_update,
+                 target_type: :user,
+                 target_id: user_id,
+                 metadata: %{
+                   max_concurrent_streams: wallet.max_concurrent_streams,
+                   wallet_id: wallet.id
+                 }
+               })
+
+               wallet
+
+             {:error, reason} ->
+               Repo.rollback(reason)
+           end
+         end) do
+      {:ok, _wallet} -> build_wallet_summary(user_id)
+      {:error, reason} -> {:error, ledger_error(reason)}
+    end
   end
 
   defp grant_admin_credits(actor, user_id, amount_mc, expires_at) do
@@ -476,6 +583,7 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
        available_mc: available_mc,
        max_concurrent_streams: wallet.max_concurrent_streams,
        status: wallet.status,
+       frozen_reason: wallet.frozen_reason,
        remaining_percentage: remaining_percentage,
        active_grants: active_grants
      }}
@@ -491,12 +599,20 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
            [Ecto.UUID.dump!(workspace_id)]
          ) do
       {:ok, %{rows: [[ws_id, credit_pool_mc, updated_at]]}} ->
+        now = DateTime.utc_now()
+
+        {dist_total, dist_consumed, dist_remaining} =
+          workspace_distributed_totals(workspace_id, now)
+
         {:ok,
          %{
            workspace_id: Ecto.UUID.load!(ws_id),
            credit_pool_mc: credit_pool_mc,
+           distributed_total_mc: dist_total,
+           distributed_consumed_mc: dist_consumed,
+           distributed_remaining_mc: dist_remaining,
            updated_at: to_utc_datetime(updated_at),
-           recent_batches: workspace_recent_batches(workspace_id),
+           recent_batches: workspace_recent_batches(workspace_id, now),
            recent_pool_entries: workspace_recent_pool_entries(workspace_id)
          }}
 
@@ -543,18 +659,65 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
   defp maybe_load_uuid(nil), do: nil
   defp maybe_load_uuid(bin), do: Ecto.UUID.load!(bin)
 
-  defp workspace_recent_batches(workspace_id) do
+  # 汇总本工作台通过派发批次发放出去的额度使用情况（仅按 sponsor_workspace_id 聚合，
+  # 不暴露单个成员消耗）。不变量：consumed + remaining + expired == total。
+  # expired_mc 持久化记录被 CreditExpiryWorker 归零的未用额度，加上已到期但尚
+  # 未被 Worker 扫到的 remaining_mc，确保部分消费后过期仍保留历史 consumed。
+  defp workspace_distributed_totals(workspace_id, now) do
+    {:ok, %{rows: [[total_mc, consumed_mc, remaining_mc]]}} =
+      Repo.query(
+        """
+        SELECT COALESCE(SUM(initial_mc), 0)::bigint AS total_mc,
+               COALESCE(SUM(GREATEST(0, initial_mc - remaining_mc - expired_mc)), 0)::bigint AS consumed_mc,
+               COALESCE(SUM(
+                 CASE
+                   WHEN status = 'active' AND (expires_at IS NULL OR expires_at > $2) THEN remaining_mc
+                   ELSE 0
+                 END
+               ), 0)::bigint AS remaining_mc
+        FROM llm_credit_grants
+        WHERE sponsor_workspace_id = $1
+        """,
+        [Ecto.UUID.dump!(workspace_id), now]
+      )
+
+    {total_mc, consumed_mc, remaining_mc}
+  end
+
+  defp workspace_recent_batches(workspace_id, now) do
     {:ok, %{rows: rows}} =
       Repo.query(
         """
-        SELECT id, actor_user_id, per_member_mc, member_count, total_granted_mc,
-               expires_at, idempotency_key, inserted_at
-        FROM llm_workspace_grant_batches
-        WHERE workspace_id = $1
-        ORDER BY inserted_at DESC
+        SELECT b.id, b.actor_user_id, b.per_member_mc, b.member_count, b.total_granted_mc,
+               b.expires_at, b.idempotency_key, b.inserted_at,
+               COALESCE(SUM(
+                 CASE
+                   WHEN g.id IS NULL THEN 0
+                   ELSE GREATEST(0, g.initial_mc - g.remaining_mc - g.expired_mc)
+                 END
+               ), 0)::bigint AS consumed_mc,
+               COALESCE(SUM(
+                 CASE
+                   WHEN g.id IS NULL THEN 0
+                   WHEN g.status = 'active' AND (g.expires_at IS NULL OR g.expires_at > $2) THEN g.remaining_mc
+                   ELSE 0
+                 END
+               ), 0)::bigint AS remaining_mc,
+               COALESCE(SUM(
+                 CASE
+                   WHEN g.id IS NULL THEN 0
+                   WHEN g.status = 'active' AND g.expires_at IS NOT NULL AND g.expires_at <= $2 THEN g.expired_mc + g.remaining_mc
+                   ELSE g.expired_mc
+                 END
+               ), 0)::bigint AS expired_mc
+        FROM llm_workspace_grant_batches b
+        LEFT JOIN llm_credit_grants g ON g.workspace_batch_id = b.id
+        WHERE b.workspace_id = $1
+        GROUP BY b.id
+        ORDER BY b.inserted_at DESC
         LIMIT 20
         """,
-        [Ecto.UUID.dump!(workspace_id)]
+        [Ecto.UUID.dump!(workspace_id), now]
       )
 
     Enum.map(rows, fn [
@@ -565,7 +728,10 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
                         total_granted_mc,
                         expires_at,
                         idempotency_key,
-                        inserted_at
+                        inserted_at,
+                        consumed_mc,
+                        remaining_mc,
+                        expired_mc
                       ] ->
       %{
         id: Ecto.UUID.load!(id),
@@ -573,6 +739,9 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
         per_member_mc: per_member_mc,
         member_count: member_count,
         total_granted_mc: total_granted_mc,
+        consumed_mc: consumed_mc,
+        remaining_mc: remaining_mc,
+        expired_mc: expired_mc,
         expires_at: to_utc_datetime(expires_at),
         idempotency_key: idempotency_key,
         inserted_at: to_utc_datetime(inserted_at)
@@ -760,6 +929,14 @@ defmodule Cgc2046Web.GraphqlSchema.LlmGateway do
 
   defp ledger_error(:invalid_target_members) do
     [message: "包含非本工作台成员，无法派发", code: Ledger.error_code(:invalid_target_members)]
+  end
+
+  defp ledger_error(:invalid_wallet_status) do
+    [message: "账户状态必须为 active 或 frozen", code: Ledger.error_code(:invalid_wallet_status)]
+  end
+
+  defp ledger_error(:invalid_concurrency_limit) do
+    [message: "并发流上限必须为 1 到 20 之间的整数", code: Ledger.error_code(:invalid_concurrency_limit)]
   end
 
   defp cast_uuid(value) when is_binary(value) do

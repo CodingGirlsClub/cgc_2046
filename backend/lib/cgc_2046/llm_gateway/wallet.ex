@@ -74,6 +74,12 @@ defmodule Cgc2046.LlmGateway.Wallet do
       constraints: [one_of: [:active, :frozen]]
     )
 
+    attribute(:frozen_reason, :string,
+      allow_nil?: true,
+      public?: true,
+      writable?: false
+    )
+
     create_timestamp(:inserted_at)
     update_timestamp(:updated_at)
   end
