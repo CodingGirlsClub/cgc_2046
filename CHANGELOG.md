@@ -37,6 +37,25 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 - [Desktop] DeepSeek 已就绪时提供重新安装入口，旧版 profile adapter 标记为待升级；本地 DSH 尚未安装 adapter 时也能初始化 profile 与自动标题配置，安装和卸载互斥。
 - [Desktop] DSH 会话恢复测试失败时不再在诊断日志打印会话标识符。
 
+## [2026-11-20]
+
+### Added
+
+- [Backend] 上线 LLM Gateway 账本与并发额度体系（`llm_wallets`、`llm_credit_grants`、`llm_wallet_holds`、`llm_workspace_grant_batches`、`llm_workspace_pool_entries`、`llm_usage_logs`）：支持预授权 hold 原子扣占、FIFO 按最早到期批次扣费、工作台额度池幂等批量派发（支持按全部/角色/指定成员筛选）及 Oban 定期清理到期额度与孤儿 hold。
+- [Backend] 上线 `/v1/chat/completions` 流式代理网关：支持 `cgc-default` / `cgc-reasoning` / `cgc-background` 逻辑模型路由、`x-session-affinity` 会话亲和、`:fuse` 熔断降级、精确/断流/免单三档计费，以及 `200 OK` SSE 中途错误帧免单识别。
+- [Backend] 上线 LLM 独立收银台（`llm_payment_orders`、`LLM_` 回调前缀）与 GraphQL 读写面（`myLlmWallet`、`myLlmUsageLogs`、`workspaceLlmPool`、`adminLlmUsageAnalytics` 等），支持平台管理员工作台充值、个人赠额、账户冻结/解冻（含可选 `frozenReason`）及并发流上限调整（1–20，写 `AdminActionLog`）。
+- [Backend] 新增额度站内提醒：到期前 72 小时定时扫描推送 `llm_credit_expiring`（按 `grant_id` 幂等），结算跌破 ¥0.50 推送 `llm_credit_low`（每 ISO 周最多一次），统一跳转 `/settings/ai-quota`。
+- [Web] 新增个人 AI 额度与用量页 `/settings/ai-quota`（余额、授信批次、订阅/永久包扫码购买与游标分页用量流水）、工作台额度池页 `/w/[slug]/llm-pool`（扫码充值、按成员/角色派发及派发批次消耗进度回看）与平台管理 `/admin/llm`（毛利与缓存命中率看板、充值/赠额、冻结与并发流风控操作）。
+
+### Changed
+
+- [Backend] `llm_credit_grants` 持久化 `expired_mc` 并回填历史过期行，确保工作台派发批次在部分消耗后过期仍保留历史已消耗金额。
+- [Web] `/admin/reconciliation` 对账表格保持金额与操作列单行对齐；统一全站「AI 额度」中英文案与错误码契约。
+
+### Security
+
+- [Backend] 升级 `swoosh`（1.27.0 → 1.30.0）与 `idna`（7.1.0 → 8.0.0），修复 `EEF-CVE-2026-117678`。
+
 ## [2026-11-16]
 
 ### Added
