@@ -93,3 +93,47 @@ fn agent_sends_configured_temperature_with_turn_requests() {
     let requests = provider.requests();
     assert_eq!(requests[0].temperature, Some(0.35));
 }
+
+#[test]
+fn short_exchanges_exceeding_message_cap_trigger_compaction_and_stay_within_500_messages() {
+    let model = Model::new(
+        ProviderId::new("fake"),
+        "Fake",
+        "cgc-default",
+        "cgc-default",
+        ModelLimits::new(250_000, 8_192),
+    );
+    let provider = FakeProvider::new(ProviderId::new("fake"), "Fake", vec![model.clone()]);
+    let mut thread = Thread::new(
+        "message-cap-compaction",
+        SelectedModel::new(ProviderId::new("fake"), ModelId::new("cgc-default")),
+    );
+    // 260 轮短对话 => 520 条历史消息，总 token 远低于 250k 预算，但超过网关 500 条消息上限。
+    for index in 0..260 {
+        thread.push_user(format!("q{index}"));
+        thread.push_assistant(format!("a{index}"), vec![], None);
+    }
+    let mut agent = Agent::new(thread, Some("System prompt.".into()));
+    futures::executor::block_on(agent.prompt(&provider, &model, "next turn")).unwrap();
+
+    let requests = provider.requests();
+    assert!(
+        requests.len() >= 2,
+        "expected compaction summary request + main turn request"
+    );
+    for request in &requests {
+        assert!(
+            request.messages.len() <= MAX_REQUEST_MESSAGES,
+            "submitted request has {} messages (> {})",
+            request.messages.len(),
+            MAX_REQUEST_MESSAGES
+        );
+    }
+    assert!(agent.thread().entries.iter().any(|entry| matches!(
+        entry,
+        Entry::Compaction {
+            covered_until: Some(_),
+            ..
+        }
+    )));
+}

@@ -8,6 +8,9 @@ defmodule Cgc2046Web.PaymentWebhookController do
   - 应答体按渠道（adapter 层语义）：微信 200 + {"code":"SUCCESS"}；支付宝
     200 + "success"（小写纯文本，支付宝要求特定 ack）。
   - 验签失败 400 + telemetry（渠道按频率策略重试）。
+  - LLM 独立收银台复用同一回调入口：`LLM_` 前缀的 out_trade_no 分流到
+    `LlmPaymentSettlementWorker`；报名支付单仍走 `PaymentSettlementWorker`，
+    两个落账 worker 内部互不感知。
   """
 
   use Cgc2046Web, :controller
@@ -16,6 +19,7 @@ defmodule Cgc2046Web.PaymentWebhookController do
 
   alias Cgc2046.Payments.{Provider, WebhookEvent}
   alias Cgc2046.Payments.Workers.PaymentSettlementWorker
+  alias Cgc2046.LlmGateway.Workers.LlmPaymentSettlementWorker
 
   @channel_providers %{"wechat" => :wechat, "alipay" => :alipay}
 
@@ -63,7 +67,7 @@ defmodule Cgc2046Web.PaymentWebhookController do
         case Ash.create(changeset, authorize?: false) do
           {:ok, webhook_event} ->
             webhook_event.id
-            |> settlement_job()
+            |> settlement_job(event)
             |> Oban.insert!()
 
             :enqueued
@@ -103,11 +107,36 @@ defmodule Cgc2046Web.PaymentWebhookController do
     end
   end
 
-  defp settlement_job(webhook_event_id) do
-    PaymentSettlementWorker.new(%{
-      "webhook_event_id" => webhook_event_id
-    })
+  defp settlement_job(webhook_event_id, event) do
+    if llm_order_event?(event) do
+      LlmPaymentSettlementWorker.new(%{
+        "webhook_event_id" => webhook_event_id
+      })
+    else
+      PaymentSettlementWorker.new(%{
+        "webhook_event_id" => webhook_event_id
+      })
+    end
   end
+
+  # 独立 LLM 收银台复用同一回调入口：按商户单号前缀分流，同时显式排除退款通知。
+  # 报名支付单为 "CGC..."，LLM 单为 "LLM_..."；退款通知（即使携带 LLM_ out_trade_no）
+  # 或无 out_trade_no 的通知不进入 LLM 落账 worker，避免误入支付入账链。
+  defp llm_order_event?(%{"out_trade_no" => "LLM_" <> _} = event), do: not refund_event?(event)
+  defp llm_order_event?(_event), do: false
+
+  defp refund_event?(%{"event_type" => "REFUND." <> _}), do: true
+
+  defp refund_event?(event) when is_map(event) do
+    present?(event["out_refund_no"]) or
+      present?(event["refund_id"]) or
+      present?(event["refund_status"]) or
+      present?(event["refund_fee"]) or
+      present?(event["gmt_refund"])
+  end
+
+  defp present?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present?(value), do: not is_nil(value)
 
   # 渠道事件标识：微信 v3 通知体 id；支付宝表单 notify_id；兜底 sha256(raw body)
   # 去重键（两渠道正常路径均有稳定 id）。

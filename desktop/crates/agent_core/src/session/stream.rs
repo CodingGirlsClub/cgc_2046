@@ -5,11 +5,23 @@ pub(super) enum StreamOutcome {
         text: String,
         thinking: String,
         thinking_signature: Option<String>,
+        thinking_duration_ms: Option<u64>,
         replay_content: Vec<cgc_agent_provider::Content>,
         usage: TokenUsage,
         stop_reason: StopReason,
         tool_calls: Vec<ToolUse>,
     },
+}
+
+fn freeze_thinking_duration(
+    started: &mut Option<std::time::Instant>,
+    duration_ms: &mut Option<u64>,
+) {
+    if duration_ms.is_none() {
+        if let Some(start) = started.take() {
+            *duration_ms = Some((start.elapsed().as_millis() as u64).max(1));
+        }
+    }
 }
 
 pub(super) async fn run_stream(
@@ -23,6 +35,8 @@ pub(super) async fn run_stream(
     let mut text = String::new();
     let mut thinking = String::new();
     let mut thinking_signature = None;
+    let mut thinking_started = None;
+    let mut thinking_duration_ms = None;
     let mut replay_content = Vec::new();
     let mut usage = TokenUsage::default();
     let mut stop_reason = None;
@@ -41,6 +55,7 @@ pub(super) async fn run_stream(
         match event? {
             CompletionEvent::StartMessage { .. } => {}
             CompletionEvent::Text(chunk) => {
+                freeze_thinking_duration(&mut thinking_started, &mut thinking_duration_ms);
                 observer.on_text(&chunk);
                 text.push_str(&chunk);
             }
@@ -48,16 +63,24 @@ pub(super) async fn run_stream(
                 text: chunk,
                 signature,
             } => {
+                if !chunk.is_empty() && thinking_started.is_none() && thinking_duration_ms.is_none()
+                {
+                    thinking_started = Some(std::time::Instant::now());
+                }
                 observer.on_thinking(&chunk);
                 thinking.push_str(&chunk);
                 if signature.is_some() {
                     thinking_signature = signature;
                 }
             }
-            CompletionEvent::ToolUse(tool_use) => tool_calls.push(tool_use),
+            CompletionEvent::ToolUse(tool_use) => {
+                freeze_thinking_duration(&mut thinking_started, &mut thinking_duration_ms);
+                tool_calls.push(tool_use);
+            }
             CompletionEvent::ContentBlock(content) => replay_content.push(content),
             CompletionEvent::Usage(delta) => usage.add(delta),
             CompletionEvent::Stop(reason) => {
+                freeze_thinking_duration(&mut thinking_started, &mut thinking_duration_ms);
                 // 记录结束原因但**不 break**：OpenAI 兼容端点会在 finish_reason 之后
                 // 再补一个只带 usage 的尾块（`include_usage` 时如此）。提前跳出会丢掉
                 // usage，上下文用量与 observed-token 修正都会失准。流随后自然结束。
@@ -67,10 +90,12 @@ pub(super) async fn run_stream(
             }
         }
     }
+    freeze_thinking_duration(&mut thinking_started, &mut thinking_duration_ms);
     Ok(StreamOutcome::Finished {
         text,
         thinking,
         thinking_signature,
+        thinking_duration_ms,
         replay_content,
         usage,
         stop_reason: stop_reason.unwrap_or_else(|| StopReason::Other("stream ended".to_string())),

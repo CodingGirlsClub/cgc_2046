@@ -759,3 +759,195 @@ fn no_enabled_models_unconfigures_refresh_and_allows_reconfiguration() {
         std::fs::remove_dir_all(root).unwrap();
     }
 }
+
+#[test]
+fn managed_provider_turn_errors_emit_structured_turn_error_events() {
+    use cgc_agent_core::{AutoApprover, NoopObserver};
+    use cgc_agent_host::acp_server::CancelSwitch;
+    use cgc_agent_provider::{FakeProvider, ProviderError};
+
+    let root = std::env::temp_dir().join(format!(
+        "cgc-turn-error-events-{}",
+        uuid::Uuid::new_v4().simple()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+
+    let model = Model::new(
+        ProviderId::new(CGC_CLOUD_PROVIDER_ID),
+        "CGC Cloud",
+        "cgc-default",
+        "cgc-default",
+        ModelLimits::new(8_000, 1_000),
+    );
+    let provider = Arc::new(FakeProvider::new(
+        ProviderId::new(CGC_CLOUD_PROVIDER_ID),
+        "CGC Cloud",
+        vec![model.clone()],
+    ));
+    let thread = Thread::new(
+        "managed-thread-1",
+        cgc_agent_core::SelectedModel::new(model.provider_id.clone(), model.id.clone()),
+    );
+    let mut owner = Owner::initialize(
+        Initialization::Explicit {
+            thread: Box::new(thread),
+            system_prompt: None,
+            config: Box::new(NativeRuntimeConfig {
+                provider: provider.clone(),
+                model,
+                registry: Arc::new(ToolRegistry::new()),
+                context: ToolContext::new(&root),
+                context_size: 8_000,
+                auto_approve: true,
+            }),
+            store: None,
+        },
+        Weak::new(),
+        Arc::new(std::sync::Mutex::new(None)),
+    )
+    .expect("initialize owner");
+
+    let (sub_tx, mut sub_rx) = mpsc::unbounded();
+    owner.command(Command::Subscribe(sub_tx));
+    // Drain initial snapshot event.
+    let _ = sub_rx.try_recv();
+
+    let run_failing_turn = |owner: &mut Owner, error: ProviderError| {
+        provider.push_script(vec![Err(error)]);
+        let (reply, result) = oneshot::channel();
+        owner.start_turn(
+            owner.generation,
+            owner.frozen.id.clone(),
+            NativeTurn {
+                session_id: "session".into(),
+                prompt: "hello".into(),
+                observer: Box::new(NoopObserver),
+                approver: Arc::new(AutoApprover),
+                cancel: CancelSwitch::new(),
+            },
+            reply,
+        );
+        let job = block_on(owner.jobs.next()).expect("turn job");
+        owner.completed(job);
+        let turn_result = block_on(result).expect("reply");
+        assert!(turn_result.is_err());
+    };
+
+    run_failing_turn(&mut owner, ProviderError::insufficient_quota("no credits"));
+    let mut events = Vec::new();
+    while let Ok(event) = sub_rx.try_recv() {
+        events.push(event);
+    }
+    assert!(
+        events.iter().any(|event| matches!(
+            event.as_ref(),
+            NativeRuntimeEvent::TurnError {
+                kind: NativeTurnErrorKind::InsufficientQuota,
+                ..
+            }
+        )),
+        "HTTP 402 on managed provider must emit InsufficientQuota TurnError"
+    );
+
+    run_failing_turn(&mut owner, ProviderError::api(403, "wallet frozen"));
+    events.clear();
+    while let Ok(event) = sub_rx.try_recv() {
+        events.push(event);
+    }
+    assert!(
+        events.iter().any(|event| matches!(
+            event.as_ref(),
+            NativeRuntimeEvent::TurnError {
+                kind: NativeTurnErrorKind::WalletFrozen,
+                ..
+            }
+        )),
+        "HTTP 403 on managed provider must emit WalletFrozen TurnError"
+    );
+
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn base_tools_subagent_inherits_active_thread_affinity_session_id() {
+    use cgc_agent_provider::{CompletionEvent, FakeProvider, StopReason};
+
+    let root = std::env::temp_dir().join(format!(
+        "cgc-subagent-affinity-{}",
+        uuid::Uuid::new_v4().simple()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+
+    let model = Model::new(
+        ProviderId::new(CGC_CLOUD_PROVIDER_ID),
+        "CGC Cloud",
+        "cgc-default",
+        "cgc-default",
+        ModelLimits::new(8_000, 1_000),
+    );
+    let provider = Arc::new(FakeProvider::new(
+        ProviderId::new(CGC_CLOUD_PROVIDER_ID),
+        "CGC Cloud",
+        vec![model.clone()],
+    ));
+    provider.push_script(vec![
+        Ok(CompletionEvent::Text("subagent answer".to_string())),
+        Ok(CompletionEvent::Stop(StopReason::EndTurn)),
+    ]);
+
+    let thread = Thread::new(
+        "native-parent-thread-99",
+        cgc_agent_core::SelectedModel::new(model.provider_id.clone(), model.id.clone()),
+    );
+    let mut owner = Owner::initialize(
+        Initialization::Explicit {
+            thread: Box::new(thread),
+            system_prompt: None,
+            config: Box::new(NativeRuntimeConfig {
+                provider: provider.clone(),
+                model,
+                registry: Arc::new(ToolRegistry::new()),
+                context: ToolContext::new(&root),
+                context_size: 8_000,
+                auto_approve: true,
+            }),
+            store: None,
+        },
+        Weak::new(),
+        Arc::new(std::sync::Mutex::new(None)),
+    )
+    .expect("initialize owner");
+    owner.production = Some(factory::Production {
+        host: NativePanelHost::new(Arc::new(std::sync::Mutex::new(AgentState::default())), None),
+        providers: Arc::new(Vec::new()),
+        data_root: root.clone(),
+        keychain: KeychainStore::new(Arc::new(MemoryKeychain(AtomicBool::new(true)))),
+        allow_echo: false,
+        model_setup: ModelSetup::Configured,
+        pending: None,
+    });
+    owner.rebuild_tools();
+
+    let task_tool = owner
+        .config
+        .registry
+        .get("task")
+        .expect("base_tools registers task subagent tool");
+    let output = block_on(task_tool.run(
+        serde_json::json!({"task": "check workspace"}),
+        owner.config.context.clone(),
+    ))
+    .expect("task tool succeeds");
+    assert!(!output.is_error);
+    assert_eq!(output.content, "subagent answer");
+
+    let requests = provider.requests();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(
+        requests[0].session_id.as_deref(),
+        Some("native-parent-thread-99"),
+        "task subagent must inherit parent thread ID as x-session-affinity"
+    );
+
+    std::fs::remove_dir_all(root).ok();
+}

@@ -63,6 +63,7 @@ impl Notification {
             (Some("course"), Some(id)) => Some(format!("cgc://courses/{id}")),
             (Some("enrollment"), _) => Some("cgc://events/mine".to_string()),
             (Some("workspace"), _) => Some("cgc://workspace".to_string()),
+            (Some("quota"), _) => Some("cgc://quota".to_string()),
             _ => desktop_deep_link(self.deep_link.as_deref()),
         }
     }
@@ -198,6 +199,7 @@ pub fn desktop_deep_link(deep_link: Option<&str>) -> Option<String> {
     match deep_link {
         "/pages/workspace/index" => Some("cgc://workspace".to_string()),
         "/pages/my-enrollments/index" => Some("cgc://events/mine".to_string()),
+        "/settings/ai-quota" => Some("cgc://quota".to_string()),
         _ if deep_link.starts_with("/pages/event-detail/index?") => {
             let id = deep_link
                 .split_once('?')?
@@ -375,6 +377,10 @@ mod tests {
         assert_eq!(
             desktop_deep_link(Some("/pages/my-enrollments/index")).as_deref(),
             Some("cgc://events/mine")
+        );
+        assert_eq!(
+            desktop_deep_link(Some("/settings/ai-quota")).as_deref(),
+            Some("cgc://quota")
         );
         assert_eq!(desktop_deep_link(Some("/pages/unknown/index")), None);
         assert_eq!(desktop_deep_link(None), None);

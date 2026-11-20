@@ -14,14 +14,25 @@ impl Agent {
         crate::thinking::prepare(&mut self.thread, self.system_prompt.as_deref(), &tools);
         let mut plan =
             RequestPlan::select(&self.thread, model, self.system_prompt.as_deref(), &tools)?;
+        let session_id = self
+            .affinity_session_id
+            .clone()
+            .or_else(|| (!self.thread.id.trim().is_empty()).then(|| self.thread.id.clone()));
         if plan.omitted() > 0 && !plan.preserve_prefix {
             let omitted = plan.omitted();
+            let compaction_model = self.background_model.as_ref().unwrap_or(model);
+            let compaction_effort = if self.background_model.is_some() {
+                None
+            } else {
+                self.reasoning_effort.as_deref()
+            };
             if let Some(summary) = Self::summarise_prefix(
                 provider,
-                model,
+                compaction_model,
                 &self.thread,
                 &self.cancel,
-                self.reasoning_effort.as_deref(),
+                compaction_effort,
+                session_id.as_deref(),
                 &plan,
             )
             .await
@@ -53,7 +64,8 @@ impl Agent {
             self.reasoning_effort.clone(),
             self.temperature,
             None,
-        );
+        )
+        .with_optional_session_id(session_id);
         request.thinking_enabled = self.thinking_enabled;
         Ok(request)
     }
@@ -66,6 +78,7 @@ impl Agent {
         thread: &Thread,
         cancel: &CancelToken,
         reasoning_effort: Option<&str>,
+        session_id: Option<&str>,
         plan: &RequestPlan,
     ) -> Option<String> {
         let output_limit = plan.summary_limit.min(256);
@@ -105,6 +118,7 @@ impl Agent {
                         output_limit,
                         cancel,
                         reasoning_effort,
+                        session_id,
                     )
                     .await?,
                 );
@@ -126,10 +140,12 @@ impl Agent {
             output_limit,
             cancel,
             reasoning_effort,
+            session_id,
         )
         .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn summarise_chunk(
         provider: &dyn Provider,
         model: &Model,
@@ -138,6 +154,7 @@ impl Agent {
         output_limit: usize,
         cancel: &CancelToken,
         reasoning_effort: Option<&str>,
+        session_id: Option<&str>,
     ) -> Option<String> {
         if cancel.is_cancelled() {
             return None;
@@ -154,7 +171,8 @@ impl Agent {
             reasoning_effort.map(str::to_string),
             None,
             Some(output_limit),
-        );
+        )
+        .with_optional_session_id(session_id.map(str::to_string));
         let mut stream = provider.stream(model, request).await.ok()?;
         let mut summary = String::new();
         // 与主流程同一条取消原语：压缩期间沉默也能立刻放弃，不必等下一个事件。

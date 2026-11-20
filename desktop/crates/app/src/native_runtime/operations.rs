@@ -3,7 +3,7 @@ use super::*;
 use cgc_agent_checkpoint::CheckpointManager;
 use cgc_agent_core::{Agent, SelectedModel};
 use cgc_agent_provider::{EchoProvider, UnconfiguredProvider};
-use cgc_agent_store::PrefsStore;
+use cgc_agent_store::{cgc_cloud_provider, PrefsStore, CGC_CLOUD_PROVIDER_ID};
 use cgc_agent_tools::SandboxPolicy;
 
 impl Owner {
@@ -219,6 +219,15 @@ impl Owner {
                 self.config.context.workspace(),
             )),
         ));
+        if let Some(agent) = self.agent.as_mut() {
+            let background = self.production.as_ref().and_then(|production| {
+                (self.config.model.provider_id.as_str() == CGC_CLOUD_PROVIDER_ID)
+                    .then(|| factory::managed_background_model(production))
+                    .flatten()
+                    .map(|(_, model)| model)
+            });
+            agent.set_background_model(background);
+        }
         self.rebuild_tools();
         self.freeze();
         self.reload_checkpoints();
@@ -340,10 +349,26 @@ impl Owner {
         if self.config.model == model {
             return Ok(self.snapshot());
         }
+        let entering_managed = enters_managed_provider(
+            model.provider_id.as_str(),
+            self.config.model.provider_id.as_str(),
+        );
+        let managed = model.provider_id.as_str() == CGC_CLOUD_PROVIDER_ID;
+        let background_model = managed
+            .then(|| factory::managed_background_model(production))
+            .flatten()
+            .map(|(_, model)| model);
         self.persist();
         self.config.provider = provider;
         self.config.context_size = model.limits.context_window as u64;
-        self.config.model = model;
+        self.config.model = model.clone();
+        if entering_managed {
+            self.thinking_enabled = false;
+            self.effort_index = 0;
+        }
+        if let Some(agent) = self.agent.as_mut() {
+            agent.set_background_model(background_model);
+        }
         self.replace(
             thread_for_model_switch(
                 &self.frozen,
@@ -367,33 +392,39 @@ impl Owner {
             .as_mut()
             .ok_or_else(|| NativeRuntimeError::Configuration("runtime 未配置模型目录".into()))?;
         let prefs = PrefsStore::new(production.data_root.join("agent_prefs.json")).load();
-        production.providers = Arc::new(
-            prefs
-                .providers
+        let managed_available = cgc_platform::gateway::signed_in();
+        let (env_base_url, env_key) = factory::env_byok_credentials();
+        let env_byok = factory::has_env_byok(&prefs, env_base_url.as_deref(), env_key.as_deref());
+        let (managed, active) =
+            factory::resolve_active_provider_with_env(&prefs, managed_available, env_byok);
+        let mut available_providers = prefs.providers.clone();
+        if managed
+            && !available_providers
                 .iter()
-                .filter(|provider| provider.enabled)
-                .cloned()
-                .collect(),
-        );
-        self.providers = Arc::new(prefs.providers.clone());
-        let active = prefs.active_provider();
-        let model_id = active.and_then(|active| {
+                .any(|provider| provider.id == CGC_CLOUD_PROVIDER_ID)
+        {
+            available_providers.push(cgc_cloud_provider());
+        }
+        available_providers.retain(|provider| provider.enabled);
+        production.providers = Arc::new(available_providers.clone());
+        self.providers = Arc::new(available_providers);
+        let model_id = active.as_ref().and_then(|active| {
             prefs
                 .selected_model
                 .as_ref()
                 .filter(|selection| selection.provider_id.as_str() == active.id)
-                .map(|selection| selection.model_id.as_str())
+                .map(|selection| selection.model_id.as_str().to_string())
                 .filter(|id| model_is_available(active, id))
                 .or_else(|| {
                     active
                         .models
                         .iter()
                         .find(|id| active.model_config(id).enabled)
-                        .map(String::as_str)
+                        .cloned()
                 })
         });
         let Some((active, model_id)) = active.zip(model_id) else {
-            let allow_echo = production.allow_echo && active.is_none();
+            let allow_echo = production.allow_echo;
             production.pending = None;
             production.model_setup = if allow_echo {
                 ModelSetup::DemoEcho
@@ -411,11 +442,24 @@ impl Owner {
             self.publish(RuntimeChange::Configuration);
             return Ok(self.snapshot());
         };
-        let (provider, model) = factory::select_model(production, &active.id, model_id)?;
+        let (provider, model) = factory::select_model(production, &active.id, &model_id)?;
+        let entering_managed =
+            resets_thinking_on_managed_entry(managed, self.config.model.provider_id.as_str());
         self.config.provider = provider;
         self.config.context_size = model.limits.context_window as u64;
         self.config.model = model.clone();
         self.model_meta = Arc::new(model.clone());
+        if entering_managed {
+            self.thinking_enabled = false;
+            self.effort_index = 0;
+        }
+        if let Some(agent) = self.agent.as_mut() {
+            let background = managed
+                .then(|| factory::managed_background_model(production))
+                .flatten()
+                .map(|(_, model)| model);
+            agent.set_background_model(background);
+        }
         let selected = SelectedModel::new(model.provider_id.clone(), model.id.clone());
         if self.frozen.model != selected {
             self.persist();
@@ -435,6 +479,14 @@ impl Owner {
     }
 }
 
+fn resets_thinking_on_managed_entry(managed: bool, current_provider_id: &str) -> bool {
+    managed && current_provider_id != CGC_CLOUD_PROVIDER_ID
+}
+
+fn enters_managed_provider(target_provider_id: &str, current_provider_id: &str) -> bool {
+    target_provider_id == CGC_CLOUD_PROVIDER_ID && current_provider_id != CGC_CLOUD_PROVIDER_ID
+}
+
 fn model_is_available(active: &cgc_agent_store::ProviderPrefs, model_id: &str) -> bool {
     active.models.iter().any(|id| id == model_id) && active.model_config(model_id).enabled
 }
@@ -447,7 +499,10 @@ fn thread_for_model_switch(current: &Thread, selected: SelectedModel) -> Thread 
 
 #[cfg(test)]
 mod tests {
-    use super::{model_is_available, thread_for_model_switch};
+    use super::{
+        enters_managed_provider, model_is_available, resets_thinking_on_managed_entry,
+        thread_for_model_switch,
+    };
     use cgc_agent_core::{SelectedModel, Thread};
     use cgc_agent_provider::{ModelId, ProviderId};
     use cgc_agent_store::{ModelPrefs, ProviderPrefs};
@@ -482,6 +537,16 @@ mod tests {
         assert!(!model_is_available(&active, "removed"));
         assert!(!model_is_available(&active, "missing"));
         assert!(model_is_available(&active, "available"));
+    }
+
+    #[test]
+    fn entering_managed_cgc_resets_thinking_default() {
+        assert!(resets_thinking_on_managed_entry(true, "custom"));
+        assert!(!resets_thinking_on_managed_entry(true, "cgc-cloud"));
+        assert!(!resets_thinking_on_managed_entry(false, "custom"));
+        assert!(enters_managed_provider("cgc-cloud", "custom"));
+        assert!(!enters_managed_provider("cgc-cloud", "cgc-cloud"));
+        assert!(!enters_managed_provider("custom", "cgc-cloud"));
     }
 
     #[test]

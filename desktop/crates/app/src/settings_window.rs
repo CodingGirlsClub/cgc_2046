@@ -2434,6 +2434,7 @@ fn provider_validation_message(error: &ProviderError) -> &'static str {
         ProviderErrorCategory::Authentication => "API Key 无效或已过期",
         ProviderErrorCategory::Permission => "API Key 没有访问权限",
         ProviderErrorCategory::PaymentRequired => "账户余额不足",
+        ProviderErrorCategory::ConcurrencyLimit => "当前并发请求数已达上限，请稍后重试",
         ProviderErrorCategory::RateLimit => "请求过于频繁，请稍后重试",
         ProviderErrorCategory::Overloaded => "Provider 服务暂时不可用，请稍后重试",
         ProviderErrorCategory::Transport => "网络连接失败，请检查网络后重试",

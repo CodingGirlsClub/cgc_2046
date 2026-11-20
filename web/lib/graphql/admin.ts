@@ -543,6 +543,11 @@ export const RECONCILIATION_RULE_LABEL: Record<string, string> = {
 	notification_delivery_failed: "labels.reconRule.notification_delivery_failed",
 	deposit_forfeit_batch_alert: "labels.reconRule.deposit_forfeit_batch_alert",
 	refunding_without_refund_job: "labels.reconRule.refunding_without_refund_job",
+	llm_wallet_balance_mismatch: "labels.reconRule.llm_wallet_balance_mismatch",
+	llm_wallet_held_mismatch: "labels.reconRule.llm_wallet_held_mismatch",
+	llm_paid_order_without_grant: "labels.reconRule.llm_paid_order_without_grant",
+	llm_workspace_pool_mismatch: "labels.reconRule.llm_workspace_pool_mismatch",
+	llm_closed_order_paid: "labels.reconRule.llm_closed_order_paid",
 };
 
 /** 对账实体类型 → 中文标签 */
@@ -551,6 +556,7 @@ export const RECONCILIATION_ENTITY_LABEL: Record<string, string> = {
 	sponsorship: "labels.reconEntity.sponsorship",
 	join_request: "labels.reconEntity.join_request",
 	workspace_application: "labels.reconEntity.workspace_application",
+	workspace: "labels.reconEntity.workspace",
 	event: "labels.reconEntity.event",
 	course: "labels.reconEntity.course",
 	oban_job: "Oban Job",

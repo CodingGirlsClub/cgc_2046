@@ -520,8 +520,13 @@ pub(in crate::root_view) fn render_chat_panel(
                             }))
                             .into_any_element()
                     }
-                    ConversationEntry::Thinking { text, expanded } => {
+                    ConversationEntry::Thinking {
+                        text,
+                        expanded,
+                        duration_ms,
+                    } => {
                         let expanded = *expanded;
+                        let duration_ms = *duration_ms;
                         let toggle_view = view_weak.clone();
                         render_thinking_row(ThinkingRowSpec {
                             row_id: SharedString::from(format!("chat-thinking-{index}")),
@@ -531,6 +536,7 @@ pub(in crate::root_view) fn render_chat_panel(
                             )),
                             markdown: text.clone(),
                             expanded,
+                            duration_ms,
                             style: chat_message_style(palette),
                             on_toggle: Box::new(move |cx: &mut App| {
                                 let _ = toggle_view

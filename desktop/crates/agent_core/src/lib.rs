@@ -11,9 +11,9 @@ pub mod thread;
 
 pub use context::{input_capacity, project_thread};
 pub use session::{
-    run_subagent, Agent, AgentError, ApprovalRequest, Approver, AutoApprover, CancelToken,
-    DenyApprover, NoopObserver, ToolResultSummary, ToolTurnOutcome, TurnObserver, TurnOutcome,
-    MAX_FOLLOW_UP_TURNS, MAX_STEERS, MAX_TOOL_STEPS,
+    run_subagent, run_subagent_with_affinity, Agent, AgentError, ApprovalRequest, Approver,
+    AutoApprover, CancelToken, DenyApprover, NoopObserver, ToolResultSummary, ToolTurnOutcome,
+    TurnObserver, TurnOutcome, MAX_FOLLOW_UP_TURNS, MAX_STEERS, MAX_TOOL_STEPS,
 };
 pub use thinking::ThinkingContext;
 pub use thread::{Entry, ImageAttachment, SelectedModel, Thread};

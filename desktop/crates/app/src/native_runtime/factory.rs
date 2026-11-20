@@ -1,11 +1,13 @@
 use super::*;
-use cgc_agent_core::{run_subagent, Agent, SelectedModel};
+use cgc_agent_core::{run_subagent_with_affinity, Agent, SelectedModel};
 use cgc_agent_provider::{
     AnthropicCompatibleConfig, AnthropicCompatibleProvider, EchoProvider, ModelCapabilities,
     ModelLimits, OpenAiCompatibleConfig, OpenAiCompatibleProvider, ProviderId, ProviderProtocol,
     ResponsesCompatibleConfig, ResponsesCompatibleProvider, UnconfiguredProvider,
 };
-use cgc_agent_store::{provider_key_account, PrefsStore};
+use cgc_agent_store::{
+    cgc_cloud_provider, provider_key_account, AgentPrefs, PrefsStore, CGC_CLOUD_PROVIDER_ID,
+};
 use cgc_agent_tools::{
     ActionSink, SandboxPolicy, SubagentEvent, SubagentEventSink, SubagentRunner,
 };
@@ -33,6 +35,89 @@ fn endpoint_url(provider: &ProviderPrefs) -> String {
             provider.base_url.clone()
         }
     }
+}
+
+/// 登录态下的有效 Provider：显式选择的 BYOK 优先；没有可用 BYOK 时默认 CGC Cloud。
+/// 工厂初始化与运行时 refresh 共用，避免登录后两条路径给出不同选择。
+///
+/// 已保存的 CGC 配置优先于新造默认值：用户禁用的模型/Provider 不能被登录
+/// 默认逻辑悄悄重新启用；若用户明确禁用了 CGC 且没有可用 BYOK，则保持
+pub(super) fn env_byok_credentials() -> (Option<String>, Option<String>) {
+    let base_url = std::env::var("CGC_AGENT_BASE_URL")
+        .ok()
+        .filter(|value| !value.is_empty());
+    let api_key = std::env::var("CGC_AGENT_API_KEY")
+        .ok()
+        .filter(|value| !value.is_empty());
+    (base_url, api_key)
+}
+
+pub(super) fn has_env_byok(
+    prefs: &AgentPrefs,
+    env_base_url: Option<&str>,
+    env_key: Option<&str>,
+) -> bool {
+    match (env_base_url, env_key) {
+        (Some(_), Some(_)) => true,
+        (None, Some(_)) => prefs
+            .active_provider()
+            .is_some_and(|provider| provider.id != CGC_CLOUD_PROVIDER_ID),
+        _ => false,
+    }
+}
+
+/// Unconfigured，而不是重新创建 CGC 后又在 available 列表里过滤掉。
+#[cfg(test)]
+pub(super) fn resolve_active_provider(
+    prefs: &AgentPrefs,
+    managed_available: bool,
+) -> (bool, Option<ProviderPrefs>) {
+    resolve_active_provider_with_env(prefs, managed_available, false)
+}
+
+pub(super) fn resolve_active_provider_with_env(
+    prefs: &AgentPrefs,
+    managed_available: bool,
+    env_byok_configured: bool,
+) -> (bool, Option<ProviderPrefs>) {
+    if env_byok_configured {
+        let byok_active = prefs
+            .active_provider()
+            .filter(|provider| provider.id != CGC_CLOUD_PROVIDER_ID)
+            .cloned();
+        return (false, byok_active);
+    }
+    let saved_managed = prefs.provider(CGC_CLOUD_PROVIDER_ID).cloned();
+    let configured_active = prefs
+        .active_provider()
+        .filter(|provider| provider.has_key || !managed_available)
+        .cloned()
+        .or_else(|| {
+            saved_managed
+                .as_ref()
+                .filter(|provider| provider.enabled && managed_available)
+                .cloned()
+        });
+    let managed = managed_available
+        && match saved_managed.as_ref() {
+            Some(provider) => {
+                provider.enabled
+                    && configured_active
+                        .as_ref()
+                        .is_none_or(|active| active.id == CGC_CLOUD_PROVIDER_ID)
+            }
+            None => configured_active
+                .as_ref()
+                .is_none_or(|active| active.id == CGC_CLOUD_PROVIDER_ID),
+        };
+    let active = if managed {
+        saved_managed
+            .filter(|provider| provider.enabled)
+            .or_else(|| Some(cgc_cloud_provider()))
+    } else {
+        configured_active
+    };
+    (managed, active)
 }
 
 pub(super) struct Production {
@@ -71,16 +156,22 @@ pub(super) fn initialize_with_keychain(
     std::fs::create_dir_all(&scope.root)
         .map_err(|error| NativeRuntimeError::Storage(error.to_string()))?;
     let prefs = PrefsStore::new(data_root.join("agent_prefs.json")).load();
-    let active = prefs.active_provider();
+    let managed_available = cgc_platform::gateway::signed_in();
+    let (env_base_url, env_key) = env_byok_credentials();
+    let env_byok = has_env_byok(&prefs, env_base_url.as_deref(), env_key.as_deref());
+    let (managed, active) = resolve_active_provider_with_env(&prefs, managed_available, env_byok);
     let protocol = std::env::var("CGC_AGENT_PROTOCOL")
         .ok()
         .map(|value| value.parse::<ProviderProtocol>())
         .transpose()
         .map_err(|error| NativeRuntimeError::Configuration(error.into()))?
         .unwrap_or_else(|| {
-            active.map_or(ProviderProtocol::default(), |provider| provider.protocol)
+            active
+                .as_ref()
+                .map_or(ProviderProtocol::default(), |provider| provider.protocol)
         });
     let provider_id = active
+        .as_ref()
         .map(|provider| provider.id.clone())
         .filter(|id| !id.is_empty())
         .unwrap_or_else(|| "custom".into());
@@ -92,13 +183,19 @@ pub(super) fn initialize_with_keychain(
                 .selected_model
                 .as_ref()
                 .filter(|selection| {
-                    active.is_some_and(|provider| provider.id == selection.provider_id.as_str())
+                    active
+                        .as_ref()
+                        .is_some_and(|provider| provider.id == selection.provider_id.as_str())
                 })
                 .map(|model| model.model_id.as_str().into())
         })
-        .or_else(|| active.and_then(|provider| provider.primary_model().map(str::to_string)))
+        .or_else(|| {
+            active
+                .as_ref()
+                .and_then(|provider| provider.primary_model().map(str::to_string))
+        })
         .unwrap_or_else(|| "echo".into());
-    let model_id = match active {
+    let model_id = match active.as_ref() {
         Some(provider)
             if !provider.models.contains(&model_id)
                 || !provider.model_config(&model_id).enabled =>
@@ -113,13 +210,16 @@ pub(super) fn initialize_with_keychain(
         _ => model_id,
     };
     let model_config = active
+        .as_ref()
         .map(|provider| provider.model_config(&model_id))
         .unwrap_or_default();
-    let model_available =
-        model_config.enabled && active.is_none_or(|provider| provider.models.contains(&model_id));
+    let model_available = model_config.enabled
+        && active
+            .as_ref()
+            .is_none_or(|provider| provider.models.contains(&model_id));
     let name = std::env::var("CGC_AGENT_PROVIDER_NAME")
         .ok()
-        .or_else(|| active.map(|provider| provider.name.clone()))
+        .or_else(|| active.as_ref().map(|provider| provider.name.clone()))
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| "OpenAI Compatible".into());
     let model = Model::new(
@@ -135,18 +235,16 @@ pub(super) fn initialize_with_keychain(
         images: model_config.supports_images,
         thinking: model_config.supports_thinking,
     });
-    let base_url = std::env::var("CGC_AGENT_BASE_URL")
-        .ok()
-        .filter(|value| !value.is_empty())
-        .or_else(|| active.map(endpoint_url));
+    let base_url = if managed {
+        cgc_platform::gateway::gateway_base_url()
+    } else {
+        env_base_url.or_else(|| active.as_ref().map(endpoint_url))
+    };
     // 只读环境变量：钥匙串留到首次 turn（Production::pending）。
-    let env_key = std::env::var("CGC_AGENT_API_KEY")
-        .ok()
-        .filter(|value| !value.is_empty());
-    let active_has_key = active.is_some_and(|provider| provider.has_key);
+    let active_has_key = active.as_ref().is_some_and(|provider| provider.has_key);
     let pending = match (&env_key, &base_url) {
         (Some(_), _) => None,
-        (None, Some(url)) if !url.is_empty() && active_has_key && model_available => {
+        (None, Some(url)) if !managed && !url.is_empty() && active_has_key && model_available => {
             Some(PendingCredentials {
                 provider_id: model.provider_id.as_str().to_string(),
                 base_url: url.clone(),
@@ -156,14 +254,21 @@ pub(super) fn initialize_with_keychain(
         _ => None,
     };
     let (provider, mut model_setup) = if model_available {
-        provider(&model, protocol, base_url, env_key, allow_echo)
+        if managed {
+            (
+                managed_provider(&model, base_url.as_deref().unwrap_or_default()),
+                ModelSetup::Configured,
+            )
+        } else {
+            provider(&model, protocol, base_url, env_key, allow_echo)
+        }
     } else {
         provider(&model, protocol, None, None, false)
     };
     if pending.is_some() {
         model_setup = ModelSetup::PendingCredentials;
     }
-    let agent = Agent::new(
+    let mut agent = Agent::new(
         Thread::new(
             fresh_thread_id(),
             SelectedModel::new(model.provider_id.clone(), model.id.clone()),
@@ -172,6 +277,13 @@ pub(super) fn initialize_with_keychain(
             &scope.root,
         )),
     );
+    if managed {
+        if let Some(active) = active.as_ref() {
+            if let Some(background) = configured_model(active, "cgc-background") {
+                agent.set_background_model(Some(background));
+            }
+        }
+    }
     let config = NativeRuntimeConfig {
         provider,
         model,
@@ -180,14 +292,21 @@ pub(super) fn initialize_with_keychain(
         context_size: model_config.context_window as u64,
         auto_approve: false,
     };
+    let mut available_providers = prefs.providers;
+    if managed
+        && !available_providers
+            .iter()
+            .any(|provider| provider.id == CGC_CLOUD_PROVIDER_ID)
+    {
+        available_providers.push(cgc_cloud_provider());
+    }
     Ok((
         agent,
         config,
         Production {
             host,
             providers: Arc::new(
-                prefs
-                    .providers
+                available_providers
                     .into_iter()
                     .filter(|provider| provider.enabled)
                     .collect(),
@@ -199,6 +318,16 @@ pub(super) fn initialize_with_keychain(
             pending,
         },
     ))
+}
+
+fn managed_provider(model: &Model, base_url: &str) -> Arc<dyn Provider> {
+    let config =
+        OpenAiCompatibleConfig::new(base_url.to_string(), String::new(), vec![model.clone()])
+            .with_token_source(super::gateway::token_source())
+            .with_model_resolver(Arc::new(|model, request| {
+                super::gateway::managed_model_id(model, request)
+            }));
+    Arc::new(OpenAiCompatibleProvider::new(config))
 }
 
 fn provider(
@@ -251,6 +380,16 @@ pub(super) fn prepare_model(
     }
     let model = configured_model(configured, model_id)
         .ok_or_else(|| NativeRuntimeError::Configuration("模型不可用或已禁用".into()))?;
+    if configured.id == CGC_CLOUD_PROVIDER_ID {
+        let base_url = cgc_platform::gateway::gateway_base_url().ok_or_else(|| {
+            NativeRuntimeError::Configuration("CGC Gateway 地址不可用（未登录或端点被拒绝）".into())
+        })?;
+        return Ok((
+            managed_provider(&model, &base_url),
+            model,
+            ModelSetup::Configured,
+        ));
+    }
     let key = production
         .keychain
         .load_secret(&provider_key_account(&configured.id));
@@ -282,6 +421,11 @@ pub(super) fn save_model_selection(
 ) -> Result<(), NativeRuntimeError> {
     let store = PrefsStore::new(production.data_root.join("agent_prefs.json"));
     let mut prefs = store.load();
+    if model.provider_id.as_str() == CGC_CLOUD_PROVIDER_ID
+        && prefs.provider(CGC_CLOUD_PROVIDER_ID).is_none()
+    {
+        prefs.upsert_provider(cgc_cloud_provider());
+    }
     prefs.selected_provider = Some(model.provider_id.as_str().to_string());
     prefs.selected_model = Some(SelectedModel::new(
         model.provider_id.clone(),
@@ -290,6 +434,18 @@ pub(super) fn save_model_selection(
     store
         .save(&prefs)
         .map_err(|error| NativeRuntimeError::Storage(error.to_string()))
+}
+
+pub(super) fn managed_background_model(
+    production: &Production,
+) -> Option<(Arc<dyn Provider>, Model)> {
+    let configured = production
+        .providers
+        .iter()
+        .find(|provider| provider.id == CGC_CLOUD_PROVIDER_ID)?;
+    let model = configured_model(configured, "cgc-background")?;
+    let base_url = cgc_platform::gateway::gateway_base_url()?;
+    Some((managed_provider(&model, &base_url), model))
 }
 
 /// 会话标题生成模型：读用户设置文件的 `agent.thread_summary_model`（对齐 Zed 的
@@ -301,11 +457,20 @@ pub(super) fn summary_title_model(
     let selection = settings.agent.thread_summary_model.as_ref()?;
     let store = PrefsStore::new(production.data_root.join("agent_prefs.json"));
     let prefs = store.load();
-    let configured = prefs.provider(selection.provider.as_str())?;
+    let configured = prefs
+        .provider(selection.provider.as_str())
+        .cloned()
+        .or_else(|| {
+            (selection.provider.as_str() == CGC_CLOUD_PROVIDER_ID).then(cgc_cloud_provider)
+        })?;
     if !configured.enabled {
         return None;
     }
-    let model = configured_model(configured, selection.model.as_str())?;
+    let model = configured_model(&configured, selection.model.as_str())?;
+    if configured.id == CGC_CLOUD_PROVIDER_ID {
+        let base_url = cgc_platform::gateway::gateway_base_url()?;
+        return Some((managed_provider(&model, &base_url), model));
+    }
     if !configured.has_key {
         return None;
     }
@@ -318,7 +483,7 @@ pub(super) fn summary_title_model(
     let (provider, model_setup) = provider(
         &model,
         configured.protocol,
-        Some(endpoint_url(configured)),
+        Some(endpoint_url(&configured)),
         Some(key),
         production.allow_echo,
     );
@@ -395,6 +560,7 @@ pub(super) fn base_tools(
     config: &mut NativeRuntimeConfig,
     commands: &Weak<mpsc::UnboundedSender<Command>>,
     generation: u64,
+    affinity_session_id: Option<String>,
 ) -> ToolRegistry {
     let workspace = config.context.workspace().to_path_buf();
     let actions: ActionSink = {
@@ -416,18 +582,23 @@ pub(super) fn base_tools(
     let runner: SubagentRunner = {
         let provider = config.provider.clone();
         let model = config.model.clone();
+        let affinity_session_id = affinity_session_id
+            .map(|id| id.trim().to_string())
+            .filter(|id| !id.is_empty());
         Arc::new(move |request, events| {
             let provider = provider.clone();
             let model = model.clone();
             let workspace = workspace.clone();
+            let affinity_session_id = affinity_session_id.clone();
             Box::pin(async move {
-                run_subagent(
+                run_subagent_with_affinity(
                     provider,
                     model,
                     request.task,
                     request.system_prompt,
                     workspace,
                     events,
+                    affinity_session_id,
                 )
                 .await
                 .map_err(|error| error.to_string())

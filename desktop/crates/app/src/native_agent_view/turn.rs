@@ -1,7 +1,104 @@
 //! Native UI adapter: commands to the owner, ACP events to the shared client session.
 use super::*;
 
+pub(super) const WALLET_FROZEN_NOTICE: &str =
+    "当前 CGC 额度账户已被冻结，暂无法继续对话或充值。请联系客服处理。";
+
+pub(super) fn format_wallet_frozen_notice(error_message: &str) -> String {
+    if let Some((_, tail)) = error_message.rsplit_once(" (reason: ") {
+        if let Some(reason) = tail.strip_suffix(')').map(str::trim) {
+            if !reason.is_empty() {
+                return format!(
+                    "当前 CGC 额度账户已被冻结（原因：{reason}），暂无法继续对话或充值。请联系客服处理。"
+                );
+            }
+        }
+    }
+    WALLET_FROZEN_NOTICE.to_string()
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct TurnErrorEffect {
+    opens_quota_card: bool,
+    shows_frozen_notice: bool,
+}
+
+fn turn_error_effect(kind: NativeTurnErrorKind) -> TurnErrorEffect {
+    match kind {
+        NativeTurnErrorKind::InsufficientQuota => TurnErrorEffect {
+            opens_quota_card: true,
+            shows_frozen_notice: false,
+        },
+        NativeTurnErrorKind::WalletFrozen => TurnErrorEffect {
+            opens_quota_card: false,
+            shows_frozen_notice: true,
+        },
+        NativeTurnErrorKind::ConcurrencyLimit | NativeTurnErrorKind::Other => TurnErrorEffect {
+            opens_quota_card: false,
+            shows_frozen_notice: false,
+        },
+    }
+}
+
+fn is_structured_gateway_error_notice(entry: &ConversationEntry) -> bool {
+    let ConversationEntry::Notice {
+        level: cgc_agent_ui::conversation::NoticeLevel::Error,
+        text,
+    } = entry
+    else {
+        return false;
+    };
+    let lower = text.to_lowercase();
+    [
+        "insufficient quota",
+        "insufficient_quota",
+        "wallet is frozen",
+        "wallet_frozen",
+        "concurrency limit exceeded",
+        "concurrency_limit_exceeded",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
+}
+
+fn strip_structured_error_notices(entries: &mut Vec<ConversationEntry>) {
+    while entries
+        .last()
+        .is_some_and(is_structured_gateway_error_notice)
+    {
+        entries.pop();
+    }
+}
+
 impl NativeAgentView {
+    pub(super) fn apply_turn_error(
+        &mut self,
+        kind: NativeTurnErrorKind,
+        message: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let effect = turn_error_effect(kind);
+        self.insufficient_quota = effect.opens_quota_card;
+        if !matches!(kind, NativeTurnErrorKind::Other) {
+            strip_structured_error_notices(&mut self.state.session.thread.entries);
+        }
+        if effect.shows_frozen_notice {
+            self.quota_checkout = None;
+            self.quota_checkout_serial = self.quota_checkout_serial.wrapping_add(1);
+            let notice = format_wallet_frozen_notice(message);
+            self.wallet_frozen_notice = Some(notice.clone());
+            self.status = notice;
+        } else {
+            self.wallet_frozen_notice = None;
+            self.status = if effect.opens_quota_card {
+                "额度余额不足，充值后即可继续生成。".to_string()
+            } else {
+                format!("错误：{message}")
+            };
+        }
+        cx.notify();
+    }
+
     pub(super) fn apply_runtime_event(
         &mut self,
         event: &NativeRuntimeEvent,
@@ -22,6 +119,17 @@ impl NativeAgentView {
                 self.status = message.clone();
                 self.state.push_notice(message.clone());
                 cx.notify();
+            }
+            NativeRuntimeEvent::TurnError {
+                generation,
+                kind,
+                message,
+            } if self
+                .snapshot
+                .as_ref()
+                .is_none_or(|snapshot| *generation == snapshot.generation) =>
+            {
+                self.apply_turn_error(*kind, message, cx);
             }
             NativeRuntimeEvent::Subagent { generation, event }
                 if self
@@ -116,14 +224,60 @@ impl NativeAgentView {
         let terminal = events
             .iter()
             .any(|event| matches!(event, HostEvent::TurnEnd { .. } | HostEvent::Error { .. }));
+        let had_error = events
+            .iter()
+            .any(|event| matches!(event, HostEvent::Error { .. }));
+        let completed = events.iter().any(|event| {
+            matches!(
+                event,
+                HostEvent::TurnEnd {
+                    cancelled: false,
+                    ..
+                }
+            )
+        });
         for event in events {
             if !self.state.ingest(generation, &event) {
                 continue;
             }
+            match &event {
+                HostEvent::ThoughtDelta(_) => {
+                    if let Some(last_idx) = self.state.session.thread.entries.len().checked_sub(1) {
+                        if matches!(
+                            self.state.session.thread.entries.get(last_idx),
+                            Some(ConversationEntry::Thinking { .. })
+                        ) {
+                            let started = *self
+                                .thinking_started_at
+                                .entry(last_idx)
+                                .or_insert_with(std::time::Instant::now);
+                            self.state.session.thread.set_thinking_duration(
+                                last_idx,
+                                (started.elapsed().as_millis() as u64).max(1),
+                            );
+                        }
+                    }
+                }
+                HostEvent::Delta(_)
+                | HostEvent::ToolCall { .. }
+                | HostEvent::TurnEnd { .. }
+                | HostEvent::Error { .. } => {
+                    for (idx, started) in std::mem::take(&mut self.thinking_started_at) {
+                        self.state.session.thread.set_thinking_duration(
+                            idx,
+                            (started.elapsed().as_millis() as u64).max(1),
+                        );
+                    }
+                }
+                _ => {}
+            }
             self.page_context
                 .observe_event(&self.conversation_scope(), &event);
             if let HostEvent::Error { message } = &event {
-                self.status = format!("错误：{message}");
+                strip_structured_error_notices(&mut self.state.session.thread.entries);
+                if self.wallet_frozen_notice.is_none() && !self.insufficient_quota {
+                    self.status = format!("错误：{message}");
+                }
             }
             if matches!(
                 event,
@@ -148,6 +302,12 @@ impl NativeAgentView {
                 self.expanded_thinking.insert(index);
             }
         }
+        if should_clear_quota_state(had_error, completed) {
+            self.wallet_frozen_notice = None;
+            if self.insufficient_quota {
+                self.clear_quota_state();
+            }
+        }
         if self.state.take_learning_state_changed() {
             cx.emit(NativeAgentViewEvent::LearningStateChanged);
         }
@@ -160,6 +320,7 @@ impl NativeAgentView {
                     self.persist_native(&snapshot);
                 }
             }
+            self.refresh_wallet(cx);
         }
         self.dispatch_queued(cx);
         cx.notify();
@@ -277,9 +438,18 @@ fn should_dispatch(queue_empty: bool, idle: bool, model_ready: bool) -> bool {
     !queue_empty && idle && model_ready
 }
 
+fn should_clear_quota_state(had_error: bool, completed: bool) -> bool {
+    completed && !had_error
+}
+
 #[cfg(test)]
 mod tests {
-    use super::should_dispatch;
+    use super::{
+        format_wallet_frozen_notice, should_clear_quota_state, should_dispatch,
+        strip_structured_error_notices, turn_error_effect, TurnErrorEffect, WALLET_FROZEN_NOTICE,
+    };
+    use crate::native_runtime::NativeTurnErrorKind;
+    use cgc_agent_ui::conversation::{Entry, NoticeLevel};
 
     #[test]
     fn dispatch_requires_queued_work_idle_runtime_and_model() {
@@ -287,5 +457,89 @@ mod tests {
         assert!(!should_dispatch(true, true, true));
         assert!(!should_dispatch(false, false, true));
         assert!(!should_dispatch(false, true, false));
+    }
+
+    #[test]
+    fn successful_retry_clears_stale_quota_state() {
+        assert!(should_clear_quota_state(false, true));
+        assert!(!should_clear_quota_state(true, true));
+        assert!(!should_clear_quota_state(false, false));
+    }
+
+    #[test]
+    fn structured_turn_error_opens_quota_card_only_for_insufficient_quota_never_wallet_frozen() {
+        assert_eq!(
+            turn_error_effect(NativeTurnErrorKind::InsufficientQuota),
+            TurnErrorEffect {
+                opens_quota_card: true,
+                shows_frozen_notice: false,
+            }
+        );
+        assert_eq!(
+            turn_error_effect(NativeTurnErrorKind::WalletFrozen),
+            TurnErrorEffect {
+                opens_quota_card: false,
+                shows_frozen_notice: true,
+            }
+        );
+        assert_eq!(
+            turn_error_effect(NativeTurnErrorKind::ConcurrencyLimit),
+            TurnErrorEffect {
+                opens_quota_card: false,
+                shows_frozen_notice: false,
+            }
+        );
+        assert_eq!(
+            turn_error_effect(NativeTurnErrorKind::Other),
+            TurnErrorEffect {
+                opens_quota_card: false,
+                shows_frozen_notice: false,
+            }
+        );
+    }
+
+    #[test]
+    fn strip_structured_error_notices_removes_raw_402_403_429_and_keeps_other_errors() {
+        let mut entries = vec![
+            Entry::User { text: "hi".into() },
+            Entry::Notice {
+                level: NoticeLevel::Error,
+                text: "Internal error: \"native turn failed: provider error: insufficient quota: Insufficient LLM credits\"".into(),
+            },
+            Entry::Notice {
+                level: NoticeLevel::Error,
+                text: "Internal error: \"native turn failed: provider error: Permission: Your LLM wallet is frozen.\"".into(),
+            },
+            Entry::Notice {
+                level: NoticeLevel::Error,
+                text: "Internal error: \"native turn failed: provider error: concurrency limit exceeded\"".into(),
+            },
+        ];
+        strip_structured_error_notices(&mut entries);
+        assert_eq!(entries.len(), 1);
+        assert!(matches!(entries[0], Entry::User { .. }));
+
+        entries.push(Entry::Notice {
+            level: NoticeLevel::Error,
+            text: "network timeout".into(),
+        });
+        strip_structured_error_notices(&mut entries);
+        assert_eq!(entries.len(), 2);
+    }
+
+    #[test]
+    fn format_wallet_frozen_notice_renders_reason_when_present() {
+        assert_eq!(
+            format_wallet_frozen_notice(
+                "provider error: Permission: Your LLM wallet is frozen. Please contact support."
+            ),
+            WALLET_FROZEN_NOTICE
+        );
+        assert_eq!(
+            format_wallet_frozen_notice(
+                "provider error: Permission: Your LLM wallet is frozen. Please contact support. (reason: 异常并发刷量)"
+            ),
+            "当前 CGC 额度账户已被冻结（原因：异常并发刷量），暂无法继续对话或充值。请联系客服处理。"
+        );
     }
 }

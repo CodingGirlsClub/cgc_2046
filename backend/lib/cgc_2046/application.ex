@@ -11,6 +11,12 @@ defmodule Cgc2046.Application do
       Cgc2046Web.Telemetry,
       Cgc2046.Repo,
       {Phoenix.PubSub, name: Cgc2046.PubSub},
+      # LLM Gateway Phase 2：上游 Finch 池、会话粘性 ETS 持有者、并发流租约。
+      {Finch,
+       name: Cgc2046.LlmGateway.Finch,
+       pools: %{:default => [size: 100, count: 2, protocols: [:http1]]}},
+      Cgc2046.LlmGateway.AffinityStore,
+      Cgc2046.LlmGateway.LeaseManager,
       # Start a worker by calling: Cgc2046.Worker.start_link(arg)
       # {Cgc2046.Worker, arg},
       # ETS 限流器（signIn/signUp 5 次/15 分钟，零依赖）

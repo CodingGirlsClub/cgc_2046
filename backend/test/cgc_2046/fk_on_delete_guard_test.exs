@@ -39,7 +39,11 @@ defmodule Cgc2046.FkOnDeleteGuardTest do
   # notification_deliveries.user_id / signal_idempotency.workspace_id）全部补上
   # belongs_to + references 条目（DB 约束本就存在，零 DDL 纯追平），移入对齐主体。
   # 后续新缺口按原格式登记于此。
-  @db_only_fks []
+  @db_only_fks [
+    {"llm_wallet_holds", "wallet_id", :restrict,
+     "Phase 2 raw-SQL hold 租约表：无 Ash resource，FK 由 migration 直接承载"},
+    {"llm_wallet_holds", "user_id", :restrict, "同上，孤儿 hold 回收需保留 user 归属"}
+  ]
 
   # 反向缺口：resource 声明了 belongs_to（→ snapshot 有 reference），但手写 migration
   # 只写了裸 `add :col, :uuid`、从未建 FK。形如 {table, column, relationship, 理由}

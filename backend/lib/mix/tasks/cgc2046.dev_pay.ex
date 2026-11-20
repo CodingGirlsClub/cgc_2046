@@ -14,12 +14,40 @@ defmodule Mix.Tasks.Cgc2046.DevPay do
 
   require Ash.Query
 
+  alias Cgc2046.LlmGateway.PaymentOrder, as: LlmPaymentOrder
+  alias Cgc2046.LlmGateway.PaymentOrders, as: LlmPaymentOrders
+  alias Cgc2046.LlmGateway.Workers.LlmPaymentSettlementWorker
   alias Cgc2046.Payments.{Order, Provider, WebhookEvent}
   alias Cgc2046.Payments.Workers.PaymentSettlementWorker
 
   @shortdoc "dev: settle a pending order to paid via DevFake"
 
   @impl Mix.Task
+  def run(["LLM_" <> _ = out_trade_no]) do
+    Mix.Task.run("app.start")
+    ensure_dev_fake!()
+
+    order =
+      case LlmPaymentOrders.find_by_out_trade_no(out_trade_no) do
+        {:ok, %LlmPaymentOrder{} = order} -> order
+        {:error, :not_found} -> Mix.raise("order not found for out_trade_no=#{out_trade_no}")
+        {:error, reason} -> Mix.raise("order lookup failed: #{inspect(reason)}")
+      end
+
+    webhook_event = create_dev_webhook_event!(order, out_trade_no)
+
+    result =
+      LlmPaymentSettlementWorker.perform(%Oban.Job{
+        args: %{"webhook_event_id" => webhook_event.id}
+      })
+
+    reloaded = Ash.get!(LlmPaymentOrder, order.id, authorize?: false)
+
+    Mix.shell().info(
+      "order #{out_trade_no} status=#{reloaded.status} amount_cents=#{reloaded.amount_cents} worker=#{inspect(result)}"
+    )
+  end
+
   def run([out_trade_no]) do
     Mix.Task.run("app.start")
     ensure_dev_fake!()
@@ -33,6 +61,27 @@ defmodule Mix.Tasks.Cgc2046.DevPay do
         {:error, reason} -> Mix.raise("order lookup failed: #{inspect(reason)}")
       end
 
+    webhook_event = create_dev_webhook_event!(order, out_trade_no)
+
+    # dev 任务同步执行落账 worker（不依赖 Oban 队列/进程生命周期）：
+    # 与 webhook 链路执行同一个 worker 与同一套 CAS，结果确定可观察。
+    result =
+      PaymentSettlementWorker.perform(%Oban.Job{
+        args: %{"webhook_event_id" => webhook_event.id}
+      })
+
+    reloaded = Ash.get!(Order, order.id, authorize?: false)
+
+    Mix.shell().info(
+      "order #{out_trade_no} status=#{reloaded.status} amount_cents=#{reloaded.amount_cents} worker=#{inspect(result)}"
+    )
+  end
+
+  def run(_args) do
+    Mix.raise("usage: mix cgc2046.dev_pay <out_trade_no>")
+  end
+
+  defp create_dev_webhook_event!(order, out_trade_no) do
     event_id = "dev-" <> Ecto.UUID.generate()
 
     payload = %{
@@ -51,22 +100,7 @@ defmodule Mix.Tasks.Cgc2046.DevPay do
       })
       |> Ash.create(authorize?: false)
 
-    # dev 任务同步执行落账 worker（不依赖 Oban 队列/进程生命周期）：
-    # 与 webhook 链路执行同一个 worker 与同一套 CAS，结果确定可观察。
-    result =
-      PaymentSettlementWorker.perform(%Oban.Job{
-        args: %{"webhook_event_id" => webhook_event.id}
-      })
-
-    reloaded = Ash.get!(Order, order.id, authorize?: false)
-
-    Mix.shell().info(
-      "order #{out_trade_no} status=#{reloaded.status} amount_cents=#{reloaded.amount_cents} worker=#{inspect(result)}"
-    )
-  end
-
-  def run(_args) do
-    Mix.raise("usage: mix cgc2046.dev_pay <out_trade_no>")
+    webhook_event
   end
 
   defp ensure_dev_fake! do

@@ -95,9 +95,12 @@ impl SavedConversation {
                 CoreEntry::Assistant { text, .. } if !text.is_empty() => {
                     entries.push(Entry::Assistant { text: text.clone() })
                 }
-                CoreEntry::Thinking { text, .. } => entries.push(Entry::Thinking {
+                CoreEntry::Thinking {
+                    text, duration_ms, ..
+                } => entries.push(Entry::Thinking {
                     text: text.clone(),
                     expanded: false,
+                    duration_ms: *duration_ms,
                 }),
                 CoreEntry::ToolResult {
                     tool_use_id,

@@ -8,6 +8,8 @@ use cgc_agent_provider::{Content, Message, Model, Request, Role, ToolSchema};
 use crate::{AgentError, Entry, Thread};
 
 const PROTOCOL_RESERVE: usize = 32;
+/// 与后端 LlmGatewayController `@max_request_messages 500` 对齐，避免长对话因消息数超限被 400 拒绝。
+pub const MAX_REQUEST_MESSAGES: usize = 500;
 
 #[cfg(test)]
 mod tests;
@@ -92,8 +94,12 @@ impl RequestPlan {
         let frozen_start = crate::thinking::active_tool_range(thread);
         let mut start = frozen_start.unwrap_or(covered_until);
         let mut kept_cost = cost_for(start..thread.entries.len());
+        let fixed_messages = usize::from(system.is_some()) + usize::from(summary.is_some());
+        let mut kept_messages = projected_message_count(&thread.entries[start..]);
         let total = fixed + summary_cost + kept_cost;
-        if total > capacity {
+        let exceeds_tokens = total > capacity;
+        let exceeds_messages = fixed_messages + kept_messages > MAX_REQUEST_MESSAGES;
+        if exceeds_tokens || exceeds_messages {
             // A tool continuation must keep the exact prefix that produced its signatures.
             if frozen_start.is_some() {
                 return Err(AgentError::ContextTooLarge {
@@ -108,7 +114,13 @@ impl RequestPlan {
                 turn_starts(&thread.entries, covered_until..thread.entries.len()).rev();
             start = starts.next().unwrap_or(covered_until);
             kept_cost = cost_for(start..thread.entries.len());
-            if fixed + summary_cost + kept_cost > capacity {
+            kept_messages = projected_message_count(&thread.entries[start..]);
+            // 为即将生成的 compaction 摘要预留 1 条 system 消息位，避免压缩后再次超限。
+            let max_kept_messages =
+                MAX_REQUEST_MESSAGES.saturating_sub(usize::from(system.is_some()) + 1);
+            if fixed + summary_cost + kept_cost > capacity
+                || fixed_messages + kept_messages > MAX_REQUEST_MESSAGES
+            {
                 return Err(AgentError::ContextTooLarge {
                     estimated_tokens: fixed
                         + summary_cost
@@ -125,10 +137,14 @@ impl RequestPlan {
                 .min(capacity - fixed - kept_cost);
             for previous in starts {
                 let cost = cost_for(previous..start);
-                if fixed + kept_cost + cost + reserve > capacity {
+                let turn_messages = projected_message_count(&thread.entries[previous..start]);
+                if fixed + kept_cost + cost + reserve > capacity
+                    || kept_messages + turn_messages > max_kept_messages
+                {
                     break;
                 }
                 kept_cost += cost;
+                kept_messages += turn_messages;
                 start = previous;
             }
         }
@@ -259,6 +275,10 @@ pub(crate) fn turn_starts(
 /// alongside their complete assistant batch, so malformed/restored history is legal.
 pub(crate) fn project_entries(entries: &[Entry]) -> Vec<Message> {
     project_entries_after(entries, 0)
+}
+
+fn projected_message_count(entries: &[Entry]) -> usize {
+    project_entries_after(entries, 0).len()
 }
 
 fn project_entries_after(entries: &[Entry], thinking_from: usize) -> Vec<Message> {

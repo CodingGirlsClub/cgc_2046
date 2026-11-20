@@ -55,6 +55,7 @@ function navSection(pathname: string, slug: string): NavSection {
 	if (pathname === `/w/${slug}`) return "overview";
 	// plan 020 U1：/w/[slug]/agents 工作面一级入口（须在 settings 前缀判定之前）
 	if (pathname.startsWith(`/w/${slug}/agents`)) return "agents";
+	if (pathname.startsWith(`/w/${slug}/llm-pool`)) return "llm-pool";
 	if (
 		pathname.startsWith(`/w/${slug}/events`) ||
 		pathname.startsWith(`/w/${slug}/courses`)
@@ -399,6 +400,16 @@ export default function WorkspaceShell({
 								<Icon name="guide" />
 								<span>{t("navCourses")}</span>
 							</Link>
+							{abilities.includes("manage_members") && (
+								<Link
+									href={`/w/${slug}/llm-pool`}
+									className={`ws-shell-item ${active === "llm-pool" ? "ws-shell-item--selected" : ""}`}
+									aria-current={active === "llm-pool" ? "page" : undefined}
+								>
+									<Icon name="activity" />
+									<span>{navT("llmPool")}</span>
+								</Link>
+							)}
 						</nav>
 
 						{/* 跨工作台导航（plan: workspace-cross-nav，KTD1/KTD2）：
@@ -412,6 +423,10 @@ export default function WorkspaceShell({
 							<Link href="/learning" className="ws-shell-item">
 								<Icon name="guide" />
 								<span>{t("navMyLearning")}</span>
+							</Link>
+							<Link href="/settings/ai-quota" className="ws-shell-item">
+								<Icon name="activity" />
+								<span>{t("navMyLlmWallet")}</span>
 							</Link>
 						</nav>
 

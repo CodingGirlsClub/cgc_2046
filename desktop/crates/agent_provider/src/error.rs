@@ -5,6 +5,7 @@ pub enum ProviderErrorCategory {
     PaymentRequired,
     Permission,
     RateLimit,
+    ConcurrencyLimit,
     Overloaded,
     ContextTooLong,
     InvalidRequest,
@@ -36,6 +37,10 @@ impl ProviderErrorCategory {
 /// Provider 返回的错误。
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ProviderError {
+    #[error("insufficient quota: {message}")]
+    InsufficientQuota { message: String },
+    #[error("concurrency limit exceeded: {message}")]
+    ConcurrencyLimitExceeded { message: String },
     #[error("{category:?}: {message}")]
     Api {
         category: ProviderErrorCategory,
@@ -50,7 +55,22 @@ pub enum ProviderError {
 }
 
 impl ProviderError {
+    pub fn insufficient_quota(message: impl Into<String>) -> Self {
+        Self::InsufficientQuota {
+            message: message.into(),
+        }
+    }
+
+    pub fn concurrency_limit_exceeded(message: impl Into<String>) -> Self {
+        Self::ConcurrencyLimitExceeded {
+            message: message.into(),
+        }
+    }
+
     pub fn api(status: u16, message: impl Into<String>) -> Self {
+        if status == 402 {
+            return Self::insufficient_quota(message);
+        }
         Self::Api {
             category: ProviderErrorCategory::from_status(status),
             status: Some(status),
@@ -64,6 +84,12 @@ impl ProviderError {
         status: Option<u16>,
         message: impl Into<String>,
     ) -> Self {
+        if category == ProviderErrorCategory::PaymentRequired || status == Some(402) {
+            return Self::insufficient_quota(message);
+        }
+        if category == ProviderErrorCategory::ConcurrencyLimit {
+            return Self::concurrency_limit_exceeded(message);
+        }
         Self::Api {
             category,
             status,
@@ -82,10 +108,20 @@ impl ProviderError {
 
     pub fn category(&self) -> ProviderErrorCategory {
         match self {
+            Self::InsufficientQuota { .. } => ProviderErrorCategory::PaymentRequired,
+            Self::ConcurrencyLimitExceeded { .. } => ProviderErrorCategory::ConcurrencyLimit,
             Self::Api { category, .. } => *category,
             Self::Transport(_) => ProviderErrorCategory::Transport,
             Self::InvalidResponse(_) => ProviderErrorCategory::InvalidRequest,
         }
+    }
+
+    pub fn is_insufficient_quota(&self) -> bool {
+        matches!(self.category(), ProviderErrorCategory::PaymentRequired)
+    }
+
+    pub fn is_concurrency_limit_exceeded(&self) -> bool {
+        matches!(self.category(), ProviderErrorCategory::ConcurrencyLimit)
     }
 
     pub fn is_retryable(&self) -> bool {
@@ -122,8 +158,16 @@ mod tests {
     }
 
     #[test]
-    fn retryable_categories() {
+    fn retryable_categories_short_circuit_quota_and_concurrency_caps() {
         assert!(ProviderError::api(429, "busy").is_retryable());
         assert!(!ProviderError::api(401, "bad key").is_retryable());
+        let quota = ProviderError::api(402, "no credits");
+        assert!(matches!(quota, ProviderError::InsufficientQuota { .. }));
+        assert!(quota.is_insufficient_quota());
+        assert!(!quota.is_retryable());
+
+        let concurrency = ProviderError::concurrency_limit_exceeded("too many streams");
+        assert!(concurrency.is_concurrency_limit_exceeded());
+        assert!(!concurrency.is_retryable());
     }
 }

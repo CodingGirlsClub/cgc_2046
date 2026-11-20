@@ -221,6 +221,7 @@ impl NativeAgentView {
             self.state.subagents.clear();
             self.expanded_tools.clear();
             self.expanded_thinking.clear();
+            self.thinking_started_at.clear();
             self.editing_user = None;
             self.user_edit_input = None;
             self.edit_serial = self.edit_serial.wrapping_add(1);
@@ -269,7 +270,18 @@ impl NativeAgentView {
                 snapshot.title_generating,
                 snapshot.title_generation_error.clone(),
             ));
+        let provider_changed = provider_change_clears_quota(
+            self.snapshot
+                .as_ref()
+                .map(|current| current.model.provider_id.as_str()),
+            snapshot.model.provider_id.as_str(),
+        );
         self.snapshot = Some(snapshot);
+        if provider_changed {
+            self.insufficient_quota = false;
+            self.wallet_frozen_notice = None;
+            self.quota_checkout = None;
+        }
         if title_changed {
             cx.emit(NativeAgentViewEvent::TitleChanged);
         }
@@ -281,15 +293,30 @@ impl NativeAgentView {
                 .session
                 .mark_ready_for_next(self.state.session.generation);
             self.dispatch_queued(cx);
+            self.refresh_wallet(cx);
         }
         cx.notify();
     }
 }
 
+fn provider_change_clears_quota(previous: Option<&str>, next: &str) -> bool {
+    previous.is_some_and(|provider| provider != next)
+}
+
 #[cfg(test)]
 mod pending_action_tests {
-    use super::should_clear_pending_action;
+    use super::{provider_change_clears_quota, should_clear_pending_action};
     use crate::native_runtime::RuntimeChange;
+
+    #[test]
+    fn provider_switch_clears_stale_quota_card() {
+        assert!(provider_change_clears_quota(Some("cgc-cloud"), "deepseek"));
+        assert!(!provider_change_clears_quota(
+            Some("cgc-cloud"),
+            "cgc-cloud"
+        ));
+        assert!(!provider_change_clears_quota(None, "cgc-cloud"));
+    }
 
     #[test]
     fn initial_load_preserves_pending_action_before_first_snapshot() {

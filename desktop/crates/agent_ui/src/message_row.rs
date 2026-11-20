@@ -64,13 +64,24 @@ pub fn render_assistant_row(spec: AssistantRowSpec) -> AnyElement {
     column.into_any_element()
 }
 
-/// thinking 行：折叠头（chevron + "Thinking"）+ 展开后的 Markdown 正文。
+/// thinking 行标题文案：有耗时时显示 `Thinking · 1.2s`，否则显示 `Thinking`。
+pub fn format_thinking_label(duration_ms: Option<u64>) -> String {
+    match duration_ms {
+        None | Some(0) => "Thinking".to_string(),
+        Some(ms) if ms < 100 => format!("Thinking · {ms}ms"),
+        Some(ms) if ms < 60_000 => format!("Thinking · {:.1}s", ms as f64 / 1_000.0),
+        Some(ms) => format!("Thinking · {}m {}s", ms / 60_000, (ms % 60_000) / 1_000),
+    }
+}
+
+/// thinking 行：折叠头（chevron + "Thinking" + 可选耗时）+ 展开后的 Markdown 正文。
 pub struct ThinkingRowSpec {
     pub row_id: SharedString,
     pub toggle_id: SharedString,
     pub markdown_id: SharedString,
     pub markdown: String,
     pub expanded: bool,
+    pub duration_ms: Option<u64>,
     pub style: MessageStyle,
     pub on_toggle: ActionCallback,
 }
@@ -82,6 +93,7 @@ pub fn render_thinking_row(spec: ThinkingRowSpec) -> AnyElement {
         markdown_id,
         markdown,
         expanded,
+        duration_ms,
         style,
         on_toggle,
     } = spec;
@@ -90,6 +102,7 @@ pub fn render_thinking_row(spec: ThinkingRowSpec) -> AnyElement {
     } else {
         gpui_kit::assets::IconName::ChevronRight
     };
+    let label = format_thinking_label(duration_ms);
     let mut column = div().id(row_id).flex().flex_col().gap(px(2.0)).child(
         div()
             .id(toggle_id)
@@ -101,7 +114,7 @@ pub fn render_thinking_row(spec: ThinkingRowSpec) -> AnyElement {
             .text_color(style.ink_3)
             .hover(|hovered| hovered.text_color(style.ink_2))
             .child(Icon::new(chevron).small())
-            .child("Thinking")
+            .child(label)
             .on_click(move |_, _, cx| on_toggle(cx)),
     );
     if expanded {
@@ -122,8 +135,17 @@ pub fn render_thinking_row(spec: ThinkingRowSpec) -> AnyElement {
 mod tests {
     // 渲染是纯 GPUI 组合，行为断言在 message_flow / message_actions；这里只钉住
     // 样式结构可复制（Clone/Copy）与常量不漂移。
-    use super::{user_row_action_visibility, MessageStyle};
+    use super::{format_thinking_label, user_row_action_visibility, MessageStyle};
     use gpui_kit::Hsla;
+
+    #[test]
+    fn format_thinking_label_renders_elapsed_time_cleanly() {
+        assert_eq!(format_thinking_label(None), "Thinking");
+        assert_eq!(format_thinking_label(Some(0)), "Thinking");
+        assert_eq!(format_thinking_label(Some(42)), "Thinking · 42ms");
+        assert_eq!(format_thinking_label(Some(1_250)), "Thinking · 1.2s");
+        assert_eq!(format_thinking_label(Some(65_000)), "Thinking · 1m 5s");
+    }
 
     #[test]
     fn user_row_action_visibility_gates_on_busy_editing_and_rewind_support() {

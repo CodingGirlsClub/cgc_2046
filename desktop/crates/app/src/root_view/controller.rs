@@ -640,6 +640,10 @@ impl RootView {
                     self.pending_link = Some(link.path);
                 }
             }
+            Ok(link) if link.path == "/settings/ai-quota" => {
+                cx.open_url(&cgc_platform::runtime::ai_quota_url());
+                should_activate = false;
+            }
             Ok(link) => {
                 self.pending_link = Some(link.path);
                 self.consume_pending_link();
@@ -912,6 +916,7 @@ impl RootView {
         if let Some(runtime) = &self.native_runtime {
             runtime.stop();
         }
+        self.reset_native_account_state(cx);
         self.session.sign_out_local();
         self.workspaces.reset();
         self.workspaces_started = false;
@@ -3721,6 +3726,7 @@ impl RootView {
             let _ = this.update(cx, |this, cx| {
                 this.finish_login(result);
                 this.prepare_agent_authorization(cx);
+                this.refresh_native_providers(cx);
                 cx.notify();
             });
         })
@@ -3760,6 +3766,7 @@ impl RootView {
         if let Some(runtime) = &self.native_runtime {
             runtime.stop();
         }
+        self.reset_native_account_state(cx);
         let token = self.session.sign_out_local();
         if let Some(token) = token {
             let api = self.session.api_handle();
@@ -4085,6 +4092,7 @@ impl RootView {
                 }
                 this.finish_login(result);
                 this.prepare_agent_authorization(cx);
+                this.refresh_native_providers(cx);
                 cx.notify();
             });
         })

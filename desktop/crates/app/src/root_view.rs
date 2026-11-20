@@ -4281,6 +4281,7 @@ mod tests {
                 ConversationEntry::Thinking {
                     text: "private reasoning".into(),
                     expanded: false,
+                    duration_ms: None,
                 },
                 ConversationEntry::Assistant {
                     text: "answer two".into(),
