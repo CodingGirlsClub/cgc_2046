@@ -79,9 +79,12 @@ fn init_body() -> &'static str {
 
 fn tools_body() -> &'static str {
     r#"{"jsonrpc":"2.0","id":2,"result":{"tools":[
-            {"name":"get_course_revision","inputSchema":{"type":"object"}},
-            {"name":"get_learning_state","inputSchema":{"type":"object"}},
             {"name":"get_role_playbook","inputSchema":{"type":"object"}},
+            {"name":"get_learning_state","inputSchema":{"type":"object"}},
+            {"name":"get_course_revision","inputSchema":{"type":"object"}},
+            {"name":"start_learning_run","inputSchema":{"type":"object"}},
+            {"name":"submit_learning_attempt","inputSchema":{"type":"object"}},
+            {"name":"get_course_content","inputSchema":{"type":"object"}},
             {"name":"get_enrollment_summary","inputSchema":{"type":"object"}},
             {"name":"delete_everything","inputSchema":{"type":"object"}}
         ]}}"#
@@ -105,7 +108,7 @@ fn workspace_free_pages_keep_only_the_role_playbook_tool() {
             .map(|tool| tool.name().to_string())
             .collect::<Vec<_>>(),
         vec!["mcp_cgc-2046-learning_get_role_playbook".to_string()],
-        "only the workspace-free playbook survives without a workspace"
+        "only the workspace-free playbook survives without a workspace (blocking start_learning_run and submit_learning_attempt too)"
     );
     for _ in 0..2 {
         let _ = requests.recv();
@@ -129,17 +132,40 @@ fn authorization_removal_revokes_captured_clients_without_inventing_server_tools
         .find(|tool| tool.name() == "mcp_cgc-2046-learning_get_learning_state")
         .cloned()
         .unwrap();
+    let start_tool = tools
+        .iter()
+        .find(|tool| tool.name() == "mcp_cgc-2046-learning_start_learning_run")
+        .cloned()
+        .unwrap();
+    let submit_tool = tools
+        .iter()
+        .find(|tool| tool.name() == "mcp_cgc-2046-learning_submit_learning_attempt")
+        .cloned()
+        .unwrap();
+    assert_eq!(tools.len(), 5, "only the 5 learning_host tools are exposed");
+    for forbidden in [
+        "get_course_content",
+        "get_enrollment_summary",
+        "delete_everything",
+    ] {
+        assert!(
+            !tools.iter().any(|tool| tool.name().ends_with(forbidden)),
+            "{forbidden} must be filtered out"
+        );
+    }
     assert_eq!(
-        tools.len(),
-        4,
-        "only this fixture's authorized subset is exposed"
+        tool.approval(&serde_json::json!({})),
+        cgc_agent_tools::Approval::Allow
     );
-    assert!(!tools
-        .iter()
-        .any(|tool| tool.name().ends_with("get_course_content")));
-    assert!(!tools
-        .iter()
-        .any(|tool| tool.name().ends_with("delete_everything")));
+    assert_eq!(
+        start_tool.approval(&serde_json::json!({})),
+        cgc_agent_tools::Approval::Allow
+    );
+    assert_eq!(
+        submit_tool.approval(&serde_json::json!({})),
+        cgc_agent_tools::Approval::Ask
+    );
+
     let result = block_on(tool.run(serde_json::json!({}), ToolContext::new("/tmp"))).unwrap();
     assert_eq!(result.content, "authorized learning state");
     for _ in 0..2 {
@@ -152,6 +178,10 @@ fn authorization_removal_revokes_captured_clients_without_inventing_server_tools
     assert!(host.mcp_context().is_none());
     assert!(matches!(
         tool.approval(&serde_json::json!({})),
+        cgc_agent_tools::Approval::Deny(_)
+    ));
+    assert!(matches!(
+        submit_tool.approval(&serde_json::json!({})),
         cgc_agent_tools::Approval::Deny(_)
     ));
     assert!(
