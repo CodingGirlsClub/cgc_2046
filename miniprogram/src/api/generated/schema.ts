@@ -310,6 +310,81 @@ export type AdminInitiativeRulePayload = {
   result?: Maybe<AdminInitiativeRule>;
 };
 
+export type AdminLlmProvider = {
+  apiKeys: Array<AdminLlmProviderApiKey>;
+  baseUrl: Scalars['String']['output'];
+  chatPath?: Maybe<Scalars['String']['output']>;
+  enabled: Scalars['Boolean']['output'];
+  id: Scalars['ID']['output'];
+  insertedAt: Scalars['DateTime']['output'];
+  models: Array<AdminLlmProviderModel>;
+  modelsPath?: Maybe<Scalars['String']['output']>;
+  name: Scalars['String']['output'];
+  offPeakDiscountEnabled: Scalars['Boolean']['output'];
+  priority: Scalars['Int']['output'];
+  protocol: Scalars['String']['output'];
+  slug: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+};
+
+export type AdminLlmProviderApiKey = {
+  enabled: Scalars['Boolean']['output'];
+  id: Scalars['ID']['output'];
+  insertedAt: Scalars['DateTime']['output'];
+  keyPreview: Scalars['String']['output'];
+  label: Scalars['String']['output'];
+  providerId: Scalars['ID']['output'];
+};
+
+export type AdminLlmProviderInput = {
+  baseUrl: Scalars['String']['input'];
+  chatPath?: InputMaybe<Scalars['String']['input']>;
+  enabled?: InputMaybe<Scalars['Boolean']['input']>;
+  modelsPath?: InputMaybe<Scalars['String']['input']>;
+  name: Scalars['String']['input'];
+  offPeakDiscountEnabled?: InputMaybe<Scalars['Boolean']['input']>;
+  priority?: InputMaybe<Scalars['Int']['input']>;
+  protocol: Scalars['String']['input'];
+  slug: Scalars['String']['input'];
+};
+
+export type AdminLlmProviderModel = {
+  cacheHitPriceMc: Scalars['BigInt']['output'];
+  cacheMissPriceMc: Scalars['BigInt']['output'];
+  contextWindow: Scalars['Int']['output'];
+  displayName: Scalars['String']['output'];
+  enabled: Scalars['Boolean']['output'];
+  id: Scalars['ID']['output'];
+  insertedAt: Scalars['DateTime']['output'];
+  markupRatio: Scalars['Float']['output'];
+  maxOutputTokens: Scalars['Int']['output'];
+  modelId: Scalars['String']['output'];
+  outputPriceMc: Scalars['BigInt']['output'];
+  providerId: Scalars['ID']['output'];
+  reasoningEfforts: Array<Scalars['String']['output']>;
+  supportsImages: Scalars['Boolean']['output'];
+  supportsThinking: Scalars['Boolean']['output'];
+  supportsTools: Scalars['Boolean']['output'];
+  upstreamModelId: Scalars['String']['output'];
+};
+
+export type AdminLlmProviderModelInput = {
+  cacheHitPriceMc: Scalars['BigInt']['input'];
+  cacheMissPriceMc: Scalars['BigInt']['input'];
+  contextWindow: Scalars['Int']['input'];
+  displayName: Scalars['String']['input'];
+  enabled?: InputMaybe<Scalars['Boolean']['input']>;
+  markupRatio?: InputMaybe<Scalars['Float']['input']>;
+  maxOutputTokens: Scalars['Int']['input'];
+  modelId: Scalars['String']['input'];
+  outputPriceMc: Scalars['BigInt']['input'];
+  reasoningEfforts?: InputMaybe<Array<Scalars['String']['input']>>;
+  supportsImages?: InputMaybe<Scalars['Boolean']['input']>;
+  supportsThinking?: InputMaybe<Scalars['Boolean']['input']>;
+  supportsTools?: InputMaybe<Scalars['Boolean']['input']>;
+  upstreamModelId?: InputMaybe<Scalars['String']['input']>;
+};
+
 /** offering 治理写（admin_event_update / admin_course_update）的变更前后值投影 */
 export type AdminOfferingChangeMetadata = {
   /** 变更后报名名额上限；nil 表示不限 */
@@ -450,6 +525,20 @@ export type AssignRolesResult = {
   errors: Array<MutationError>;
   /** The successful result of the mutation */
   result?: Maybe<WorkspaceMembership>;
+};
+
+export type AvailableLlmModel = {
+  cacheHitPriceMc: Scalars['BigInt']['output'];
+  contextWindow: Scalars['Int']['output'];
+  displayName: Scalars['String']['output'];
+  inputPriceMc: Scalars['BigInt']['output'];
+  maxOutputTokens: Scalars['Int']['output'];
+  modelId: Scalars['String']['output'];
+  outputPriceMc: Scalars['BigInt']['output'];
+  reasoningEfforts: Array<Scalars['String']['output']>;
+  supportsImages: Scalars['Boolean']['output'];
+  supportsThinking: Scalars['Boolean']['output'];
+  supportsTools: Scalars['Boolean']['output'];
 };
 
 /** The result of the :cancel_course mutation */
@@ -3874,6 +3963,21 @@ export type LlmDailyChannelMetric = {
   waivedCount: Scalars['Int']['output'];
 };
 
+export type LlmModelPricingPreset = {
+  cacheHitPriceMc: Scalars['BigInt']['output'];
+  cacheMissPriceMc: Scalars['BigInt']['output'];
+  contextWindow: Scalars['Int']['output'];
+  displayName: Scalars['String']['output'];
+  markupRatio: Scalars['Float']['output'];
+  maxOutputTokens: Scalars['Int']['output'];
+  modelId: Scalars['String']['output'];
+  outputPriceMc: Scalars['BigInt']['output'];
+  reasoningEfforts: Array<Scalars['String']['output']>;
+  supportsImages: Scalars['Boolean']['output'];
+  supportsThinking: Scalars['Boolean']['output'];
+  supportsTools: Scalars['Boolean']['output'];
+};
+
 /** 创单结果：订单快照 + 渠道凭据（二维码/跳转参数） */
 export type LlmPaymentCheckout = {
   /** 渠道凭据；幂等重放原样返回 */
@@ -3902,6 +4006,23 @@ export type LlmPaymentOrder = {
   userId: Scalars['ID']['output'];
   /** 工作台池充值目标；个人订单为空 */
   workspaceId?: Maybe<Scalars['ID']['output']>;
+};
+
+export type LlmUpstreamDiscoveredModel = {
+  cacheHitPriceMc: Scalars['BigInt']['output'];
+  cacheMissPriceMc: Scalars['BigInt']['output'];
+  contextWindow: Scalars['Int']['output'];
+  displayName: Scalars['String']['output'];
+  markupRatio: Scalars['Float']['output'];
+  maxOutputTokens: Scalars['Int']['output'];
+  modelId: Scalars['String']['output'];
+  outputPriceMc: Scalars['BigInt']['output'];
+  presetMatched: Scalars['Boolean']['output'];
+  reasoningEfforts: Array<Scalars['String']['output']>;
+  supportsImages: Scalars['Boolean']['output'];
+  supportsThinking: Scalars['Boolean']['output'];
+  supportsTools: Scalars['Boolean']['output'];
+  upstreamModelId: Scalars['String']['output'];
 };
 
 /** 当前用户单条 LLM 调用用量流水（不含上游渠道与上游成本） */
@@ -4938,6 +5059,8 @@ export type RootMutationType = {
   acceptInvitation?: Maybe<AcceptInvitationResult>;
   /** Speaker 用邀请 token 接受邀请（着陆页；token 一次性，接受后失效） */
   acceptSpeakerInvitation?: Maybe<SpeakerInvitationActionPayload>;
+  /** PlatformAdmin 为 Provider 添加 API Key */
+  adminAddLlmProviderApiKey?: Maybe<AdminLlmProviderApiKey>;
   /** 平台管理员：取消课程（open → cancelled；报名/退款按既有取消链路异步处理） */
   adminCancelCourse?: Maybe<AdminCoursePayload>;
   /** 平台管理员：取消活动（open → cancelled；报名/退款按既有取消链路异步处理） */
@@ -4946,18 +5069,34 @@ export type RootMutationType = {
   adminCloseCourse?: Maybe<AdminCoursePayload>;
   /** 平台管理员：结束活动（open → closed；发 event.ended 信号） */
   adminCloseEvent?: Maybe<AdminEventPayload>;
+  /** PlatformAdmin 创建上游 LLM Provider */
+  adminCreateLlmProvider?: Maybe<AdminLlmProvider>;
+  /** PlatformAdmin 删除上游 LLM Provider */
+  adminDeleteLlmProvider: Scalars['Boolean']['output'];
+  /** PlatformAdmin 删除 Provider API Key */
+  adminDeleteLlmProviderApiKey: Scalars['Boolean']['output'];
+  /** PlatformAdmin 删除单个模型配置 */
+  adminDeleteLlmProviderModel: Scalars['Boolean']['output'];
+  /** PlatformAdmin 从上游 Provider 拉取可用模型列表并预填参考单价 */
+  adminFetchLlmProviderUpstreamModels: Array<LlmUpstreamDiscoveredModel>;
   /** PlatformAdmin 向个人钱包赠予算力（source=admin_gift）；与 AdminActionLog 同事务 */
   adminGrantUserLlmCredits?: Maybe<LlmWalletSummary>;
   /** 平台管理员：发布课程（draft → open；同工作台 launch action 语义） */
   adminLaunchCourse?: Maybe<AdminCoursePayload>;
   /** 平台管理员：发布活动（draft → open；同工作台 launch action 语义） */
   adminLaunchEvent?: Maybe<AdminEventPayload>;
+  /** PlatformAdmin 批量保存 Provider 下的模型配置与单价 */
+  adminSaveLlmProviderModels: Array<AdminLlmProviderModel>;
   /** PlatformAdmin 向工作台算力池充值；与 AdminActionLog 同事务 */
   adminTopupWorkspaceLlmPool?: Maybe<LlmWorkspacePoolSummary>;
   /** 平台管理员：编辑课程元数据（R5 标准元数据全集；slug 锁与教研内容不放行） */
   adminUpdateCourse?: Maybe<AdminCoursePayload>;
   /** 平台管理员：编辑活动元数据（R5 标准元数据全集；slug 锁与教研内容不放行） */
   adminUpdateEvent?: Maybe<AdminEventPayload>;
+  /** PlatformAdmin 更新上游 LLM Provider */
+  adminUpdateLlmProvider?: Maybe<AdminLlmProvider>;
+  /** PlatformAdmin 更新 Provider API Key 备注或启停状态 */
+  adminUpdateLlmProviderApiKey?: Maybe<AdminLlmProviderApiKey>;
   /** PlatformAdmin 调整用户 LLM 并发流上限（范围 1..20）；与 AdminActionLog 同事务 */
   adminUpdateUserLlmConcurrency?: Maybe<LlmWalletSummary>;
   /** PlatformAdmin 冻结或解冻用户 LLM 额度账户（解冻清空 frozenReason）；与 AdminActionLog 同事务 */
@@ -5273,6 +5412,13 @@ export type RootMutationTypeAcceptSpeakerInvitationArgs = {
 };
 
 
+export type RootMutationTypeAdminAddLlmProviderApiKeyArgs = {
+  apiKey: Scalars['String']['input'];
+  label: Scalars['String']['input'];
+  providerId: Scalars['ID']['input'];
+};
+
+
 export type RootMutationTypeAdminCancelCourseArgs = {
   id: Scalars['ID']['input'];
 };
@@ -5293,6 +5439,32 @@ export type RootMutationTypeAdminCloseEventArgs = {
 };
 
 
+export type RootMutationTypeAdminCreateLlmProviderArgs = {
+  input: AdminLlmProviderInput;
+};
+
+
+export type RootMutationTypeAdminDeleteLlmProviderArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeAdminDeleteLlmProviderApiKeyArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeAdminDeleteLlmProviderModelArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeAdminFetchLlmProviderUpstreamModelsArgs = {
+  apiKey?: InputMaybe<Scalars['String']['input']>;
+  providerId: Scalars['ID']['input'];
+};
+
+
 export type RootMutationTypeAdminGrantUserLlmCreditsArgs = {
   amountMc: Scalars['BigInt']['input'];
   expiresAt?: InputMaybe<Scalars['DateTime']['input']>;
@@ -5307,6 +5479,12 @@ export type RootMutationTypeAdminLaunchCourseArgs = {
 
 export type RootMutationTypeAdminLaunchEventArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeAdminSaveLlmProviderModelsArgs = {
+  models: Array<AdminLlmProviderModelInput>;
+  providerId: Scalars['ID']['input'];
 };
 
 
@@ -5325,6 +5503,19 @@ export type RootMutationTypeAdminUpdateCourseArgs = {
 export type RootMutationTypeAdminUpdateEventArgs = {
   id: Scalars['ID']['input'];
   input: AdminEventUpdateInput;
+};
+
+
+export type RootMutationTypeAdminUpdateLlmProviderArgs = {
+  id: Scalars['ID']['input'];
+  input: AdminLlmProviderInput;
+};
+
+
+export type RootMutationTypeAdminUpdateLlmProviderApiKeyArgs = {
+  enabled?: InputMaybe<Scalars['Boolean']['input']>;
+  id: Scalars['ID']['input'];
+  label?: InputMaybe<Scalars['String']['input']>;
 };
 
 
@@ -6226,8 +6417,14 @@ export type RootMutationTypeWechatMiniWebLoginStartForDesktopArgs = {
 };
 
 export type RootQueryType = {
+  /** PlatformAdmin 读取内置主流模型参考单价与能力预设 */
+  adminLlmPricingPresets: Array<LlmModelPricingPreset>;
+  /** PlatformAdmin 读取全部上游 LLM Provider（含脱敏 Key 与模型目录） */
+  adminLlmProviders: Array<AdminLlmProvider>;
   /** PlatformAdmin 按日 × 上游渠道聚合的 LLM 营收、成本与毛利指标（days 默认 14、范围 1..90） */
   adminLlmUsageAnalytics: Array<LlmDailyChannelMetric>;
+  /** 当前登录用户可用的 CGC 官方网关模型列表 */
+  availableLlmModels: Array<AvailableLlmModel>;
   /** 当前用户可读的已发布课程内容（chapter + typed materials；不含原始 WorkflowRun） */
   courseContent?: Maybe<CourseContent>;
   /** Tutor/Owner/Admin 课程草稿（不向 learner 暴露；无权/课程不存在统一 null，不泄露存在性） */

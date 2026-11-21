@@ -11,6 +11,7 @@ defmodule Cgc2046.LlmGateway.CatalogQueries do
 
   @cache_table :llm_gateway_catalog_cache
   @cache_ttl_ms 30_000
+  @max_model_id_bytes 256
 
   @doc """
   幂等初始化目录缓存 ETS 表。
@@ -27,6 +28,18 @@ defmodule Cgc2046.LlmGateway.CatalogQueries do
     end
 
     :ok
+  end
+
+  @doc """
+  清理过期目录缓存条目，确保长寿命 ETS 表的内存占用随 TTL 收敛。
+  """
+  def cleanup_expired! do
+    if :ets.whereis(@cache_table) != :undefined do
+      now = System.monotonic_time(:millisecond)
+      :ets.select_delete(@cache_table, [{{:_, :_, :"$1"}, [{:"=<", :"$1", now}], [true]}])
+    else
+      0
+    end
   end
 
   @doc """
@@ -119,14 +132,25 @@ defmodule Cgc2046.LlmGateway.CatalogQueries do
   def resolve_candidates_for_model(model_id) when is_binary(model_id) do
     trimmed = String.trim(model_id)
 
-    if trimmed == "" do
-      []
-    else
-      cached_fetch({:candidates, trimmed}, fn -> load_candidates_for_model(trimmed) end)
+    cond do
+      trimmed == "" or byte_size(trimmed) > @max_model_id_bytes ->
+        []
+
+      not known_available_model?(trimmed) ->
+        []
+
+      true ->
+        cached_fetch({:candidates, trimmed}, fn -> load_candidates_for_model(trimmed) end,
+          cache_empty?: false
+        )
     end
   end
 
   def resolve_candidates_for_model(_), do: []
+
+  defp known_available_model?(model_id) do
+    Enum.any?(list_available_models(), &(&1.model_id == model_id))
+  end
 
   defp load_candidates_for_model(model_id) do
     query =
@@ -203,7 +227,9 @@ defmodule Cgc2046.LlmGateway.CatalogQueries do
     end)
   end
 
-  defp cached_fetch(key, loader) do
+  defp cached_fetch(key, loader, opts \\ []) do
+    cache_empty? = Keyword.get(opts, :cache_empty?, true)
+
     if Application.get_env(:cgc_2046, :llm_gateway_catalog_cache_enabled, true) do
       ensure_cache_table!()
       now = System.monotonic_time(:millisecond)
@@ -214,7 +240,13 @@ defmodule Cgc2046.LlmGateway.CatalogQueries do
 
         _ ->
           value = loader.()
-          :ets.insert(@cache_table, {key, value, now + @cache_ttl_ms})
+
+          if cache_empty? or value != [] do
+            :ets.insert(@cache_table, {key, value, now + @cache_ttl_ms})
+          else
+            :ets.delete(@cache_table, key)
+          end
+
           value
       end
     else

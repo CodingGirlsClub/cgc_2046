@@ -29,6 +29,7 @@ export default function ProviderManager() {
 	const [providers, setProviders] = useState<AdminLlmProvider[] | null>(null);
 	const [presets, setPresets] = useState<LlmModelPricingPreset[]>([]);
 	const [loading, setLoading] = useState(true);
+	const [refreshing, setRefreshing] = useState(false);
 	const [loadError, setLoadError] = useState<string | null>(null);
 
 	const [formOpen, setFormOpen] = useState(false);
@@ -40,7 +41,7 @@ export default function ProviderManager() {
 	const [busyProviderId, setBusyProviderId] = useState<string | null>(null);
 
 	const loadAll = useCallback(async () => {
-		setLoading(true);
+		setRefreshing(true);
 		setLoadError(null);
 		try {
 			const [providersRes, presetsRes] = await Promise.all([
@@ -54,8 +55,8 @@ export default function ProviderManager() {
 			setPresets(presetsRes.data?.adminLlmPricingPresets ?? []);
 		} catch (err) {
 			setLoadError(errorMessage(err, t("providersLoadFailed")));
-			setProviders(null);
 		} finally {
+			setRefreshing(false);
 			setLoading(false);
 		}
 	}, [t]);
@@ -204,7 +205,7 @@ export default function ProviderManager() {
 					<button
 						type="button"
 						onClick={() => void loadAll()}
-						disabled={loading}
+						disabled={loading || refreshing}
 						className="l-btn-outline"
 					>
 						{t("refresh")}
@@ -249,19 +250,19 @@ export default function ProviderManager() {
 				</div>
 			)}
 
-			{loading && !loadError && (
+			{(loading || refreshing) && providers === null && !loadError && (
 				<div className="admin-card admin-empty" data-testid="provider-loading">
 					{t("providersLoading")}
 				</div>
 			)}
 
-			{!loading && !loadError && providers && providers.length === 0 && (
+			{!loading && !refreshing && !loadError && providers && providers.length === 0 && (
 				<div className="admin-card admin-empty" data-testid="provider-empty">
 					{t("providersEmpty")}
 				</div>
 			)}
 
-			{!loading && !loadError && providers && providers.length > 0 && (
+			{providers && providers.length > 0 && (
 				<div className="grid gap-4">
 					{providers.map((provider) => (
 						<article

@@ -24,6 +24,7 @@ defmodule Cgc2046Web.LlmGatewayController do
   alias Cgc2046Web.Plugs.RateLimit
 
   @max_request_messages 500
+  @max_model_name_bytes 256
   @default_max_prompt_tokens 250_000
 
   def models(conn, _params) do
@@ -227,8 +228,9 @@ defmodule Cgc2046Web.LlmGatewayController do
     model = Map.get(params, "model")
     trimmed_model = if is_binary(model), do: String.trim(model), else: ""
 
-    if trimmed_model != "" and is_list(messages) and messages != [] and
-         length(messages) <= @max_request_messages and Enum.all?(messages, &is_map/1) do
+    if trimmed_model != "" and byte_size(trimmed_model) <= @max_model_name_bytes and
+         is_list(messages) and messages != [] and length(messages) <= @max_request_messages and
+         Enum.all?(messages, &is_map/1) do
       {:ok, trimmed_model}
     else
       {:error, :invalid_request}

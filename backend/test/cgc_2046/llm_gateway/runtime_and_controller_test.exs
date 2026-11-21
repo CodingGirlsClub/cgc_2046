@@ -381,6 +381,22 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
       assert %{"error" => %{"code" => "model_not_found"}} = json_response(conn_400, 400)
     end
 
+    test "returns 400 invalid_request when model name exceeds 256 bytes" do
+      user = register_user("gateway-long-model")
+      raw_token = desktop_token(user)
+
+      conn =
+        build_conn()
+        |> put_req_header("authorization", "Bearer #{raw_token}")
+        |> put_req_header("content-type", "application/json")
+        |> post("/v1/chat/completions", %{
+          "model" => String.duplicate("a", 257),
+          "messages" => [%{"role" => "user", "content" => "Hi"}]
+        })
+
+      assert %{"error" => %{"code" => "invalid_request"}} = json_response(conn, 400)
+    end
+
     test "returns 402 when the wallet has zero credits" do
       user = register_user("gateway-zero")
       raw_token = desktop_token(user)

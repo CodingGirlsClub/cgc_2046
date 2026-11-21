@@ -111,14 +111,40 @@ defmodule Cgc2046.LlmGateway.Protocol.AnthropicStream do
         end
 
       "thinking" ->
-        next_state = put_in(state, [:blocks, idx], :thinking)
-        initial = Map.get(block, "thinking", "")
+        initial_thinking = Map.get(block, "thinking", "")
+        initial_sig = Map.get(block, "signature", "")
 
-        if is_binary(initial) and initial != "" do
-          chunk = sse_delta_chunk(next_state, %{"reasoning_content" => initial})
-          {chunk, [], [initial], nil, false, next_state}
+        t_acc =
+          if is_binary(initial_thinking) and initial_thinking != "",
+            do: [initial_thinking],
+            else: []
+
+        s_acc =
+          if is_binary(initial_sig) and initial_sig != "",
+            do: [initial_sig],
+            else: []
+
+        next_state = put_in(state, [:blocks, idx], {:thinking, t_acc, s_acc})
+
+        if is_binary(initial_thinking) and initial_thinking != "" do
+          chunk = sse_delta_chunk(next_state, %{"reasoning_content" => initial_thinking})
+          {chunk, [], [initial_thinking], nil, false, next_state}
         else
           {[], [], [], nil, false, next_state}
+        end
+
+      "redacted_thinking" ->
+        data = Map.get(block, "data", "")
+
+        if is_binary(data) and data != "" do
+          chunk =
+            sse_delta_chunk(state, %{
+              "thinking_blocks" => [%{"type" => "redacted_thinking", "data" => data}]
+            })
+
+          {chunk, [], [], nil, false, state}
+        else
+          {[], [], [], nil, false, state}
         end
 
       "tool_use" ->
@@ -170,12 +196,24 @@ defmodule Cgc2046.LlmGateway.Protocol.AnthropicStream do
           {[], [], [], nil, false, state}
         end
 
-      {"thinking_delta", :thinking} ->
+      {"thinking_delta", {:thinking, t_acc, s_acc}} ->
         thinking = Map.get(delta, "thinking", "")
 
         if is_binary(thinking) and thinking != "" do
-          {sse_delta_chunk(state, %{"reasoning_content" => thinking}), [], [thinking], nil, false,
-           state}
+          next_state = put_in(state, [:blocks, idx], {:thinking, [t_acc, thinking], s_acc})
+
+          {sse_delta_chunk(next_state, %{"reasoning_content" => thinking}), [], [thinking], nil,
+           false, next_state}
+        else
+          {[], [], [], nil, false, state}
+        end
+
+      {"signature_delta", {:thinking, t_acc, s_acc}} ->
+        sig = Map.get(delta, "signature", "")
+
+        if is_binary(sig) and sig != "" do
+          next_state = put_in(state, [:blocks, idx], {:thinking, t_acc, [s_acc, sig]})
+          {[], [], [], nil, false, next_state}
         else
           {[], [], [], nil, false, state}
         end
@@ -202,8 +240,13 @@ defmodule Cgc2046.LlmGateway.Protocol.AnthropicStream do
 
   defp handle_anthropic_event("content_block_stop", %{"index" => idx}, state)
        when is_integer(idx) do
+    block = get_in(state, [:blocks, idx])
     next_state = update_in(state, [:blocks], &Map.delete(&1, idx))
-    {[], [], [], nil, false, next_state}
+
+    case signed_thinking_chunk(next_state, block) do
+      nil -> {[], [], [], nil, false, next_state}
+      chunk -> {chunk, [], [], nil, false, next_state}
+    end
   end
 
   defp handle_anthropic_event("message_delta", event, state) do
@@ -228,6 +271,8 @@ defmodule Cgc2046.LlmGateway.Protocol.AnthropicStream do
   end
 
   defp handle_anthropic_event("message_stop", _event, state) do
+    {trailing_thinking_chunks, state} = flush_open_thinking_blocks(state)
+
     finish_chunk =
       if state.finish_reason_sent? do
         []
@@ -253,7 +298,9 @@ defmodule Cgc2046.LlmGateway.Protocol.AnthropicStream do
 
     done_frame = "data: [DONE]\n\n"
     next_state = Map.merge(state, %{finish_reason_sent?: true, done_sent?: true})
-    {[finish_chunk, usage_chunk, done_frame], [], [], usage, false, next_state}
+
+    {[trailing_thinking_chunks, finish_chunk, usage_chunk, done_frame], [], [], usage, false,
+     next_state}
   end
 
   defp handle_anthropic_event("error", event, state) do
@@ -311,6 +358,40 @@ defmodule Cgc2046.LlmGateway.Protocol.AnthropicStream do
   defp map_stop_reason("tool_use"), do: "tool_calls"
   defp map_stop_reason("refusal"), do: "content_filter"
   defp map_stop_reason(_), do: nil
+
+  defp signed_thinking_chunk(state, {:thinking, t_acc, s_acc}) do
+    sig = IO.iodata_to_binary(s_acc)
+
+    if sig != "" do
+      thinking = IO.iodata_to_binary(t_acc)
+
+      sse_delta_chunk(state, %{
+        "thinking_blocks" => [
+          %{"type" => "thinking", "thinking" => thinking, "signature" => sig}
+        ]
+      })
+    else
+      nil
+    end
+  end
+
+  defp signed_thinking_chunk(_state, _other), do: nil
+
+  defp flush_open_thinking_blocks(%{blocks: blocks} = state) when map_size(blocks) > 0 do
+    chunks =
+      blocks
+      |> Enum.sort_by(fn {idx, _} -> idx end)
+      |> Enum.flat_map(fn {_idx, block} ->
+        case signed_thinking_chunk(state, block) do
+          nil -> []
+          chunk -> [chunk]
+        end
+      end)
+
+    {chunks, Map.put(state, :blocks, %{})}
+  end
+
+  defp flush_open_thinking_blocks(state), do: {[], state}
 
   defp sse_delta_chunk(state, delta) do
     sse_json_frame(%{

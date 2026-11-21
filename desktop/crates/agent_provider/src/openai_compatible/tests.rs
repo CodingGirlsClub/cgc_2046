@@ -163,3 +163,104 @@ fn assistant_message_strips_thinking_blocks_and_preserves_content_and_tool_calls
     assert!(!serialized.contains("secret chain of thought"));
     assert!(!serialized.contains("redacted"));
 }
+
+#[test]
+fn signed_thinking_blocks_survive_sse_and_in_turn_tool_replay_only() {
+    let mut state = StreamState::default();
+    let e1 = state
+        .on_chunk(chunk(
+            r#"{"id":"c1","choices":[{"delta":{"reasoning_content":"Part A "}}]}"#,
+        ))
+        .unwrap();
+    assert!(matches!(
+        &e1[1],
+        CompletionEvent::Thinking { text, signature: None } if text == "Part A "
+    ));
+
+    let e2 = state
+        .on_chunk(chunk(
+            r#"{"choices":[{"delta":{"thinking_blocks":[{"type":"thinking","thinking":"Part A ","signature":"sig_123"},{"type":"redacted_thinking","data":"redacted_xyz"}]}}]}"#,
+        ))
+        .unwrap();
+    assert!(matches!(
+        &e2[0],
+        CompletionEvent::Thinking { text, signature: Some(sig) } if text.is_empty() && sig == "sig_123"
+    ));
+
+    let e3 = state
+        .on_chunk(chunk(
+            r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_sig","function":{"name":"read_file","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}"#,
+        ))
+        .unwrap();
+
+    let replay_blocks: Vec<&Content> = e3
+        .iter()
+        .filter_map(|ev| match ev {
+            CompletionEvent::ContentBlock(block) => Some(block),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        replay_blocks,
+        vec![
+            &Content::Thinking {
+                text: "Part A ".into(),
+                signature: "sig_123".into(),
+            },
+            &Content::RedactedThinking {
+                data: "redacted_xyz".into(),
+            },
+            &Content::ToolUse(ToolUse {
+                id: "call_sig".into(),
+                name: "read_file".into(),
+                args: json!({}),
+            }),
+        ]
+    );
+
+    // Build an OpenAI body containing an older turn (should strip thinking_blocks) and an in-turn
+    // tool loop assistant message (should preserve thinking_blocks).
+    let request = Request::new(vec![
+        Message::user("first question"),
+        Message::new(
+            Role::Assistant,
+            vec![
+                Content::Thinking {
+                    text: "old thinking".into(),
+                    signature: "old_sig".into(),
+                },
+                Content::Text("first answer".into()),
+            ],
+        ),
+        Message::user("second question"),
+        Message::new(
+            Role::Assistant,
+            vec![
+                Content::Thinking {
+                    text: "Part A ".into(),
+                    signature: "sig_123".into(),
+                },
+                Content::RedactedThinking {
+                    data: "redacted_xyz".into(),
+                },
+                Content::ToolUse(ToolUse {
+                    id: "call_sig".into(),
+                    name: "read_file".into(),
+                    args: json!({}),
+                }),
+            ],
+        ),
+        Message::tool_result("call_sig", "ok", false),
+    ]);
+
+    let body = build_body(&model(), &request);
+    let msgs = body["messages"].as_array().expect("messages");
+    assert!(msgs[1].get("thinking_blocks").is_none());
+    assert_eq!(
+        msgs[3]["thinking_blocks"],
+        json!([
+            {"type": "thinking", "thinking": "Part A ", "signature": "sig_123"},
+            {"type": "redacted_thinking", "data": "redacted_xyz"}
+        ])
+    );
+}

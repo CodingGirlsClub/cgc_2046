@@ -34,6 +34,7 @@ defmodule Cgc2046.LlmGateway.AffinityStore do
     end
 
     AffinityRouter.cleanup_expired!()
+    ProviderCatalog.cleanup_expired_cache!()
     timer_ref = schedule_cleanup(interval_ms)
     {:noreply, %{state | timer_ref: timer_ref}}
   end

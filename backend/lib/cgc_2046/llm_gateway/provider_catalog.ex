@@ -20,6 +20,7 @@ defmodule Cgc2046.LlmGateway.ProviderCatalog do
 
   defdelegate ensure_cache_table!, to: CatalogQueries
   defdelegate invalidate_cache!, to: CatalogQueries
+  defdelegate cleanup_expired_cache!, to: CatalogQueries, as: :cleanup_expired!
   defdelegate list_available_models, to: CatalogQueries
   defdelegate has_any_active_channel?, to: CatalogQueries
   defdelegate resolve_candidates_for_model(model_id), to: CatalogQueries

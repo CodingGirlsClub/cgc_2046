@@ -267,4 +267,42 @@ defmodule Cgc2046.LlmGateway.ProviderCatalogTest do
                allow_private: false
              )
   end
+
+  test "candidate cache ignores missing/oversized model names and evicts expired entries on cleanup" do
+    prev_cache_flag = Application.get_env(:cgc_2046, :llm_gateway_catalog_cache_enabled)
+    Application.put_env(:cgc_2046, :llm_gateway_catalog_cache_enabled, true)
+
+    on_exit(fn ->
+      if is_nil(prev_cache_flag) do
+        Application.delete_env(:cgc_2046, :llm_gateway_catalog_cache_enabled)
+      else
+        Application.put_env(:cgc_2046, :llm_gateway_catalog_cache_enabled, prev_cache_flag)
+      end
+
+      ProviderCatalog.invalidate_cache!()
+    end)
+
+    ProviderCatalog.ensure_cache_table!()
+    ProviderCatalog.invalidate_cache!()
+
+    for i <- 1..50 do
+      assert ProviderCatalog.resolve_candidates_for_model("missing-model-#{i}") == []
+    end
+
+    assert ProviderCatalog.resolve_candidates_for_model(String.duplicate("x", 300)) == []
+
+    # Only the single fixed :available_models key may exist; no per-model negative entries.
+    assert :ets.info(:llm_gateway_catalog_cache, :size) <= 1
+
+    now = System.monotonic_time(:millisecond)
+    :ets.insert(:llm_gateway_catalog_cache, {{:candidates, "expired-key"}, [:stale], now - 1_000})
+    :ets.insert(:llm_gateway_catalog_cache, {{:candidates, "fresh-key"}, [:fresh], now + 60_000})
+
+    deleted = ProviderCatalog.cleanup_expired_cache!()
+    assert deleted >= 1
+    assert :ets.lookup(:llm_gateway_catalog_cache, {:candidates, "expired-key"}) == []
+
+    assert [{{:candidates, "fresh-key"}, [:fresh], _}] =
+             :ets.lookup(:llm_gateway_catalog_cache, {:candidates, "fresh-key"})
+  end
 end

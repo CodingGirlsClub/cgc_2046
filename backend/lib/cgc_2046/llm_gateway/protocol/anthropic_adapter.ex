@@ -43,7 +43,7 @@ defmodule Cgc2046.LlmGateway.Protocol.AnthropicAdapter do
       |> maybe_put_tools(Map.get(params, "tools"))
       |> maybe_put_tool_choice(Map.get(params, "tool_choice"))
       |> maybe_put_stop_sequences(Map.get(params, "stop"))
-      |> apply_thinking_and_sampling(params, supports_thinking?, max_tokens)
+      |> apply_thinking_and_sampling(params, supports_thinking?, max_tokens, messages)
 
     %{
       url: messages_url(channel),
@@ -169,6 +169,7 @@ defmodule Cgc2046.LlmGateway.Protocol.AnthropicAdapter do
   end
 
   defp convert_assistant_message(msg) do
+    thinking_blocks = extract_assistant_thinking_blocks(msg)
     text_blocks = convert_user_content(Map.get(msg, "content"))
 
     tool_blocks =
@@ -177,7 +178,49 @@ defmodule Cgc2046.LlmGateway.Protocol.AnthropicAdapter do
         _ -> []
       end
 
-    text_blocks ++ tool_blocks
+    thinking_blocks ++ text_blocks ++ tool_blocks
+  end
+
+  defp extract_assistant_thinking_blocks(msg) do
+    from_field = extract_thinking_blocks_list(Map.get(msg, "thinking_blocks"))
+
+    cond do
+      from_field != [] ->
+        from_field
+
+      is_list(Map.get(msg, "content")) ->
+        extract_thinking_blocks_list(Map.get(msg, "content"))
+
+      true ->
+        extract_reasoning_pair(msg)
+    end
+  end
+
+  defp extract_thinking_blocks_list(list) when is_list(list) do
+    Enum.flat_map(list, fn
+      %{"type" => "thinking", "thinking" => t, "signature" => s}
+      when is_binary(t) and is_binary(s) and s != "" ->
+        [%{"type" => "thinking", "thinking" => t, "signature" => s}]
+
+      %{"type" => "redacted_thinking", "data" => d} when is_binary(d) and d != "" ->
+        [%{"type" => "redacted_thinking", "data" => d}]
+
+      _ ->
+        []
+    end)
+  end
+
+  defp extract_thinking_blocks_list(_), do: []
+
+  defp extract_reasoning_pair(msg) do
+    reasoning = Map.get(msg, "reasoning_content")
+    sig = Map.get(msg, "reasoning_signature") || Map.get(msg, "signature")
+
+    if is_binary(reasoning) and is_binary(sig) and sig != "" do
+      [%{"type" => "thinking", "thinking" => reasoning, "signature" => sig}]
+    else
+      []
+    end
   end
 
   defp convert_tool_call(%{"id" => id, "function" => %{"name" => name} = func})
@@ -289,11 +332,12 @@ defmodule Cgc2046.LlmGateway.Protocol.AnthropicAdapter do
 
   defp maybe_put_stop_sequences(body, _), do: body
 
-  defp apply_thinking_and_sampling(body, params, supports_thinking?, max_tokens) do
+  defp apply_thinking_and_sampling(body, params, supports_thinking?, max_tokens, messages) do
     effort = Map.get(params, "reasoning_effort")
 
     budget =
-      if supports_thinking? and is_binary(effort) and max_tokens > 1_024 do
+      if supports_thinking? and is_binary(effort) and max_tokens > 1_024 and
+           not missing_required_tool_turn_thinking?(messages) do
         target =
           case effort do
             "low" -> 2_048
@@ -317,6 +361,44 @@ defmodule Cgc2046.LlmGateway.Protocol.AnthropicAdapter do
       |> maybe_put_number("top_p", Map.get(params, "top_p"))
     end
   end
+
+  defp missing_required_tool_turn_thinking?(messages) when is_list(messages) do
+    current_turn_tail =
+      messages
+      |> Enum.reverse()
+      |> Enum.take_while(&(not regular_user_message?(&1)))
+      |> Enum.reverse()
+
+    has_tool_result? = Enum.any?(current_turn_tail, &tool_result_user_message?/1)
+    assistant_msgs = Enum.filter(current_turn_tail, &(Map.get(&1, "role") == "assistant"))
+
+    has_tool_result? and assistant_msgs != [] and
+      Enum.any?(assistant_msgs, fn msg ->
+        not starts_with_thinking_block?(Map.get(msg, "content"))
+      end)
+  end
+
+  defp missing_required_tool_turn_thinking?(_), do: false
+
+  defp regular_user_message?(%{"role" => "user", "content" => content}) when is_list(content) do
+    not Enum.any?(content, &match?(%{"type" => "tool_result"}, &1))
+  end
+
+  defp regular_user_message?(%{"role" => "user"}), do: true
+  defp regular_user_message?(_), do: false
+
+  defp tool_result_user_message?(%{"role" => "user", "content" => content})
+       when is_list(content) do
+    Enum.any?(content, &match?(%{"type" => "tool_result"}, &1))
+  end
+
+  defp tool_result_user_message?(_), do: false
+
+  defp starts_with_thinking_block?([%{"type" => type} | _])
+       when type in ["thinking", "redacted_thinking"],
+       do: true
+
+  defp starts_with_thinking_block?(_), do: false
 
   defp maybe_put_number(body, key, val) when is_number(val), do: Map.put(body, key, val)
   defp maybe_put_number(body, _key, _), do: body
