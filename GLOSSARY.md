@@ -8,8 +8,8 @@
 
 ## 0. 架构范式（一句话）
 
-> **网站 = 业务中枢 + MCP server；用户自带 OpenClacky 做 Agent 执行（BYO，自带模型）。**
-> 网站不再自行运行 LLM/Agent，只负责业务状态、鉴权、审计；一切 AI 执行发生在用户本地的 OpenClacky，通过 MCP 协议调用网站的领域能力。
+> **网站 = 业务中枢 + MCP server + 可选托管算力代理（LlmGateway）；客户端演化为桌面端双轨（Rust Native Agent 默认轨 + 外部 ACP Agent）与 OpenClacky 终端扩展并存。**
+> 网站本身仍不运行 Agent ToolLoop，只负责业务状态、鉴权、审计与 MCP 能力暴露；Agent 执行发生在用户本地桌面客户端或 OpenClacky，通过 MCP 协议调用网站领域能力，模型调用支持用户自带模型（BYO）或可选经 `Cgc2046.LlmGateway`（`POST /v1/chat/completions`）按配额代理。
 
 ---
 
@@ -17,8 +17,8 @@
 
 ### BYO（自带模型，Bring Your Own Model）
 
-- **定义**：用户自带本地 OpenClacky 作为其 Agent 执行环境，平台不承担任何 LLM 推理成本与执行环境；平台只提供领域数据与业务能力。
-- **架构位置**：连接范式。决定产品形态——模型调用与对话始终发生在用户自己的电脑上，平台零 AI 成本（D3）；网站本身不执行 agent（D4 曾被 ADR-0022 修订为「课程学习页对话栏经 CGC 本机 Host 驱动 agent」，该路径已于 2026-10-26 移除）。
+- **定义**：用户使用本地执行环境（桌面端 Native Agent / 外部 ACP Agent 或本地 OpenClacky）自带模型或自配 API Key，平台保留不强制代管模型账号与推理的能力边界；同时作为演进补充，平台现提供桌面内置第一方 **Native Agent** 默认轨与可选的托管算力代理 **CGC LLM Gateway**（`Cgc2046.LlmGateway`，按钱包/工作台算力池计量计费，ADR-0028）。
+- **架构位置**：连接范式与混合执行底座。BYO 路径下模型调用发生在用户端、平台零推理成本（D3 原始基线）；桌面客户端及 `LlmGateway` 上线后，平台提供可选模型代理服务（ADR-0028 决策 4/8 已修订 ADR-0001 D3 边界）；网站本身不执行 agent（D4 曾被 ADR-0022 修订为「课程学习页对话栏经 CGC 本机 Host 驱动 agent」，该路径已于 2026-10-26 移除）。
 
 ### MCP server（模型上下文协议服务端）
 
@@ -205,7 +205,7 @@
 
 ### WorkflowRun（工作流执行实例）
 
-- **定义**：一个运行中的 DAG 实例。状态机 `pending → running → waiting(人等信号) → succeeded/failed/cancelled`；持输入快照、产物（facts）、signal 日志；**归属 partition**（D-A1/D-A5）。**创建归因（#1128 D2）**：`created_reason`（`course_created` 首周期信号 / `first_cycle_recovery` 首周期信号未处理时读取补建 / `next_cycle` 发布后次周期懒开）、`created_by_actor_id`（次周期/补建触发人；信号路径无 actor，为 nil）、`previous_run_id`（上一周期；首周期 nil；审计链接，刻意不建 FK）。
+- **定义**：一个运行中的 DAG 实例。状态机 `pending → running → waiting(人等信号) → succeeded/failed/cancelled/expired`（`expired` 由 `ApprovalExpiryWorker` 等超时路径触发）；持输入快照、产物（facts）、signal 日志；**归属 partition**（D-A1/D-A5）。带 4 个显式学习域锚点列（`subject_user_id` / `subject_course_id` / `subject_enrollment_id` / `subject_course_revision_id`，#505）用于部分唯一索引与直查。**创建归因（#1128 D2）**：`created_reason`（`course_created` 首周期信号 / `first_cycle_recovery` 首周期信号未处理时读取补建 / `next_cycle` 发布后次周期懒开）、`created_by_actor_id`（次周期/补建触发人；信号路径无 actor，为 nil）、`previous_run_id`（上一周期；首周期 nil；审计链接，刻意不建 FK）。
 - **架构位置**：执行实例；人工步骤到达时 `waiting` 挂起（hibernate 落 checkpoint，信号到达 thaw 恢复），不拆多段（human-in-the-loop 为主）。
 
 ### Step（步骤，四分类）
@@ -220,17 +220,17 @@
 ### Jido 生态（Jido Ecosystem）
 
 - **定义**：workflow 引擎底层选型（Elixir，D-A1）。核心五件套：**Action**（纯函数步骤）/ **Signal**（CloudEvents 消息）/ **Directive**（副作用指令 Emit/SpawnAgent/Schedule）/ **Strategy**（执行策略）/ **Agent**（运行时容器 AgentServer）。
-- **架构位置**：引擎层；加 **jido_runic**（DAG 桥）与 **ash_jido**（业务 Action 桥）组成平台 workflow 底座。
+- **架构位置**：引擎层；加 **jido_runic**（DAG 桥）组成平台当前 workflow 底座（`ash_jido` 仅在 `mix.exs` 声明，全库暂未启用）。
 
 ### Signal / CloudEvents（信号）
 
 - **定义**：跨 context 通信的消息信封，`type` 字段路由到 action，`source/subject/data` 标准化。**workflow 与业务 context 解耦的纽带**：workflow 发 Signal → 业务 context 订阅后更新自己的 aggregate；业务反向只发信号、不调引擎。
 - **架构位置**：D-A1/D-A6。**同步写走 Action（强一致，8）**，**衍生副作用走 Signal 异步最终一致（2）**——如 `enrollment.completed` → 赞助权益更新、通知志愿者、触发学习 workflow。
 
-### ash_jido（Ash 桥）
+### ash_jido（Ash 桥，声明未启用）
 
-- **定义**：编译期把 Ash Resource 的 action 生成 Jido Action 模块（context 需 domain/actor/tenant）；**业务实体 ↔ workflow 步骤的桥**（D-A1）。
-- **架构位置**：依赖方向恒为 workflow → 业务 action 接口；workflow 步骤经它同步读/写业务数据（如 `create_enrollment`）。
+- **定义**：原计划用于编译期把 Ash Resource 的 action 生成 Jido Action 模块（context 需 domain/actor/tenant）的**业务实体 ↔ workflow 步骤的桥**（D-A1）。
+- **架构位置**：**现状未落地（2026-11-22 核实）**：`backend/mix.exs` 虽声明 `{:ash_jido, "~> 1.0"}`，但全库零引用、生产 workflow 均为 manual-only 或协议驱动（无生产 `Jido.Action` 自动步骤）；该死依赖待下次变更 `backend/mix.lock` 时一并清理。
 
 ### Runic DAG（jido_runic）
 
@@ -257,6 +257,11 @@
 - **定义**：跑在学员自己电脑上、由该学员自己的账号与额度驱动的那一类 agent（BYO，ADR-0001；ADR-0023）。历史实现为 **OMP**（`omp acp`）与 **Codex**（`@agentclientprotocol/codex-acp`），由 CGC 本机 Host 经 ACP 启动与驱动（ADR-0022，已 Superseded）；**2026-10-26 起 Web 端该路径已移除，本机 agent 现由桌面客户端经 ACP 驱动（ADR-0025 / ADR-0028）。**
 - **架构位置**：**类别名，不是某个具体 agent 的名字**——个体的名字出现在课程页对话栏的选择器里（「由 OMP 驱动」/「由 Codex 驱动」），「本机 agent 对话」指对话栏这个面。平台不运行模型、不代管学员的 agent 登录；学习凭证经 ACP 的 `mcpServers` 下发，平台只按 token 类型收窄权限。
 - **扩展方式（历史）**：在 Host 的注册表（原 `cgc-host/src/agents/`，已随 `cgc-host/` 删除）加一条记录、页面按 `status.agents` 自适应——第三个 agent（如 Claude Code）不改路由与页面结构。
+
+### Native Agent（第一方桌面内置 Agent）
+
+- **定义**：桌面客户端内置的第一方 Rust Agent（ADR-0028），默认学习轨，与外部 ACP Agent（OMP / Codex / Claude Code / DeepSeek Harness）双轨并存。支持 BYOK（OpenAI-compatible / Responses / Anthropic-compatible）与平台托管 `Cgc2046.LlmGateway`（`cgc-cloud`），本地持有 SQLite 会话（`threads.db`）、Git checkpoint（`agent_checkpoint`）与受白名单约束的学习 MCP 客户端（`learning_host` 凭证）。
+- **架构位置**：`desktop/crates/agent_{core,provider,tools,store,checkpoint,host,conversation,ui}`；与外部 ACP 轨共用 `agent_ui::message_flow`、`ConversationSession` 与 `PageContext`/`AgentCall` 契约。
 
 ### AgentActionSpec（学习 Agent 动作声明）
 
@@ -333,6 +338,8 @@
 ---
 
 ## 6. Skill 与本地同步
+
+> **已废弃（未落地，2026-11-22 核实）：工作区 Skill 存库、`SkillLoader` 运行时同步到 `~/.clacky/skills/`、`cgc-sync` 及 `cgc2046-<ws>-<skill>` 命名机制均未实现，已由平台四角色 Playbook（`get_role_playbook`，ADR-0012）与扩展内静态打包 skill（`cgc2046-onboarding` / `cgc-quality-eval`）取代。本节仅留历史记录，禁止按本节补建同步链路。**
 
 ### Skill（技能）
 
@@ -462,8 +469,8 @@
 
 ### 学习 run 投影单源（Learning.Runs）
 
-- **定义**：learning WorkflowRun 的启动/查询/投影/完成判定/停滞口径的**单源**（L6）：instance key = `learning_<enrollment_id>_<revision_id|none>`（按 key 命中**任意状态**即 resume，§B#11——同版重进 = 续学，新版发布 = 新 run）；revision 绑定走 `input_snapshot["course_revision_id"]`（enrollment 锚同款先例——引擎表零域列零 opt）；`learning_state/2` = MCP `get_learning_state` 与 GraphQL `courseLearningDetail` 共用投影（含 **stale_revision 语义**——run 绑旧版时投影自己版本的 objectives+states 不换底）；完成判定 `complete_when_mastered/1`（非同事务 §B#12：attempt 落库后即时调用，失败只记日志，5 分钟 worker 兜底）；停滞口径 = 最新 attempt `created_at`，零 attempt 回退 run `inserted_at`（规⑦ detail 键 `last_activity_at`）。
-- **架构位置**：`learning/runs.ex`；Instantiator（enrollment.completed 异步路径）与 `start_learning_run` 工具（学员主动路径）共用同一 key，两路径幂等互通（R36）。MCP 面 = `start_learning_run` / `submit_learning_attempt`（六步校验链：本人 confirmed → 非终态 run → run 绑 revision → objective 存在且 rubric 精确覆盖 → confidence/evidence/rationale → 先修锁）/ `get_learning_state`（`get_learning_records`/`save_learning_records` 已随 LearningRecord 退役删除）。
+- **定义**：learning WorkflowRun 的启动/查询/投影/完成判定/停滞口径的**单源**（L6 + issue #505 D8 修订）：`instance_key` 已改为 `learning_<user_id>_<revision_id|none>`（仅作可读标签，活动/课程双通道汇入同一 `user × revision` 活跃 run）；去重真源 = `resumable_run/3` 按 `workflow_runs` 的 `subject_user_id` + `subject_course_revision_id` 列预查 + DB 部分唯一索引，仅命中 `[:pending, :running, :waiting, :succeeded]`（`failed` / `cancelled` / `expired` 允许重开新 run）；`learning_state/2` = MCP `get_learning_state` 与 GraphQL `courseLearningDetail` 共用投影（含 **stale_revision 语义**——run 绑旧版时投影自己版本的 objectives+states 不换底）；完成判定 `complete_when_mastered/1`（非同事务 §B#12：attempt 落库后即时调用，失败只记日志，5 分钟 worker 兜底）；停滞口径 = 最新 attempt `created_at`，零 attempt 回退 run `inserted_at`（规⑦ detail 键 `last_activity_at`）。
+- **架构位置**：`learning/runs.ex`；Instantiator（enrollment.completed 异步路径）与 `start_learning_run` 工具（学员主动路径）共用 `resumable_run/3` 与 `non_terminal_run/3`，两路径幂等互通（R36）。MCP 面 = `start_learning_run` / `submit_learning_attempt`（六步校验链：本人 confirmed ∨ 挂载报名 → 非终态 run → run 绑 revision → objective 存在且 rubric 精确覆盖 → confidence/evidence/rationale → 先修锁）/ `get_learning_state`（`get_learning_records`/`save_learning_records` 已随 LearningRecord 退役删除）。
 
 ### 复习调度（Learning.ReviewSchedule）
 
@@ -472,12 +479,12 @@
 
 ### 学习分析聚合（Learning.Analytics）
 
-- **定义**：tutor ∪ owner/admin 的课程学习数据回流聚合读面（R49/R50，AE14）：`for_course/2`（IO）+ `compute/5`（纯函数，now 可注入）两层。数据范围 = 课程全部 learning run（`input_snapshot["course_id"]` 课程级锚定，无 user 过滤）+ 其 attempts + 当前 published revision objectives。输出五键：`run_stats`（total/active/completed/completion_rate，零 run null）、`objectives`（当前 revision 逐行：掌握四态**按 run 计**——仅计绑定 revision 含该 objective 的 run；qualifying 按 attempt 所属 run 绑定版 rubric 判；重试热点 `avg_attempts_to_first_mastery` 仅统计曾掌握的 run）、`orphan_objectives`（当前版已移除 objective 的 attempts 汇总）、`drop_off.stale_run_count`（`Runs.stagnant_cutoff` 口径同源，内存算）、`generated_at`。**红线（R49）**：纯聚合计数，永不返回 evidence/rubric_results/rationale 正文。
+- **定义**：tutor ∪ owner/admin 的课程学习数据回流聚合读面（R49/R50，AE14）：`for_course/2`（IO）+ `compute/5`（纯函数，now 可注入）两层。数据范围 = 课程全部 learning run（`workflow_runs.subject_course_id` 课程级锚定，`subject_course_revision_id` 锚定版本，无 user 过滤）+ 其 attempts + 当前 published revision objectives。输出五键：`run_stats`（total/active/completed/completion_rate，零 run null）、`objectives`（当前 revision 逐行：掌握四态**按 run 计**——仅计绑定 revision 含该 objective 的 run；qualifying 按 attempt 所属 run 绑定版 rubric 判；重试热点 `avg_attempts_to_first_mastery` 仅统计曾掌握的 run）、`orphan_objectives`（当前版已移除 objective 的 attempts 汇总）、`drop_off.stale_run_count`（`Runs.stagnant_cutoff` 口径同源，内存算）、`generated_at`。**红线（R49）**：纯聚合计数，永不返回 evidence/rubric_results/rationale 正文。
 - **架构位置**：`learning/analytics.ex`；MCP 面 = `get_course_learning_analytics`（member-only + 工具层 tutor ∪ manage roles；租户收紧 not found 不泄存在性）；tutor playbook「数据回流」章节（R50：分析 → 判断内容问题 → 新 Revision 草稿重进教研链，永不自动改/发布当前 Revision）。
 
 ### Learning（学习上下文）
 
-- **定义**：学员侧学习的限界上下文（ADR-0010 A3 归位；S8 起为 ADR-0011 Learning v2）：`Attempt`（不可变评价账本）+ `Mastery`/`NextAction`（派生投影纯函数族）+ `Runs`（run×revision 投影单源；候选③起并持 `my_learning_runs/1`——myLearningRuns 的 enrollment→run→投影编排自 graphql_schema 抽离归此）+ `Authorization`（学员侧三层授权判定单源：成员 ∪ confirmed enrollment ∪ run 持有者；候选③自 `Mcp.Tools.LearnerAuthorization` 迁域侧，斩断 web→mcp/tools 反向 seam，MCP 工具与 web `Courses.CourseProjection` 同为消费面）+ `LearningInstantiator`（订阅 enrollment.completed 种 learning run；SignalSubscriber，consumer_key `learning_instantiator` 钉死；S8 起 key 含 revision、course 报名绑 `Course.current_revision_id` 进 input_snapshot）+ `RunProjection`（GraphQL myLearningRuns 行组装，⑥a 自 graphql_schema 抽离，#217 旁路读取锚链注释随迁；S8 切 objective 口径薄壳 `Runs.learning_state`）+ `LearningProgressWorker`（停滞扫描/完课判定，就地改逻辑不改名——Oban jobs.worker 字符串雷区）。`Learning.Progress` 与 `LearningRecord` 已随 S8 删除（issue/checklist 口径投影由 Mastery/Runs 取代）。web 课程读者投影四姿态（公开 course_map / 学员三层 learning_detail+content / staff draft）= `Courses.CourseProjection`（候选③同批自 graphql_schema 抽离，仿 RunProjection 先例）。
+- **定义**：学员侧学习的限界上下文（ADR-0010 A3 归位；S8 起为 ADR-0011 Learning v2）：`Attempt`（不可变评价账本）+ `CourseNote`（`learning/course_note.ex`，学员课程笔记与按 revision 生成的复盘，带 `CourseNotes` 业务入口）+ `Mastery`/`NextAction`（派生投影纯函数族）+ `Runs`（`user × revision` 投影单源；候选③起并持 `my_learning_runs/1`——myLearningRuns 的 enrollment→run→投影编排自 graphql_schema 抽离归此）+ `Authorization`（学员侧四层授权判定单源：`Rbac.staff?` ∪ confirmed enrollment ∪ `Runs.mounted_enrollment?` ∪ run 持有者；候选③自 `Mcp.Tools.LearnerAuthorization` 迁域侧，斩断 web→mcp/tools 反向 seam，MCP 工具与 web `Courses.CourseProjection` 同为消费面）+ `LearningInstantiator`（订阅 `enrollment.completed` 与 `course_revision.published` 种 learning run；SignalSubscriber，consumer_key `learning_instantiator` 钉死）+ `RunReaper`（订阅 `event.ended`/`course.ended` 仅在 offering `cancelled` 时回收非终态学习 run）+ `RunProjection`（GraphQL myLearningRuns 行组装，⑥a 自 graphql_schema 抽离，#217 旁路读取锚链注释随迁；S8 切 objective 口径薄壳 `Runs.learning_state`）+ `LearningProgressWorker`（停滞扫描/完课判定，就地改逻辑不改名——Oban jobs.worker 字符串雷区）。`Learning.Progress` 与 `LearningRecord` 已随 S8 删除（issue/checklist 口径投影由 Mastery/Runs 取代）。web 课程读者投影四姿态（公开 course_map / 学员三层 learning_detail+content / staff draft）= `Courses.CourseProjection`（候选③同批自 graphql_schema 抽离，仿 RunProjection 先例）。
 - **架构位置**：独立 context（`learning/`）；消费 Curriculum 已发布内容（revision 经 `Curriculum.revision_by_id/2` 读契约），被 GraphQL/MCP 消费。
 
 ### Enrollment（报名 / 事件级参与者）
@@ -581,6 +588,16 @@
 - **定义**：**Event 级邀请**（D-A3）：Owner 创建 → 邀请 workflow（接受/拒绝 → 分享材料产出 → 结束）；分享完**关系结束**，不成为成员。
 - **架构位置**：活动 context 资源；邀请/接受状态由 Signal 驱动。
 
+### LlmGateway（托管算力网关上下文）
+
+- **定义**：平台第一方托管模型代理与算力计费域（`Cgc2046.LlmGateway`，`backend/lib/cgc_2046/llm_gateway.ex`），涵盖 `Wallet`、`CreditGrant`（FIFO 到期批次）、`WorkspaceGrantBatch`、`WorkspacePoolEntry`、`UsageLog`（双成本用量账本）、`PaymentOrder`（独立于 `Payments.Order` 的算力收银台，ADR-0007 2026-11-19 补记）以及 `Provider` / `ProviderApiKey` / `ProviderModel` 目录。对外提供 `POST /v1/chat/completions`（`LlmGatewayController`，持登录 Bearer JWT 鉴权），按微积分（`mc`）预授权 hold 与 `Tiktoken` 结算扣费。
+- **架构位置**：独立 context（`llm_gateway/`），写路径收敛于 `Cgc2046.LlmGateway.Ledger` 与 `PaymentOrders`。工作台算力池余额暂置 `workspaces.credit_pool_mc` 由 `Ledger` 原子更新（ADR-0009 D2 登记例外，配套 `:llm_workspace_pool_mismatch` 对账守卫）。
+
+### Recruitment（志愿者招募上下文）
+
+- **定义**：志愿者招募域（`Cgc2046.Recruitment`，`backend/lib/cgc_2046/recruitment.ex`），包含 3 个租户资源：`RecruitmentCohort`（招募批次，同一 workspace 至多一个 open）、`ResumeProfile`（跨批复用的简历档案，受 PIPL 下载边界保护）、`VolunteerApplication`（志愿者申请状态机）。
+- **架构位置**：独立 context（`recruitment/`），经 `AshGraphql.Domain` 与 MCP 工具（`list_recruitment_cohorts` / `create_recruitment_cohort` / `update_recruitment_cohort` / `open_recruitment_cohort` / `close_recruitment_cohort`）暴露。
+
 ### Wish（愿望 / 闪念间）与署名快照
 
 - **定义**：闪念间（Flashback）公开的许愿条目；**新愿望以 `user_id` 为账号归属，`person_id` 仅为可选档案关联**（ADR-0017，2026-09-25 已接受）。允许没有历史档案的新用户许愿，**不创建占位 Person**；存量仅关联 Person 的愿望与有效 token 写入口继续表达真实历史作者身份，认领后按该 Person 的账号归属展示/授权/合并年度额度。
@@ -639,8 +656,8 @@
 
 ### 对账扫描（Reconciliation Scan）
 
-- **定义**：平台级 best-effort 异步路径孤儿报告（E-10 #125）。`ReconciliationScanWorker` 每 10 分钟扫 **15 条**：① ~ ⑥ 在代码 rules_registry.desc 中沿**「E-10」**溯源标签、⑦ `learning_run_stalled` 沿**「E-9 #122/S8」**溯源标签（本源词为「E-10 七条」的相传口径；代码侧溯源标签与「E-10」不等同，这里按代码为准）；⑧ ~ ⑫ 为 **ADR-0009 U7 名额账本四条** + **Fable 5** 缓存漂移一条；⑬ **资金写频次告警（R3）**；⑭ **通知失败面（#556）**；⑮ **refunding 无在途退款 job（#862）**，落 `Reconciliation.Finding`（表 reconciliation_findings，全局资源，read 仅 PlatformAdmin）→ /admin/reconciliation 对账页可读。**规则语义单源** = `backend/lib/cgc_2046/reconciliation/rules_registry.ex`（#852 C9 Q4 收编）；本清单与之一一对应。
-- **规则清单**：① `confirmed_enrollment_without_run` confirmed enrollment 无 learning run（`workflow_runs.input_snapshot->>'enrollment_id'` join `workflow_definitions.type=learning`，BYO 无平台终态、存在即非孤儿）｜② `pending_without_deadline` pending 无 approval_deadline（enrollment/sponsorship/join_request/workspace_application 四资源 UNION，创建路径必写）｜③ `active_sponsorship_signal_dead` active sponsorship 的 `sponsorship.active` 发布 job 处于 discarded（PR-A 同事务必入队，死信=信号链断连；原「无 signal_log」因 ADR-0003 入向局限不可实现而修正）｜④ `open_entity_without_research_definition` draft/open 但工作台无 published 教研定义——Course 无条件命中（curriculum_enabled 无此列，2026-08-16 Q12；UAT P2 扩 draft：prep run 始于 course.created，断流在 draft 期就该看见）、Event 仅 curriculum_enabled=true 命中（false = 轻聚会合法不命中；教研 run 始于 launched，draft 期无断流不扩；S6 起 event-only）｜⑤ `nonterminal_research_run_for_closed_entity` closed/cancelled Event/Course 仍有非终态教研 run（instance key `event_<id>`/`course_<id>`，reaper 同约定）｜⑥ `dead_letter_job` 信号族死信（SignalPublishWorker / NotificationWorker / DeliveryWorker / DepositForfeitWorker / PaymentRefundWorker 的 discarded job，Pruner 7 天窗口内判定，超窗交 Pruner，#862）｜⑦ `learning_run_stalled` learning run 停滞（7 天无 facts 更新，与 LearningProgressWorker 同源判定）。规④/⑤原子名冻结 `research_*`——DB 落库枚举值，不随 PR③ 改名。**名额账本四条（ADR-0009 U7，R17）**：⑧ `open_offering_without_ledger` open offering 无账本行（launched 信号建行 / 报名懒建双路均未到达，信号在途窗口下一拍自消）｜⑨ `ledger_occupancy_mismatch` 账本 occupancy ≠ 占位报名计数（占位 = confirmed + payment_pending，与占位/释放路径口径一致）｜⑩ `capacity_projection_drift` 展示投影滞后账本超一拍（confirmed_count / sync_version 与账本不一致且超一个扫描周期，宽限一拍对齐 10 分钟 cron）｜⑪ `occupancy_exceeds_capacity` 账本 occupancy > capacity（capacity 调小后的合法超员窗口看护至自然释放收敛，R16/AE4）｜⑫ `ledger_cache_drift` 账本三列缓存（status/capacity/registration_deadline）漂移于 offering 真值（ADR-0009 Fable 5 HIGH-1，无宽限；在途瞬时命中下一拍自消）。**规⑬ `fund_action_burst`（资金写频次告警 R3）**：窗口内同一 actor 同类资金写治理动作（`:order_refund`/`:order_refund_retry`/`:waive_payment`）超阈值（默认 1h/5 笔，app env 可调）→ 按 actor 一行 Finding；纯查询 `admin_action_logs` 不动资金链路；频率回落下一拍自消。**规⑭ `notification_delivery_failed`（通知失败面 #556）**：24h 内落 `:failed` 的 `notification_deliveries` 行逐行出 Finding（entity = `:notification_delivery`）；窗口语义自清——超窗未命中删除；终态化本体在 DeliveryWorker 末拍。**规⑮ `refunding_without_refund_job`（refunding 无在途退款 job，#862）**：进 `refunding` 即同事务入队 `PaymentRefundWorker`（C2 #845），无在途任务 = 任务被人工删除或重试耗尽丢弃，钱退不出去且无人发现；在途 state = `available/scheduled/executing/retryable`（Oban `:incomplete` 的 Postgres 子集），15 分钟宽限纯防御；处置：MCP `retry_refund` 重入退款链，或订单离开 refunding 后下一拍自消。
+- **定义**：平台级 best-effort 异步路径孤儿报告（E-10 #125）。`ReconciliationScanWorker` 每 10 分钟扫 **19 条**（全集 **24 条**，含 ①~⑦ 引擎与运行异常、⑧~⑫ **ADR-0009 U7 名额账本四条** + **Fable 5** 缓存漂移一条、⑬ **资金写频次告警（R3）**、⑭ **通知失败面（#556）**、⑮ **refunding 无在途退款 job（#862）**，以及 4 条 LLM 算力对账规则 `llm_wallet_balance_mismatch` / `llm_wallet_held_mismatch` / `llm_paid_order_without_grant` / `llm_workspace_pool_mismatch`；另含 5 条非 cron 生产方规则），落 `Reconciliation.Finding`（表 reconciliation_findings，全局资源，read 仅 PlatformAdmin）→ /admin/reconciliation 对账页可读。**规则语义单源** = `backend/lib/cgc_2046/reconciliation/rules_registry.ex`（#852 C9 Q4 收编）。
+- **规则清单**：① `confirmed_enrollment_without_run` confirmed enrollment 无 learning run（#505 起按 `workflow_runs` 的 `subject_user_id × subject_course_revision_id` 判定，无锚事件型回退 `subject_enrollment_id`，未发布课程豁免，BYO 无平台终态、存在即非孤儿）｜② `pending_without_deadline` pending 无 approval_deadline（enrollment/sponsorship/join_request/workspace_application 四资源 UNION，创建路径必写）｜③ `active_sponsorship_signal_dead` active sponsorship 的 `sponsorship.active` 发布 job 处于 discarded（PR-A 同事务必入队，死信=信号链断连；原「无 signal_log」因 ADR-0003 入向局限不可实现而修正）｜④ `open_entity_without_research_definition` draft/open 但工作台无 published 教研定义——Course 无条件命中（curriculum_enabled 无此列，2026-08-16 Q12；UAT P2 扩 draft：prep run 始于 course.created，断流在 draft 期就该看见）、Event 仅 curriculum_enabled=true 命中（false = 轻聚会合法不命中；教研 run 始于 launched，draft 期无断流不扩；S6 起 event-only）｜⑤ `nonterminal_research_run_for_closed_entity` closed/cancelled Event/Course 仍有非终态教研 run（instance key `event_<id>`/`course_<id>`，reaper 同约定）｜⑥ `dead_letter_job` 信号族死信（SignalPublishWorker / NotificationWorker / DeliveryWorker / DepositForfeitWorker / PaymentRefundWorker / LlmPaymentSettlementWorker 的 discarded job，Pruner 7 天窗口内判定，超窗交 Pruner，#862）｜⑦ `learning_run_stalled` learning run 停滞（最新 attempt `created_at` 超 7 天，零 attempt 回退 run `inserted_at`，与 LearningProgressWorker 同源判定）。规④/⑤原子名冻结 `research_*`——DB 落库枚举值，不随 PR③ 改名。**名额账本四条（ADR-0009 U7，R17）**：⑧ `open_offering_without_ledger` open offering 无账本行（launched 信号建行 / 报名懒建双路均未到达，信号在途窗口下一拍自消）｜⑨ `ledger_occupancy_mismatch` 账本 occupancy ≠ 占位报名计数（占位 = confirmed + payment_pending，与占位/释放路径口径一致）｜⑩ `capacity_projection_drift` 展示投影滞后账本超一拍（confirmed_count / sync_version 与账本不一致且超一个扫描周期，宽限一拍对齐 10 分钟 cron）｜⑪ `occupancy_exceeds_capacity` 账本 occupancy > capacity（capacity 调小后的合法超员窗口看护至自然释放收敛，R16/AE4）｜⑫ `ledger_cache_drift` 账本三列缓存（status/capacity/registration_deadline）漂移于 offering 真值（ADR-0009 Fable 5 HIGH-1，无宽限；在途瞬时命中下一拍自消）。**规⑬ `fund_action_burst`（资金写频次告警 R3）**：窗口内同一 actor 同类资金写治理动作（`:order_refund`/`:order_refund_retry`/`:waive_payment`）超阈值（默认 1h/5 笔，app env 可调）→ 按 actor 一行 Finding；纯查询 `admin_action_logs` 不动资金链路；频率回落下一拍自消。**规⑭ `notification_delivery_failed`（通知失败面 #556）**：24h 内落 `:failed` 的 `notification_deliveries` 行逐行出 Finding（entity = `:notification_delivery`）；窗口语义自清——超窗未命中删除；终态化本体在 DeliveryWorker 末拍。**规⑮ `refunding_without_refund_job`（refunding 无在途退款 job，#862）**：进 `refunding` 即同事务入队 `PaymentRefundWorker`（C2 #845），无在途任务 = 任务被人工删除或重试耗尽丢弃，钱退不出去且无人发现；在途 state = `available/scheduled/executing/retryable`（Oban `:incomplete` 的 Postgres 子集），15 分钟宽限纯防御；处置：MCP `retry_refund` 重入退款链，或订单离开 refunding 后下一拍自消。**LLM 算力四条**：`llm_wallet_balance_mismatch` / `llm_wallet_held_mismatch` / `llm_paid_order_without_grant` / `llm_workspace_pool_mismatch`（详见 `rules_registry.ex`）。
 - **刷新语义**：命中 upsert（唯一键 `(rule, entity_type, entity_id)`，保 first_seen_at、刷新 last_seen_at），本次未命中删除——「无孤儿 → 空报告」由结构保证。共享驱动 `Finding.apply_rule/3` 按 sweep 模式分拍（#848）：`:full` 全量拍（upsert + 未命中删除，默认）；`:partial` 降级拍（扫描面残缺，只 upsert）；`:one_shot` 单事件拍（单事件触发无全量视图，只 upsert，命中仍刷 last_seen_at）。
 - **死信窗口**：规⑥只判 oban_jobs 7 天窗口内（与 Oban Pruner max_age 对齐）的 discarded 行；死信可见性由本扫描承担，不扩 Oban discard 插件。
 - **七天上限（窗口语义，非 bug）**：规③/规⑥的有效窗口同受 Oban Pruner（max_age 7 天）约束——discarded job 被 Pruner 删除后，未消解的规③/规⑥孤儿会从报告静默消失（刷新语义按未命中删除，视为已消解）。
@@ -659,11 +676,11 @@
 | A 通道 vs B 通道 | A 通道（网站派活）已删除；B 通道（网站 MCP server）是唯一主干 |
 | Agent vs AgentRun | Agent 是授权/配置登记（不含执行，实体系 roadmap）；AgentRun 是 ToolCallLog 的聚合投影概念（实体不建，随 Agent 落地重启） |
 | 个人 Agent vs 公共 Agent | 个人 = 角色分身仅本人可见；公共 = Workspace 级按 Workflow 协作 |
-| Skill vs Agent | Skill 是预设工作流（SKILL.md）；Agent 是带人格/面板/技能绑定的助手；工作区 Skill 经本地同步进 `~/.clacky/skills/` |
-| `cgc-2046` vs `cgc2046-<ws>-<skill>` | `cgc-2046` 是扩展 id / MCP 条目名；`cgc2046-<ws>-<skill>` 是本地同步技能的命名前缀 |
+| Skill vs Agent | Skill 是预设工作流（`SKILL.md`，当前仅随扩展静态打包）；Agent 是带人格/面板/技能绑定的助手；角色指令走 `get_role_playbook`（原工作区 Skill 本地同步已废） |
+| `cgc-2046` vs `cgc2046-<ws>-<skill>` | `cgc-2046` 是扩展 id / MCP 条目名；`cgc2046-<ws>-<skill>` 是已废弃的本地同步技能命名前缀（未实现） |
 | 确认流 vs 直接执行 | 高风险管理工具必须 pending → `confirm_operation` 才落库（two-tool 模式）；低风险写工具（save_* 族）直接执行 |
 | PriceTier vs SponsorshipTier | PriceTier 是真实收款定价（收款即发生）；SponsorshipTier 是赞助意向档位（v1 仅登记不收款，amount_suggestion） |
-| WorkflowDefinition vs WorkflowRun | 蓝图（Runic.Workflow DAG + 版本）vs 执行实例（pending→running→waiting→succeeded/failed/cancelled，归属 partition） |
+| WorkflowDefinition vs WorkflowRun | 蓝图（Runic.Workflow DAG + 版本）vs 执行实例（pending→running→waiting→succeeded/failed/cancelled/expired，归属 partition） |
 | 同步写 vs 异步 Signal | 业务核心状态主写入口走同步 Ash Action（强一致，8）；衍生副作用/通知走 Signal 异步最终一致（2） |
 | Offering vs 课程设置 | Offering = 供给物（Event/Course 上位词，发布语言读端口）；course offerings 标准译法 = 开设的课程清单，非「课程设置」 |
 | Research vs Curriculum | 教研 context 英文定名 Curriculum（ADR-0009）；research_* 代码命名随重构 PR③ 退役 |
