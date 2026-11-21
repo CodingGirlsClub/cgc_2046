@@ -31,8 +31,12 @@
 运行时镜像只有 `bin/cgc_2046`，没有 mix：
 
 ```bash
-bin/cgc_2046 eval "Cgc2046.Release.reencrypt_llm_keys"
+# 一次性容器内执行（kamal app exec 默认即新起容器；也可进入运行中的容器执行）
+kamal app exec --primary 'bin/cgc_2046 eval "Cgc2046.Release.reencrypt_llm_keys"'
 ```
+
+该入口只启动 Repo（与 `Release.migrate/0` 相同的 `Ecto.Migrator.with_repo`），
+不启动 Endpoint/Oban，不绑定 4000 端口，因此不会与正在服务的容器冲突。
 
 源码环境：
 

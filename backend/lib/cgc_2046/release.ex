@@ -40,14 +40,21 @@ defmodule Cgc2046.Release do
 
       bin/cgc_2046 eval "Cgc2046.Release.reencrypt_llm_keys"
 
+  只启动 Repo（同 `migrate/0` 的 `Ecto.Migrator.with_repo`），不启动 Endpoint/Oban：
+  不绑定端口，因此在一次性容器或运行中的容器内执行都不会撞端口。
+
   无坏行时返回 `:ok`；存在无法解密的行或未配置主密钥时以 1 退出，便于部署脚本
   和 runbook 捕获。源码开发环境用 `mix cgc2046.reencrypt_llm_keys`。
   """
   def reencrypt_llm_keys do
     load_app()
-    Application.ensure_all_started(@app)
 
-    case Cgc2046.LlmGateway.ProviderCatalog.reencrypt_api_keys() do
+    {:ok, result, _apps} =
+      Ecto.Migrator.with_repo(hd(repos()), fn _repo ->
+        Cgc2046.LlmGateway.ProviderCatalog.reencrypt_api_keys()
+      end)
+
+    case result do
       {:ok, %{reencrypted: reencrypted, failed: 0}} ->
         IO.puts("reencrypted #{reencrypted} llm provider api key(s)")
         :ok
