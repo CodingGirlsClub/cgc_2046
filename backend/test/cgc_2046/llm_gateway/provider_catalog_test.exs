@@ -7,6 +7,7 @@ defmodule Cgc2046.LlmGateway.ProviderCatalogTest do
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.LlmGateway.ProviderApiKey
   alias Cgc2046.LlmGateway.ProviderCatalog
+  alias Cgc2046.LlmGateway.SecretBox
 
   test "provider, api key, and model CRUD writes AdminActionLog and never leaks plaintext keys" do
     admin = Fixtures.platform_admin("catalog-admin")
@@ -304,5 +305,70 @@ defmodule Cgc2046.LlmGateway.ProviderCatalogTest do
 
     assert [{{:candidates, "fresh-key"}, [:fresh], _}] =
              :ets.lookup(:llm_gateway_catalog_cache, {:candidates, "fresh-key"})
+  end
+
+  test "logs one throttled warning with safe identifiers when a stored key cannot be decrypted" do
+    import ExUnit.CaptureLog
+
+    admin = Fixtures.platform_admin("catalog-decrypt-warn")
+    plaintext = "sk-corrupt-0000..."
+
+    {:ok, provider} =
+      ProviderCatalog.create_provider(admin, %{
+        name: "Warn Provider",
+        slug: "warn-provider",
+        protocol: "openai_compatible",
+        base_url: "https://api.example.com",
+        priority: 10,
+        off_peak_discount_enabled: false
+      })
+
+    {:ok, api_key} =
+      ProviderCatalog.add_api_key(admin, provider.id, %{label: "Broken", api_key: plaintext})
+
+    {:ok, _} =
+      ProviderCatalog.save_provider_models(admin, provider.id, [
+        %{
+          model_id: "warn-model",
+          upstream_model_id: "warn-model",
+          display_name: "Warn Model",
+          context_window: 128_000,
+          max_output_tokens: 8_192,
+          supports_thinking: false,
+          supports_tools: true,
+          supports_images: false,
+          reasoning_efforts: [],
+          cache_hit_price_mc: 0,
+          cache_miss_price_mc: 1_000_000,
+          output_price_mc: 2_000_000,
+          markup_ratio: 1.0
+        }
+      ])
+
+    # Simulate a master key that no longer matches the ciphertext on disk.
+    tampered = "v1:" <> Base.encode64(:crypto.strong_rand_bytes(48))
+
+    Repo.update_all(
+      from(k in "llm_provider_api_keys", where: k.id == type(^api_key.id, Ecto.UUID)),
+      set: [encrypted_api_key: tampered]
+    )
+
+    ProviderCatalog.invalidate_cache!()
+
+    log =
+      capture_log(fn ->
+        assert ProviderCatalog.resolve_candidates_for_model("warn-model") == []
+        assert ProviderCatalog.resolve_candidates_for_model("warn-model") == []
+      end)
+
+    assert log =~ "cannot be decrypted"
+    assert log =~ "provider=warn-provider"
+    assert log =~ "key_id=#{api_key.id}"
+    assert log =~ "fingerprint_prefix=" <> String.slice(SecretBox.fingerprint(plaintext), 0, 8)
+    # Throttled per key: two resolutions produce a single warning.
+    assert length(String.split(log, "cannot be decrypted")) == 2
+    # Never log the credential itself or the ciphertext.
+    refute log =~ plaintext
+    refute log =~ tampered
   end
 end

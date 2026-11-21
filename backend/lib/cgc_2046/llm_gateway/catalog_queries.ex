@@ -5,12 +5,15 @@ defmodule Cgc2046.LlmGateway.CatalogQueries do
 
   import Ecto.Query
 
+  require Logger
+
   alias Cgc2046.LlmGateway.CatalogValidation, as: V
   alias Cgc2046.LlmGateway.SecretBox
   alias Cgc2046.Repo
 
   @cache_table :llm_gateway_catalog_cache
   @cache_ttl_ms 30_000
+  @decrypt_warning_ttl_ms 600_000
   @max_model_id_bytes 256
 
   @doc """
@@ -172,6 +175,7 @@ defmodule Cgc2046.LlmGateway.CatalogQueries do
           priority: p.priority,
           off_peak_discount_enabled: p.off_peak_discount_enabled,
           key_id: type(k.id, Ecto.UUID),
+          key_fingerprint: k.key_fingerprint,
           encrypted_api_key: k.encrypted_api_key,
           model_id: m.model_id,
           upstream_model_id: m.upstream_model_id,
@@ -222,10 +226,46 @@ defmodule Cgc2046.LlmGateway.CatalogQueries do
           ]
 
         {:error, :decryption_failed} ->
+          warn_decrypt_failure(row)
           []
       end
     end)
   end
+
+  # master key 与密文不匹配（换 key / 丢了 secret / 旧数据用回落密钥加密）时，
+  # 上游渠道会被静默剔除：/v1/models 仍列出模型，但请求拿不到候选渠道而 503。
+  # 这条 warn 是唯一能定位该故障的信号，因此按 key 限流（10 分钟）避免请求级刷屏。
+  defp warn_decrypt_failure(row) do
+    if decrypt_warning_due?(row.key_id) do
+      Logger.warning(
+        "llm gateway provider api key cannot be decrypted " <>
+          "(provider=#{row.provider_slug} key_id=#{row.key_id} " <>
+          "fingerprint_prefix=#{fingerprint_prefix(row.key_fingerprint)}); " <>
+          "its channels are disabled, re-enter the upstream key in admin"
+      )
+    end
+  end
+
+  defp decrypt_warning_due?(key_id) do
+    ensure_cache_table!()
+    throttle_key = {:decrypt_warning, key_id}
+    now = System.monotonic_time(:millisecond)
+
+    case :ets.lookup(@cache_table, throttle_key) do
+      [{^throttle_key, _value, expires_at}] when expires_at > now ->
+        false
+
+      _ ->
+        :ets.insert(@cache_table, {throttle_key, true, now + @decrypt_warning_ttl_ms})
+        true
+    end
+  end
+
+  defp fingerprint_prefix(fingerprint) when is_binary(fingerprint) do
+    String.slice(fingerprint, 0, 8)
+  end
+
+  defp fingerprint_prefix(_), do: "unknown"
 
   defp cached_fetch(key, loader, opts \\ []) do
     cache_empty? = Keyword.get(opts, :cache_empty?, true)
