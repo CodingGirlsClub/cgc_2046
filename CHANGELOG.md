@@ -18,6 +18,22 @@ develop→main 发布时把该段改名为 `## [发布日期]` 并重新立一�
 commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `miniprogram`）。
 ## [Unreleased]
 
+## [Desktop v0.1.0-dev.20261121]
+
+> 桌面客户端内测版由 tag `desktop-v*` 触发发布，不走 develop→main 的 Web/后端发布流程。
+
+### Changed
+
+- [Desktop] 供应商/模型目录改为对接后端数据库驱动的 Provider 目录。
+
+### Fixed
+
+- [Desktop] 沙箱不可用时改为按命令审批并给出风险提示。
+- [Desktop] native MCP 白名单对齐 `learning_host` 工具，并按风险分级审批。
+- [Desktop] DSH 卸载后镜像禁用状态；多账号场景增加隔离警告。
+
+## [2026-11-21]
+
 ### Added
 
 - [Backend] LLM Provider 目录改为数据库驱动：平台管理员在 `/admin/llm` 维护供应商、模型与定价预设，支持运行时增删改与批量保存。
