@@ -27,6 +27,8 @@ pub struct PermissionCardModel {
     pub args: Option<String>,
     pub options: Vec<PermissionOption>,
     pub resolved: Option<bool>,
+    /// 调用方是否受 OS 级沙箱强制隔离（默认 `true`，native 轨按实时检测传入）。
+    pub sandbox_enforcing: bool,
 }
 
 impl PermissionCardModel {
@@ -39,6 +41,7 @@ impl PermissionCardModel {
             args: request.args.clone(),
             options: request.options.clone(),
             resolved: None,
+            sandbox_enforcing: true,
         }
     }
 
@@ -63,7 +66,14 @@ impl PermissionCardModel {
             args: args.clone(),
             options: options.clone(),
             resolved: *resolved,
+            sandbox_enforcing: true,
         })
+    }
+
+    /// 标明本地工具运行时是否启用了 OS 沙箱强制隔离。
+    pub fn with_sandbox_enforcing(mut self, sandbox_enforcing: bool) -> Self {
+        self.sandbox_enforcing = sandbox_enforcing;
+        self
     }
 }
 
@@ -97,6 +107,8 @@ pub struct PermissionCardView {
     pub title: Option<String>,
     pub tool: Option<String>,
     pub description: String,
+    /// 无 OS 沙箱保护时的显式风险提示条（如 Windows 或无 `bwrap` 的 Linux）。
+    pub risk_warning: Option<String>,
     pub args: Option<String>,
     pub buttons: Vec<PermissionCardButton>,
     /// 待审批时的说明文案；已解决为 `None`。
@@ -140,11 +152,26 @@ pub fn permission_card_view(model: &PermissionCardModel) -> PermissionCardView {
             })
             .collect()
     };
+    let unsandboxed_command =
+        !model.sandbox_enforcing && model.tool.as_deref() == Some("run_command");
+    let (description, risk_warning) = if unsandboxed_command {
+        (
+            "将在本机直接执行 shell 命令（无 OS 沙箱隔离，仅逐条审批；已知高危命令会被策略拦截）"
+                .to_string(),
+            Some(
+                "风险提示：当前环境无 OS 沙箱保护，该命令可访问网络及工作区外文件，请逐条核对后再允许。"
+                    .to_string(),
+            ),
+        )
+    } else {
+        (description_for(model.tool.as_deref()).to_string(), None)
+    };
     PermissionCardView {
         heading: heading.to_string(),
         title,
         tool: model.tool.clone().filter(|tool| !tool.trim().is_empty()),
-        description: description_for(model.tool.as_deref()).to_string(),
+        description,
+        risk_warning,
         args: args_preview(model.args.as_deref()),
         buttons,
         footnote: model
@@ -275,6 +302,23 @@ pub fn render_permission_card(spec: PermissionCardSpec) -> AnyElement {
             .text_color(style.ink_3)
             .child(view.description.clone()),
     );
+    if let Some(warning) = &view.risk_warning {
+        card = card.child(
+            div()
+                .id(SharedString::from(format!("{id}-risk-warning")))
+                .role(Role::Alert)
+                .aria_label(warning.clone())
+                .px(px(style.gap))
+                .py(px(4.0))
+                .rounded(px(style.radius))
+                .border_1()
+                .border_color(style.danger)
+                .bg(style.soft_bg)
+                .text_size(px(11.0))
+                .text_color(style.danger)
+                .child(warning.clone()),
+        );
+    }
     if let Some(args) = &view.args {
         card = card.child(
             div()
@@ -543,5 +587,39 @@ mod tests {
             text: "x".to_string(),
         })
         .is_none());
+    }
+
+    #[test]
+    fn unsandboxed_run_command_shows_risk_warning_and_updated_description() {
+        let model =
+            PermissionCardModel::from_request(&native_request()).with_sandbox_enforcing(false);
+        let view = permission_card_view(&model);
+        assert!(view.description.contains("无 OS 沙箱隔离"));
+        assert!(!view.description.contains("将在工作区内执行"));
+        let warning = view
+            .risk_warning
+            .as_deref()
+            .expect("unsandboxed run_command must surface explicit risk warning");
+        assert!(warning.contains("无 OS 沙箱保护"));
+        assert!(warning.contains("工作区外文件"));
+    }
+
+    #[test]
+    fn sandboxed_run_command_and_unsandboxed_write_file_have_no_risk_warning() {
+        let sandboxed = permission_card_view(&PermissionCardModel::from_request(&native_request()));
+        assert!(sandboxed.risk_warning.is_none());
+
+        let write_request = PermissionRequest {
+            request_id: "perm-w".to_string(),
+            title: "允许运行 write_file？".to_string(),
+            tool: Some("write_file".to_string()),
+            tool_call_id: Some("call-w".to_string()),
+            args: Some("{\"path\":\"a.txt\"}".to_string()),
+            options: native_options(),
+        };
+        let write_view = permission_card_view(
+            &PermissionCardModel::from_request(&write_request).with_sandbox_enforcing(false),
+        );
+        assert!(write_view.risk_warning.is_none());
     }
 }
