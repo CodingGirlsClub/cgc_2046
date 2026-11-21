@@ -412,6 +412,52 @@ defmodule Cgc2046.LlmGateway.ProviderCatalog do
 
   defp fetch_provider_model(_), do: {:error, :model_not_found}
 
+  @doc """
+  把仍用 `secret_key_base` 回落密钥加密的上游 API Key 重加密为独立主密钥。
+
+  独立主密钥上线后旧密文仍能解密（`SecretBox.decrypt_with_source/1` 会尝试两把
+  密钥），但轮换 `secret_key_base` 会让它们失效，因此需尽早执行本函数。
+  无法解密的行原样保留并计入 `failed`，需管理员重录。
+
+  ## 用法
+
+      mix cgc2046.reencrypt_llm_keys
+  """
+  @spec reencrypt_api_keys() ::
+          {:ok, %{reencrypted: non_neg_integer(), failed: non_neg_integer()}}
+          | {:error, :primary_key_missing}
+  def reencrypt_api_keys do
+    if SecretBox.primary_configured?() do
+      result = Repo.transaction(fn -> do_reencrypt_api_keys() end)
+      invalidate_cache!()
+      result
+    else
+      {:error, :primary_key_missing}
+    end
+  end
+
+  defp do_reencrypt_api_keys do
+    from(k in "llm_provider_api_keys", select: {type(k.id, Ecto.UUID), k.encrypted_api_key})
+    |> Repo.all()
+    |> Enum.reduce(%{reencrypted: 0, failed: 0}, fn {id, ciphertext}, acc ->
+      case SecretBox.decrypt_with_source(ciphertext) do
+        {:ok, _plaintext, :primary} ->
+          acc
+
+        {:ok, plaintext, :fallback} ->
+          from(k in "llm_provider_api_keys", where: k.id == type(^id, Ecto.UUID))
+          |> Repo.update_all(
+            set: [encrypted_api_key: SecretBox.encrypt(plaintext), updated_at: DateTime.utc_now()]
+          )
+
+          %{acc | reencrypted: acc.reencrypted + 1}
+
+        {:error, :decryption_failed} ->
+          %{acc | failed: acc.failed + 1}
+      end
+    end)
+  end
+
   defp resolve_discovery_key(_provider_id, raw_key)
        when is_binary(raw_key) and byte_size(raw_key) > 0 do
     trimmed = String.trim(raw_key)

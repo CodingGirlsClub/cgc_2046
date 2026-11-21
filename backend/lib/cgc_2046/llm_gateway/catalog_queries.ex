@@ -13,7 +13,7 @@ defmodule Cgc2046.LlmGateway.CatalogQueries do
 
   @cache_table :llm_gateway_catalog_cache
   @cache_ttl_ms 30_000
-  @decrypt_warning_ttl_ms 600_000
+  @warning_throttle_ttl_ms 600_000
   @max_model_id_bytes 256
 
   @doc """
@@ -194,8 +194,10 @@ defmodule Cgc2046.LlmGateway.CatalogQueries do
 
     Repo.all(query)
     |> Enum.flat_map(fn row ->
-      case SecretBox.decrypt(row.encrypted_api_key) do
-        {:ok, plaintext_key} ->
+      case SecretBox.decrypt_with_source(row.encrypted_api_key) do
+        {:ok, plaintext_key, source} ->
+          warn_legacy_key(row, source)
+
           [
             %{
               id: "#{row.provider_slug}:#{row.key_id}",
@@ -232,11 +234,11 @@ defmodule Cgc2046.LlmGateway.CatalogQueries do
     end)
   end
 
-  # master key 与密文不匹配（换 key / 丢了 secret / 旧数据用回落密钥加密）时，
-  # 上游渠道会被静默剔除：/v1/models 仍列出模型，但请求拿不到候选渠道而 503。
-  # 这条 warn 是唯一能定位该故障的信号，因此按 key 限流（10 分钟）避免请求级刷屏。
+  # master key 与密文不匹配（换 key / 丢了 secret）时上游渠道会被静默剔除：
+  # /v1/models 仍列出模型，但请求拿不到候选渠道而 503。这条 warn 是唯一能定位
+  # 该故障的信号，因此按 key 限流（10 分钟）避免请求级刷屏。
   defp warn_decrypt_failure(row) do
-    if decrypt_warning_due?(row.key_id) do
+    if warning_due?(:decrypt_warning, row.key_id) do
       Logger.warning(
         "llm gateway provider api key cannot be decrypted " <>
           "(provider=#{row.provider_slug} key_id=#{row.key_id} " <>
@@ -246,9 +248,24 @@ defmodule Cgc2046.LlmGateway.CatalogQueries do
     end
   end
 
-  defp decrypt_warning_due?(key_id) do
+  # 独立主密钥上线前写入的密文靠 secret_key_base 兜底仍可用，但轮换
+  # secret_key_base 就会失效；提示运维尽早重加密。
+  defp warn_legacy_key(_row, :primary), do: :ok
+
+  defp warn_legacy_key(row, :fallback) do
+    if SecretBox.primary_configured?() and warning_due?(:legacy_key_warning, row.key_id) do
+      Logger.warning(
+        "llm gateway provider api key is still encrypted with the fallback secret_key_base key " <>
+          "(provider=#{row.provider_slug} key_id=#{row.key_id} " <>
+          "fingerprint_prefix=#{fingerprint_prefix(row.key_fingerprint)}); " <>
+          "run mix cgc2046.reencrypt_llm_keys"
+      )
+    end
+  end
+
+  defp warning_due?(kind, key_id) do
     ensure_cache_table!()
-    throttle_key = {:decrypt_warning, key_id}
+    throttle_key = {kind, key_id}
     now = System.monotonic_time(:millisecond)
 
     case :ets.lookup(@cache_table, throttle_key) do
@@ -256,7 +273,7 @@ defmodule Cgc2046.LlmGateway.CatalogQueries do
         false
 
       _ ->
-        :ets.insert(@cache_table, {throttle_key, true, now + @decrypt_warning_ttl_ms})
+        :ets.insert(@cache_table, {throttle_key, true, now + @warning_throttle_ttl_ms})
         true
     end
   end
