@@ -923,6 +923,7 @@ impl RootView {
         self.session_checked = false;
         self.reset_workspace_data(cx);
         self.prepare_agent_authorization(cx);
+        self.refresh_native_providers(cx);
         self.navigate("/");
         cx.notify();
     }
@@ -3784,6 +3785,7 @@ impl RootView {
         self.workspaces_started = false;
         self.reset_workspace_data(cx);
         self.prepare_agent_authorization(cx);
+        self.refresh_native_providers(cx);
         self.login_email.clear();
         self.login_password.clear();
         self.login_error = None;

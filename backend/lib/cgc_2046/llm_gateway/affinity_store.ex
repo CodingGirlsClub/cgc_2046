@@ -8,6 +8,7 @@ defmodule Cgc2046.LlmGateway.AffinityStore do
   use GenServer
 
   alias Cgc2046.LlmGateway.AffinityRouter
+  alias Cgc2046.LlmGateway.ProviderCatalog
 
   @default_cleanup_interval_ms 600_000
 
@@ -20,6 +21,7 @@ defmodule Cgc2046.LlmGateway.AffinityStore do
   @impl true
   def init(opts) do
     :ok = AffinityRouter.setup!()
+    :ok = ProviderCatalog.ensure_cache_table!()
     interval_ms = Keyword.get(opts, :cleanup_interval_ms, @default_cleanup_interval_ms)
     timer_ref = schedule_cleanup(interval_ms)
     {:ok, %{cleanup_interval_ms: interval_ms, timer_ref: timer_ref}}

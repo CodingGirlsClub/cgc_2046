@@ -99,6 +99,7 @@ pub fn parse_model_lines(value: &str) -> (Vec<String>, Vec<ModelPrefs>) {
         ids.push(id.to_string());
         params.push(ModelPrefs {
             id: id.to_string(),
+            display_name: None,
             context_window: context,
             max_output_tokens: output,
             supports_thinking: thinking,

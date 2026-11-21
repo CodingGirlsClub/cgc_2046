@@ -72,8 +72,8 @@ fn gateway_model() -> Model {
     Model::new(
         ProviderId::new("cgc-cloud"),
         "CGC Cloud",
-        "cgc-reasoning",
-        "CGC Reasoning",
+        "deepseek-reasoner",
+        "DeepSeek Reasoner",
         ModelLimits::new(64_000, 8_192),
     )
 }

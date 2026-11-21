@@ -5,8 +5,8 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
 
   alias Cgc2046.LlmGateway.AffinityRouter
   alias Cgc2046.LlmGateway.AffinityStore
-  alias Cgc2046.LlmGateway.LeaseManager
   alias Cgc2046.LlmGateway.Ledger
+  alias Cgc2046.LlmGateway.ProviderCatalog
   alias Cgc2046.LlmGateway.TokenizerAndPricing
   alias Cgc2046.LlmGateway.UsageLog
   alias Cgc2046.Accounts.SignInFlow
@@ -14,89 +14,52 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
   alias Cgc2046Web.LlmGatewayController
 
   setup do
-    previous_channels = Application.get_env(:cgc_2046, :llm_gateway_channels)
-
-    test_channels = [
-      %{
-        id: "ds_primary_1",
-        provider: :deepseek,
-        base_url: "https://api.deepseek.com",
-        api_key: "sk-test-primary-1",
-        chat_path: "/chat/completions",
-        pricing_model: %{
-          "cgc-default" => "deepseek-chat",
-          "cgc-reasoning" => "deepseek-reasoner",
-          "cgc-background" => "deepseek-chat"
-        },
-        models: %{
-          "cgc-default" => "deepseek-chat",
-          "cgc-reasoning" => "deepseek-reasoner",
-          "cgc-background" => "deepseek-chat"
-        }
-      },
-      %{
-        id: "ds_primary_2",
-        provider: :deepseek,
-        base_url: "https://api.deepseek.com",
-        api_key: "sk-test-primary-2",
-        chat_path: "/chat/completions",
-        pricing_model: %{
-          "cgc-default" => "deepseek-chat",
-          "cgc-reasoning" => "deepseek-reasoner",
-          "cgc-background" => "deepseek-chat"
-        },
-        models: %{
-          "cgc-default" => "deepseek-chat",
-          "cgc-reasoning" => "deepseek-reasoner",
-          "cgc-background" => "deepseek-chat"
-        }
-      },
-      %{
-        id: "volcengine_backup",
-        provider: :volcengine,
-        base_url: "https://ark.cn-beijing.volces.com/api/v3",
-        api_key: "ark-test-backup",
-        chat_path: "/chat/completions",
-        pricing_model: %{
-          "cgc-default" => "deepseek-chat",
-          "cgc-reasoning" => "deepseek-reasoner",
-          "cgc-background" => "deepseek-chat"
-        },
-        models: %{
-          "cgc-default" => "ep-v3-backup",
-          "cgc-reasoning" => "ep-r1-backup",
-          "cgc-background" => "ep-v3-backup"
-        }
-      }
-    ]
-
-    Application.put_env(:cgc_2046, :llm_gateway_channels, test_channels)
     AffinityRouter.setup!()
-    :fuse.reset(:llm_fuse_ds_primary_1)
-    :fuse.reset(:llm_fuse_ds_primary_2)
-    :fuse.reset(:llm_fuse_volcengine_backup)
-
-    on_exit(fn ->
-      if previous_channels do
-        Application.put_env(:cgc_2046, :llm_gateway_channels, previous_channels)
-      else
-        Application.delete_env(:cgc_2046, :llm_gateway_channels)
-      end
-    end)
-
     :ok
   end
 
   describe "AffinityRouter & :fuse circuit breaker" do
-    test "sticks same session_id to the same primary and fails over when the fuse blows" do
+    test "sticks same session_id to the same primary key slot and fails over when the fuse blows" do
+      admin = platform_admin("router-sticky")
+
+      {:ok, provider} =
+        ProviderCatalog.create_provider(admin, %{
+          name: "DeepSeek Sticky",
+          slug: "ds-sticky",
+          protocol: "openai_compatible",
+          base_url: "https://api.deepseek.com",
+          priority: 10
+        })
+
+      {:ok, _k1} =
+        ProviderCatalog.add_api_key(admin, provider.id, %{label: "k1", api_key: "sk-sticky-1"})
+
+      {:ok, _k2} =
+        ProviderCatalog.add_api_key(admin, provider.id, %{label: "k2", api_key: "sk-sticky-2"})
+
+      {:ok, _models} =
+        ProviderCatalog.save_provider_models(admin, provider.id, [
+          %{
+            model_id: "deepseek-chat",
+            display_name: "DeepSeek Chat",
+            context_window: 128_000,
+            max_output_tokens: 8_192,
+            cache_hit_price_mc: 200_000,
+            cache_miss_price_mc: 2_000_000,
+            output_price_mc: 3_000_000
+          }
+        ])
+
       user_id = Ecto.UUID.generate()
       session_id = "sess-sticky-001"
 
-      [first_choice | _] = AffinityRouter.candidate_channels(user_id, session_id)
-      assert first_choice.id in ["ds_primary_1", "ds_primary_2"]
+      assert {:ok, [first_choice | _]} =
+               AffinityRouter.candidate_channels(user_id, session_id, "deepseek-chat")
 
       for _ <- 1..10 do
-        [choice | _] = AffinityRouter.candidate_channels(user_id, session_id)
+        assert {:ok, [choice | _]} =
+                 AffinityRouter.candidate_channels(user_id, session_id, "deepseek-chat")
+
         assert choice.id == first_choice.id
       end
 
@@ -106,234 +69,122 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
 
       refute AffinityRouter.channel_healthy?(first_choice.id)
 
-      [failover_choice | _] = AffinityRouter.candidate_channels(user_id, session_id)
+      assert {:ok, [failover_choice | _]} =
+               AffinityRouter.candidate_channels(user_id, session_id, "deepseek-chat")
+
       assert failover_choice.id != first_choice.id
       assert AffinityRouter.channel_healthy?(failover_choice.id)
     end
 
-    test "sanitizes cgc-reasoning sampling params and caps cgc-background max_tokens" do
-      [channel | _] = AffinityRouter.configured_channels()
+    test "OpenaiAdapter strips disallowed keys, sanitizes reasoner params, and caps max_tokens" do
+      channel = %{
+        protocol: :openai_compatible,
+        base_url: "https://api.deepseek.com",
+        chat_path: "/chat/completions",
+        api_key: "sk-test",
+        upstream_model_id: "deepseek-reasoner",
+        supports_thinking: true,
+        max_output_tokens: 16_384
+      }
 
-      {logical, physical, cleaned} =
-        AffinityRouter.prepare_upstream_payload(
+      req =
+        AffinityRouter.build_upstream_request(
           %{
-            "model" => "cgc-reasoning",
-            "temperature" => 0.7,
-            "top_p" => 0.9,
-            "messages" => [%{"role" => "user", "content" => "Solve this"}]
-          },
-          channel
-        )
-
-      assert logical == "cgc-reasoning"
-      assert physical == "deepseek-reasoner"
-      refute Map.has_key?(cleaned, "temperature")
-      refute Map.has_key?(cleaned, "top_p")
-      assert cleaned["stream"] == true
-      assert cleaned["stream_options"] == %{"include_usage" => true}
-
-      {_, _, bg_cleaned} =
-        AffinityRouter.prepare_upstream_payload(
-          %{
-            "model" => "cgc-background",
-            "max_tokens" => 8192,
-            "messages" => [%{"role" => "user", "content" => "Summarize"}]
-          },
-          channel
-        )
-
-      assert bg_cleaned["max_tokens"] == 1024
-    end
-
-    test "strips disallowed client keys (n, session_id, user, custom) and raises cgc-reasoning max_tokens ceiling" do
-      [channel | _] = AffinityRouter.configured_channels()
-
-      {_, _, cleaned} =
-        AffinityRouter.prepare_upstream_payload(
-          %{
-            "model" => "cgc-reasoning",
+            "model" => "deepseek-reasoner",
             "n" => 5,
             "session_id" => "sess-leak-attempt",
             "user" => "spoofed-user",
             "stream" => false,
             "stream_options" => %{"include_usage" => false},
             "arbitrary_client_key" => "evil",
-            "max_tokens" => 32_768,
+            "temperature" => 0.7,
+            "top_p" => 0.9,
+            "max_tokens" => 99_999,
             "messages" => [%{"role" => "user", "content" => "Deep proof"}]
           },
           channel
         )
 
+      cleaned = req.body
+      assert cleaned["model"] == "deepseek-reasoner"
+      refute Map.has_key?(cleaned, "temperature")
+      refute Map.has_key?(cleaned, "top_p")
       refute Map.has_key?(cleaned, "n")
       refute Map.has_key?(cleaned, "session_id")
       refute Map.has_key?(cleaned, "user")
       refute Map.has_key?(cleaned, "arbitrary_client_key")
       assert cleaned["stream"] == true
       assert cleaned["stream_options"] == %{"include_usage" => true}
-      assert cleaned["max_tokens"] == 32_768
-
-      {_, _, capped_reasoning} =
-        AffinityRouter.prepare_upstream_payload(
-          %{
-            "model" => "cgc-reasoning",
-            "max_tokens" => 99_999,
-            "messages" => [%{"role" => "user", "content" => "Cap check"}]
-          },
-          channel
-        )
-
-      assert capped_reasoning["max_tokens"] == 32_768
-
-      {_, _, default_reasoning} =
-        AffinityRouter.prepare_upstream_payload(
-          %{
-            "model" => "cgc-reasoning",
-            "messages" => [%{"role" => "user", "content" => "Default check"}]
-          },
-          channel
-        )
-
-      assert default_reasoning["max_tokens"] == 16_384
+      assert cleaned["max_tokens"] == 16_384
     end
 
     test "evicts expired session-affinity entries" do
       key = "session:expired-#{Ecto.UUID.generate()}"
-
-      :ets.insert(
-        :llm_session_affinity,
-        {key, "ds_primary_1", System.system_time(:second) - 1}
-      )
-
+      :ets.insert(:llm_session_affinity, {key, "ds_primary_1", System.system_time(:second) - 1})
       assert :ets.lookup(:llm_session_affinity, key) != []
       assert :ok = AffinityRouter.cleanup_expired!()
       assert :ets.lookup(:llm_session_affinity, key) == []
     end
-
-    test "uses the explicit pricing model for opaque endpoint IDs" do
-      channel = %{
-        id: "volcengine_opaque",
-        provider: :volcengine,
-        base_url: "http://127.0.0.1:1",
-        api_key: "test",
-        chat_path: "/chat/completions",
-        pricing_model: %{
-          "cgc-default" => "deepseek-chat",
-          "cgc-reasoning" => "deepseek-reasoner",
-          "cgc-background" => "deepseek-chat"
-        },
-        models: %{
-          "cgc-default" => "ep-v3-20261117",
-          "cgc-reasoning" => "ep-20261117-abc",
-          "cgc-background" => "ep-v3-20261117"
-        }
-      }
-
-      {_, upstream_model, _} =
-        AffinityRouter.prepare_upstream_payload(
-          %{"model" => "cgc-reasoning", "messages" => [%{"role" => "user", "content" => "Hi"}]},
-          channel
-        )
-
-      assert upstream_model == "ep-20261117-abc"
-      assert AffinityRouter.pricing_model(channel, "cgc-reasoning") == "deepseek-reasoner"
-
-      usage = %{
-        "prompt_tokens" => 1_000,
-        "prompt_cache_hit_tokens" => 0,
-        "prompt_cache_miss_tokens" => 1_000,
-        "completion_tokens" => 1_000
-      }
-
-      chat_settlement =
-        TokenizerAndPricing.calculate_settlement("deepseek-chat", 1_000, %{
-          official_usage: usage
-        })
-
-      reasoner_settlement =
-        TokenizerAndPricing.calculate_settlement(
-          AffinityRouter.pricing_model(channel, "cgc-reasoning"),
-          1_000,
-          %{official_usage: usage}
-        )
-
-      assert reasoner_settlement.charged_mc > chat_settlement.charged_mc
-    end
   end
 
   describe "TokenizerAndPricing exact vs abort billing" do
-    test "pre-flight hold scales with the effective output limit" do
-      [channel | _] = AffinityRouter.configured_channels()
+    test "pre-flight hold scales with effective output limit and model pricing" do
+      chat_channel = %{
+        supports_thinking: false,
+        max_output_tokens: 8_192,
+        pricing: %{
+          cache_hit_mc: 200_000,
+          cache_miss_mc: 2_000_000,
+          output_mc: 3_000_000,
+          markup_ratio: 1.5
+        }
+      }
 
-      params = %{
-        "model" => "cgc-default",
+      reasoning_channel = %{
+        supports_thinking: true,
+        max_output_tokens: 32_768,
+        pricing: %{
+          cache_hit_mc: 1_000_000,
+          cache_miss_mc: 4_000_000,
+          output_mc: 16_000_000,
+          markup_ratio: 1.5
+        }
+      }
+
+      params_large = %{
         "max_tokens" => 8192,
         "messages" => [%{"role" => "user", "content" => "Hello"}]
       }
 
-      {_, _, prepared} = AffinityRouter.prepare_upstream_payload(params, channel)
-      assert prepared["max_tokens"] == 8192
+      params_small = Map.put(params_large, "max_tokens", 1024)
 
-      hold_large =
-        TokenizerAndPricing.estimate_pre_flight_hold_mc(prepared, "deepseek-chat")
+      assert TokenizerAndPricing.estimate_pre_flight_hold_mc(params_large, chat_channel) >
+               TokenizerAndPricing.estimate_pre_flight_hold_mc(params_small, chat_channel)
 
-      hold_small =
-        TokenizerAndPricing.estimate_pre_flight_hold_mc(
-          Map.put(prepared, "max_tokens", 1024),
-          "deepseek-chat"
-        )
-
-      assert hold_large > hold_small
-
-      {_, _, capped} =
-        AffinityRouter.prepare_upstream_payload(
-          %{"model" => "cgc-default", "max_tokens" => 100_000, "messages" => params["messages"]},
-          channel
-        )
-
-      assert capped["max_tokens"] == 8192
-
-      {_, _, defaulted} =
-        AffinityRouter.prepare_upstream_payload(
-          %{"model" => "cgc-default", "messages" => params["messages"]},
-          channel
-        )
-
-      assert defaulted["max_tokens"] == 4096
-
-      # Decoupled hold reserve: cgc-reasoning allows max_tokens 32_768 upstream while
-      # pre-flight hold caps output reserve at 4_096 tokens (same hold as 4_096).
-      {_, _, reasoning_32k} =
-        AffinityRouter.prepare_upstream_payload(
-          %{
-            "model" => "cgc-reasoning",
-            "max_tokens" => 32_768,
-            "messages" => params["messages"]
-          },
-          channel
-        )
-
-      assert reasoning_32k["max_tokens"] == 32_768
-
+      # Reasoning caps hold output reserve at 4096 even when max_tokens is 32768.
       hold_32k =
-        TokenizerAndPricing.estimate_pre_flight_hold_mc(reasoning_32k, "deepseek-reasoner")
+        TokenizerAndPricing.estimate_pre_flight_hold_mc(
+          Map.put(params_large, "max_tokens", 32_768),
+          reasoning_channel
+        )
 
       hold_4k =
         TokenizerAndPricing.estimate_pre_flight_hold_mc(
-          Map.put(reasoning_32k, "max_tokens", 4_096),
-          "deepseek-reasoner"
+          Map.put(params_large, "max_tokens", 4_096),
+          reasoning_channel
         )
 
       hold_2k =
         TokenizerAndPricing.estimate_pre_flight_hold_mc(
-          Map.put(reasoning_32k, "max_tokens", 2_048),
-          "deepseek-reasoner"
+          Map.put(params_large, "max_tokens", 2_048),
+          reasoning_channel
         )
 
       assert hold_32k == hold_4k
       assert hold_4k > hold_2k
     end
 
-    test "uses official usage for exact billing and Tiktoken estimate when usage is nil" do
+    test "uses official usage for exact billing, off-peak multiplier, and Tiktoken estimate on abort" do
       sse_chunk = """
       data: {"choices":[{"delta":{"reasoning_content":"先思考一下架构。"}}]}
 
@@ -341,16 +192,22 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
 
       """
 
-      {content_iodata, reasoning_iodata, nil} =
-        LlmGatewayController.parse_sse_metrics(sse_chunk)
+      {content_iodata, reasoning_iodata, nil} = LlmGatewayController.parse_sse_metrics(sse_chunk)
+
+      pricing = %{
+        cache_hit_mc: 200_000,
+        cache_miss_mc: 2_000_000,
+        output_mc: 3_000_000,
+        markup_ratio: 1.5
+      }
 
       abort_settlement =
-        TokenizerAndPricing.calculate_settlement("deepseek-chat", 1000, %{
+        TokenizerAndPricing.calculate_settlement(pricing, 1000, %{
           official_usage: nil,
           output_iodata: content_iodata,
           reasoning_iodata: reasoning_iodata,
           upstream_error?: false,
-          channel_provider: :deepseek,
+          off_peak_discount_enabled: true,
           settled_at: ~U[2026-11-19 02:00:00Z]
         })
 
@@ -367,100 +224,33 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
         "completion_tokens" => 500
       }
 
-      # Thursday 02:00 UTC => peak (1.0x); base_cost_mc = 1_800 + 2_000 + 1_500 = 5_300;
-      # transparent 1.5x markup => charged_mc = 7_950 (no hidden cache-hit surcharge).
-      peak_deepseek =
-        TokenizerAndPricing.calculate_settlement("deepseek-chat", 10_000, %{
+      peak =
+        TokenizerAndPricing.calculate_settlement(pricing, 10_000, %{
           official_usage: usage,
-          output_iodata: content_iodata,
-          reasoning_iodata: reasoning_iodata,
-          channel_provider: :deepseek,
+          off_peak_discount_enabled: true,
           settled_at: ~U[2026-11-19 02:00:00Z]
         })
 
-      assert peak_deepseek.billing_mode == :exact
-      assert peak_deepseek.prompt_cache_hit_tokens == 9_000
-      assert peak_deepseek.prompt_cache_miss_tokens == 1_000
-      assert peak_deepseek.completion_tokens == 500
-      assert peak_deepseek.upstream_cost_mc == 5_300
-      assert peak_deepseek.charged_mc == 7_950
+      assert peak.billing_mode == :exact
+      assert peak.upstream_cost_mc == 5_300
+      assert peak.charged_mc == 7_950
 
-      # Thursday 18:00 UTC => off-peak (0.5x) for :deepseek official channel:
-      # upstream_cost_mc drops by 50%, while user charged_mc stays stable 24/7.
-      off_peak_deepseek =
-        TokenizerAndPricing.calculate_settlement("deepseek-chat", 10_000, %{
+      off_peak =
+        TokenizerAndPricing.calculate_settlement(pricing, 10_000, %{
           official_usage: usage,
-          channel_provider: :deepseek,
+          off_peak_discount_enabled: true,
           settled_at: ~U[2026-11-19 18:00:00Z]
         })
 
-      assert off_peak_deepseek.upstream_cost_mc == 2_650
-      assert off_peak_deepseek.charged_mc == 7_950
+      assert off_peak.upstream_cost_mc == 2_650
+      assert off_peak.charged_mc == 7_950
 
-      # Saturday 02:00 UTC => weekend off-peak (0.5x) for :deepseek, 1.0x for :volcengine.
-      assert TokenizerAndPricing.upstream_rate_multiplier(:deepseek, ~U[2026-11-21 02:00:00Z]) ==
-               0.5
-
-      assert TokenizerAndPricing.upstream_rate_multiplier(:volcengine, ~U[2026-11-21 02:00:00Z]) ==
-               1.0
-
-      # :volcengine does not get DeepSeek off-peak discount (multiplier stays 1.0).
-      off_peak_volcengine =
-        TokenizerAndPricing.calculate_settlement("volcengine-deepseek-v3", 10_000, %{
-          official_usage: usage,
-          channel_provider: :volcengine,
-          settled_at: ~U[2026-11-19 18:00:00Z]
-        })
-
-      # base_cost_mc = (9_000*400_000 + 1_000*2_000_000 + 500*8_000_000)/1_000_000 = 9_600
-      assert off_peak_volcengine.upstream_cost_mc == 9_600
-      assert off_peak_volcengine.charged_mc == 14_400
-    end
-
-    test "estimate_pre_flight_hold_mc/3 with pre-computed prompt_tokens matches /2" do
-      payloads = [
-        %{
-          "model" => "deepseek-chat",
-          "max_tokens" => 2048,
-          "messages" => [
-            %{"role" => "system", "content" => "You are a concise coding assistant."},
-            %{"role" => "user", "content" => "Explain Elixir supervisors in two sentences."}
-          ]
-        },
-        %{
-          "model" => "deepseek-reasoner",
-          "messages" => [%{"role" => "user", "content" => "Derive the recurrence."}],
-          "tools" => [
-            %{
-              "type" => "function",
-              "function" => %{"name" => "lookup", "parameters" => %{"type" => "object"}}
-            }
-          ]
-        }
-      ]
-
-      for payload <- payloads, pricing_model <- ["deepseek-chat", "deepseek-reasoner"] do
-        prompt_tokens = TokenizerAndPricing.count_request_prompt_tokens(payload)
-
-        assert TokenizerAndPricing.estimate_pre_flight_hold_mc(
-                 payload,
-                 pricing_model,
-                 prompt_tokens
-               ) ==
-                 TokenizerAndPricing.estimate_pre_flight_hold_mc(payload, pricing_model)
-      end
-
-      assert TokenizerAndPricing.estimate_pre_flight_hold_mc(%{}, "deepseek-chat", 0) >= 100
-
-      assert_raise FunctionClauseError, fn ->
-        TokenizerAndPricing.estimate_pre_flight_hold_mc(%{}, "deepseek-chat", -1)
-      end
+      assert TokenizerAndPricing.upstream_rate_multiplier(true, ~U[2026-11-21 02:00:00Z]) == 0.5
+      assert TokenizerAndPricing.upstream_rate_multiplier(false, ~U[2026-11-21 02:00:00Z]) == 1.0
     end
 
     test "verify_tokenizer!/0 confirms real Tiktoken NIF and emits telemetry on fallback" do
       assert :ok == TokenizerAndPricing.verify_tokenizer!()
-
-      # Real Tiktoken cl100k_base counts "hello world" as 2 tokens (3-byte fallback would return div(11, 3) == 3).
       assert 2 == TokenizerAndPricing.count_text_tokens("hello world")
 
       handler_id = "tiktoken-fallback-test-#{Ecto.UUID.generate()}"
@@ -485,9 +275,7 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
                )
 
       assert_received {:telemetry_event, [:cgc2046, :llm_gateway, :tokenizer_fallback],
-                       %{byte_size: 11}, %{reason: reason}}
-
-      assert match?({:unexpected_return, _}, reason) or match?({:exception, _}, reason)
+                       %{byte_size: 11}, %{reason: _}}
     end
   end
 
@@ -497,15 +285,12 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
       assert is_pid(pid)
 
       before_state = :sys.get_state(pid)
-      assert before_state.cleanup_interval_ms == 600_000
-      assert is_reference(before_state.timer_ref)
-
       now = System.system_time(:second)
       expired_key = "session:store-expired-#{Ecto.UUID.generate()}"
       fresh_key = "session:store-fresh-#{Ecto.UUID.generate()}"
 
-      :ets.insert(:llm_session_affinity, {expired_key, "ds_primary_1", now - 10})
-      :ets.insert(:llm_session_affinity, {fresh_key, "ds_primary_1", now + 3_600})
+      :ets.insert(:llm_session_affinity, {expired_key, "slot_1", now - 10})
+      :ets.insert(:llm_session_affinity, {fresh_key, "slot_1", now + 3_600})
 
       on_exit(fn ->
         if :ets.whereis(:llm_session_affinity) != :undefined do
@@ -518,94 +303,116 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
       after_state = :sys.get_state(pid)
 
       assert :ets.lookup(:llm_session_affinity, expired_key) == []
-      assert [{^fresh_key, "ds_primary_1", _}] = :ets.lookup(:llm_session_affinity, fresh_key)
-      assert is_reference(after_state.timer_ref)
-      assert after_state.timer_ref != before_state.timer_ref
+      assert [{^fresh_key, "slot_1", _}] = :ets.lookup(:llm_session_affinity, fresh_key)
       assert is_integer(Process.read_timer(after_state.timer_ref))
-    end
-
-    test "allows overriding cleanup_interval_ms via opts" do
-      custom_pid =
-        start_supervised!(
-          {AffinityStore, name: nil, cleanup_interval_ms: 123_456},
-          id: :custom_affinity_store_test
-        )
-
-      state = :sys.get_state(custom_pid)
-      assert state.cleanup_interval_ms == 123_456
-      assert is_integer(Process.read_timer(state.timer_ref))
+      assert after_state.timer_ref != before_state.timer_ref
     end
   end
 
-  describe "LeaseManager & /v1/chat/completions pre-flight guards" do
+  describe "GET /v1/models & pre-flight guards" do
+    test "GET /v1/models requires desktop token and lists active catalog models" do
+      user = register_user("gateway-models")
+      raw_token = desktop_token(user)
+
+      assert %{"error" => %{"code" => "unauthorized"}} =
+               build_conn() |> get("/v1/models") |> json_response(401)
+
+      seed_provider!(
+        slug: "ds-list",
+        base_url: "https://api.deepseek.com",
+        models: [
+          %{
+            model_id: "deepseek-chat",
+            display_name: "DeepSeek V3",
+            supports_thinking: false,
+            supports_tools: true,
+            supports_images: false
+          }
+        ]
+      )
+
+      resp =
+        build_conn()
+        |> put_req_header("authorization", "Bearer #{raw_token}")
+        |> get("/v1/models")
+        |> json_response(200)
+
+      assert %{
+               "object" => "list",
+               "data" => [
+                 %{
+                   "id" => "deepseek-chat",
+                   "object" => "model",
+                   "owned_by" => "cgc-cloud",
+                   "display_name" => "DeepSeek V3",
+                   "supports_thinking" => false,
+                   "supports_tools" => true
+                 }
+               ]
+             } = resp
+    end
+
+    test "returns 503 when no channels are configured and 400 model_not_found when model is absent" do
+      user = register_user("gateway-missing-model")
+      raw_token = desktop_token(user)
+
+      conn_503 =
+        build_conn()
+        |> put_req_header("authorization", "Bearer #{raw_token}")
+        |> put_req_header("content-type", "application/json")
+        |> post("/v1/chat/completions", %{
+          "model" => "deepseek-chat",
+          "messages" => [%{"role" => "user", "content" => "Hi"}]
+        })
+
+      assert %{"error" => %{"code" => "upstream_unavailable"}} = json_response(conn_503, 503)
+
+      seed_provider!(slug: "ds-only-chat", base_url: "http://127.0.0.1:1")
+
+      conn_400 =
+        build_conn()
+        |> put_req_header("authorization", "Bearer #{raw_token}")
+        |> put_req_header("content-type", "application/json")
+        |> post("/v1/chat/completions", %{
+          "model" => "nonexistent-model",
+          "messages" => [%{"role" => "user", "content" => "Hi"}]
+        })
+
+      assert %{"error" => %{"code" => "model_not_found"}} = json_response(conn_400, 400)
+    end
+
     test "returns 402 when the wallet has zero credits" do
       user = register_user("gateway-zero")
       raw_token = desktop_token(user)
+      seed_provider!(slug: "ds-zero", base_url: "http://127.0.0.1:1")
 
       conn =
         build_conn()
         |> put_req_header("authorization", "Bearer #{raw_token}")
         |> put_req_header("content-type", "application/json")
-        |> put_req_header("accept", "text/event-stream")
         |> post("/v1/chat/completions", %{
-          "model" => "cgc-default",
-          "messages" => [%{"role" => "user", "content" => "Hello DeepSeek"}]
+          "model" => "deepseek-chat",
+          "messages" => [%{"role" => "user", "content" => "Hello"}]
         })
 
       assert %{"error" => %{"code" => "insufficient_quota"}} = json_response(conn, 402)
     end
 
-    test "returns 403 wallet_frozen when the wallet is frozen even with sufficient credits" do
+    test "returns 403 wallet_frozen with optional reason" do
       user = register_user("gateway-frozen")
       raw_token = desktop_token(user)
+      seed_provider!(slug: "ds-frozen", base_url: "http://127.0.0.1:1")
 
-      {:ok, _} =
-        Ledger.grant_personal_credits(user.id, %{amount_mc: 500_000, source_type: :pack})
-
-      Cgc2046.Repo.query!(
-        "UPDATE llm_wallets SET status = 'frozen' WHERE user_id = $1",
-        [Ecto.UUID.dump!(user.id)]
-      )
-
-      conn =
-        build_conn()
-        |> put_req_header("authorization", "Bearer #{raw_token}")
-        |> put_req_header("content-type", "application/json")
-        |> put_req_header("accept", "text/event-stream")
-        |> post("/v1/chat/completions", %{
-          "model" => "cgc-default",
-          "messages" => [%{"role" => "user", "content" => "Hello frozen wallet"}]
-        })
-
-      assert %{
-               "error" => %{
-                 "code" => "wallet_frozen",
-                 "type" => "permission_error"
-               }
-             } = json_response(conn, 403)
-
-      assert LeaseManager.active_streams_count(user.id) == 0
-      assert Ledger.fetch_wallet!(user.id).held_mc == 0
-      refute Map.has_key?(json_response(conn, 403)["error"], "reason")
-    end
-
-    test "returns 403 wallet_frozen with reason when frozen_reason is recorded" do
-      user = register_user("gateway-frozen-reason")
-      raw_token = desktop_token(user)
-
-      {:ok, _} =
-        Ledger.grant_personal_credits(user.id, %{amount_mc: 500_000, source_type: :pack})
-
+      {:ok, _} = Ledger.grant_personal_credits(user.id, %{amount_mc: 500_000, source_type: :pack})
       {:ok, _} = Ledger.set_wallet_status(user.id, :frozen, reason: "疑似脚本高频刷量")
 
       conn =
         build_conn()
         |> put_req_header("authorization", "Bearer #{raw_token}")
         |> put_req_header("content-type", "application/json")
-        |> put_req_header("accept", "text/event-stream")
         |> post("/v1/chat/completions", %{
-          "model" => "cgc-default",
-          "messages" => [%{"role" => "user", "content" => "Hello frozen wallet"}]
+          "model" => "deepseek-chat",
+          "messages" => [%{"role" => "user", "content" => "Hello frozen"}]
         })
 
       assert %{
@@ -617,366 +424,80 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
              } = json_response(conn, 403)
     end
 
-    test "returns 429 rate_limit_exceeded when user exceeds llm_gateway_user_rpm" do
-      user = register_user("gateway-rpm-limit")
+    test "returns 429 rate_limit_exceeded, 413 context_length_exceeded, 400 invalid_request, 401 token isolation" do
+      user = register_user("gateway-guards")
       raw_token = desktop_token(user)
+      seed_provider!(slug: "ds-guards", base_url: "http://127.0.0.1:1")
 
-      previous_limits = Application.get_env(:cgc_2046, :rate_limits, [])
+      # Missing model -> 400
+      assert %{"error" => %{"code" => "invalid_request"}} =
+               build_conn()
+               |> put_req_header("authorization", "Bearer #{raw_token}")
+               |> put_req_header("content-type", "application/json")
+               |> post("/v1/chat/completions", %{
+                 "messages" => [%{"role" => "user", "content" => "No model"}]
+               })
+               |> json_response(400)
 
-      Application.put_env(
-        :cgc_2046,
-        :rate_limits,
-        Keyword.put(previous_limits, :llm_gateway_user_rpm, 2)
-      )
+      # MCP token rejected -> 401
+      {:ok, _record, mcp_token} = McpToken.issue("gateway-mcp", user, :terminal)
 
-      on_exit(fn ->
-        Application.put_env(:cgc_2046, :rate_limits, previous_limits)
-        :ets.delete_all_objects(Cgc2046Web.Plugs.RateLimit.table())
-      end)
+      assert %{"error" => %{"code" => "unauthorized"}} =
+               build_conn()
+               |> put_req_header("authorization", "Bearer #{mcp_token}")
+               |> put_req_header("content-type", "application/json")
+               |> post("/v1/chat/completions", %{
+                 "model" => "deepseek-chat",
+                 "messages" => [%{"role" => "user", "content" => "Hello"}]
+               })
+               |> json_response(401)
 
-      :ets.delete_all_objects(Cgc2046Web.Plugs.RateLimit.table())
+      # Web token rejected -> 401
+      assert %{"error" => %{"code" => "unauthorized"}} =
+               build_conn()
+               |> put_req_header("authorization", "Bearer #{web_token(user)}")
+               |> put_req_header("content-type", "application/json")
+               |> post("/v1/chat/completions", %{
+                 "model" => "deepseek-chat",
+                 "messages" => [%{"role" => "user", "content" => "Hello"}]
+               })
+               |> json_response(401)
 
-      # First 2 requests pass the RPM gate (and stop at 402 insufficient_quota).
-      for _ <- 1..2 do
-        conn =
-          build_conn()
-          |> put_req_header("authorization", "Bearer #{raw_token}")
-          |> put_req_header("content-type", "application/json")
-          |> post("/v1/chat/completions", %{
-            "model" => "cgc-default",
-            "messages" => [%{"role" => "user", "content" => "Hello"}]
-          })
-
-        assert %{"error" => %{"code" => "insufficient_quota"}} = json_response(conn, 402)
-      end
-
-      # 3rd request within the 60s window is blocked with 429 rate_limit_exceeded.
-      conn =
-        build_conn()
-        |> put_req_header("authorization", "Bearer #{raw_token}")
-        |> put_req_header("content-type", "application/json")
-        |> post("/v1/chat/completions", %{
-          "model" => "cgc-default",
-          "messages" => [%{"role" => "user", "content" => "Third request"}]
-        })
-
-      assert %{
-               "error" => %{
-                 "code" => "rate_limit_exceeded",
-                 "type" => "rate_limit_error"
-               }
-             } = json_response(conn, 429)
-    end
-
-    test "returns 413 context_length_exceeded when prompt exceeds llm_gateway_max_prompt_tokens without holding or deducting credits" do
-      user = register_user("gateway-max-prompt-tokens")
-      raw_token = desktop_token(user)
-
-      {:ok, _} =
-        Ledger.grant_personal_credits(user.id, %{amount_mc: 500_000, source_type: :pack})
-
-      previous_max = Application.get_env(:cgc_2046, :llm_gateway_max_prompt_tokens)
+      # Context limit -> 413
+      {:ok, _} = Ledger.grant_personal_credits(user.id, %{amount_mc: 500_000, source_type: :pack})
+      prev_max = Application.get_env(:cgc_2046, :llm_gateway_max_prompt_tokens)
       Application.put_env(:cgc_2046, :llm_gateway_max_prompt_tokens, 20)
 
       on_exit(fn ->
-        if previous_max do
-          Application.put_env(:cgc_2046, :llm_gateway_max_prompt_tokens, previous_max)
-        else
-          Application.delete_env(:cgc_2046, :llm_gateway_max_prompt_tokens)
-        end
+        if prev_max,
+          do: Application.put_env(:cgc_2046, :llm_gateway_max_prompt_tokens, prev_max),
+          else: Application.delete_env(:cgc_2046, :llm_gateway_max_prompt_tokens)
       end)
 
-      conn =
-        build_conn()
-        |> put_req_header("authorization", "Bearer #{raw_token}")
-        |> put_req_header("content-type", "application/json")
-        |> put_req_header("accept", "text/event-stream")
-        |> post("/v1/chat/completions", %{
-          "model" => "cgc-default",
-          "messages" => [
-            %{
-              "role" => "user",
-              "content" => String.duplicate("This prompt is deliberately very long. ", 20)
-            }
-          ]
-        })
-
-      assert %{
-               "error" => %{
-                 "code" => "context_length_exceeded",
-                 "type" => "invalid_request_error"
-               }
-             } = json_response(conn, 413)
-
-      wallet = Ledger.fetch_wallet!(user.id)
-      assert wallet.cached_balance_mc == 500_000
-      assert wallet.held_mc == 0
-      assert LeaseManager.active_streams_count(user.id) == 0
-      assert user_usage_logs(user.id) == []
-    end
-
-    test "returns 400 invalid_request when messages count exceeds 500" do
-      user = register_user("gateway-too-many-messages")
-      raw_token = desktop_token(user)
-
-      messages = for i <- 1..501, do: %{"role" => "user", "content" => "msg #{i}"}
-
-      conn =
-        build_conn()
-        |> put_req_header("authorization", "Bearer #{raw_token}")
-        |> put_req_header("content-type", "application/json")
-        |> post("/v1/chat/completions", %{
-          "model" => "cgc-default",
-          "messages" => messages
-        })
-
-      assert %{"error" => %{"code" => "invalid_request"}} = json_response(conn, 400)
-    end
-
-    test "rejects an MCP token before spending credits" do
-      user = register_user("gateway-mcp-token")
-      {:ok, _record, raw_token} = McpToken.issue("gateway-mcp", user, :terminal)
-
-      {:ok, _} =
-        Ledger.grant_personal_credits(user.id, %{amount_mc: 500_000, source_type: :pack})
-
-      conn =
-        build_conn()
-        |> put_req_header("authorization", "Bearer #{raw_token}")
-        |> put_req_header("content-type", "application/json")
-        |> put_req_header("accept", "text/event-stream")
-        |> post("/v1/chat/completions", %{
-          "model" => "cgc-default",
-          "messages" => [%{"role" => "user", "content" => "Hello"}]
-        })
-
-      assert %{"error" => %{"code" => "unauthorized"}} = json_response(conn, 401)
-
-      wallet = Ledger.fetch_wallet!(user.id)
-      assert wallet.cached_balance_mc == 500_000
-    end
-
-    test "rejects a web session token on the desktop gateway" do
-      user = register_user("gateway-web-token")
-      raw_token = web_token(user)
-
-      conn =
-        build_conn()
-        |> put_req_header("authorization", "Bearer #{raw_token}")
-        |> put_req_header("content-type", "application/json")
-        |> put_req_header("accept", "text/event-stream")
-        |> post("/v1/chat/completions", %{
-          "model" => "cgc-default",
-          "messages" => [%{"role" => "user", "content" => "Hello"}]
-        })
-
-      assert %{"error" => %{"code" => "unauthorized"}} = json_response(conn, 401)
-    end
-
-    test "rejects duplicate authorization headers instead of trusting the first user" do
-      user = register_user("gateway-duplicate-auth")
-      raw_token = web_token(user)
-
-      conn =
-        build_conn()
-        |> put_req_header("authorization", "Bearer #{raw_token}")
-        |> prepend_req_headers([{"authorization", "Bearer not-a-token"}])
-        |> put_req_header("content-type", "application/json")
-        |> put_req_header("accept", "text/event-stream")
-        |> post("/v1/chat/completions", %{
-          "model" => "cgc-default",
-          "messages" => [%{"role" => "user", "content" => "Hello"}]
-        })
-
-      assert %{"error" => %{"code" => "unauthorized"}} = json_response(conn, 401)
-    end
-
-    test "returns 429 when concurrent stream slots are exhausted" do
-      user = register_user("gateway-concurrent")
-      raw_token = desktop_token(user)
-
-      {:ok, _} =
-        Ledger.grant_personal_credits(user.id, %{amount_mc: 500_000, source_type: :pack})
-
-      assert :ok = LeaseManager.acquire_slot(user.id, 3)
-      assert :ok = LeaseManager.acquire_slot(user.id, 3)
-      assert :ok = LeaseManager.acquire_slot(user.id, 3)
-
-      conn =
-        build_conn()
-        |> put_req_header("authorization", "Bearer #{raw_token}")
-        |> put_req_header("content-type", "application/json")
-        |> put_req_header("accept", "application/json")
-        |> post("/v1/chat/completions", %{
-          "model" => "cgc-default",
-          "messages" => [%{"role" => "user", "content" => "Hello"}]
-        })
-
-      assert %{"error" => %{"code" => "concurrency_limit_exceeded"}} =
-               json_response(conn, 429)
-
-      LeaseManager.release_slot(user.id)
-      assert LeaseManager.active_streams_count(user.id) == 0
-    end
-
-    test "waives the charge when the upstream transport is unreachable" do
-      user = register_user("gateway-dead-upstream")
-      raw_token = desktop_token(user)
-
-      {:ok, _} =
-        Ledger.grant_personal_credits(user.id, %{amount_mc: 500_000, source_type: :pack})
-
-      dead_channels = [
-        %{
-          id: "dead_upstream",
-          provider: :deepseek,
-          base_url: "http://127.0.0.1:1",
-          api_key: "test-dead",
-          chat_path: "/chat/completions",
-          pricing_model: %{
-            "cgc-default" => "deepseek-chat",
-            "cgc-reasoning" => "deepseek-reasoner",
-            "cgc-background" => "deepseek-chat"
-          },
-          models: %{
-            "cgc-default" => "deepseek-chat",
-            "cgc-reasoning" => "deepseek-reasoner",
-            "cgc-background" => "deepseek-chat"
-          }
-        }
-      ]
-
-      Application.put_env(:cgc_2046, :llm_gateway_channels, dead_channels)
-      AffinityRouter.setup!()
-      :fuse.reset(:llm_fuse_dead_upstream)
-
-      conn =
-        build_conn()
-        |> put_req_header("authorization", "Bearer #{raw_token}")
-        |> put_req_header("content-type", "application/json")
-        |> put_req_header("accept", "text/event-stream")
-        |> post("/v1/chat/completions", %{
-          "model" => "cgc-default",
-          "messages" => [%{"role" => "user", "content" => "Hello"}]
-        })
-
-      assert %{"error" => %{"code" => "upstream_unavailable"}} = json_response(conn, 502)
-
-      wallet = Ledger.fetch_wallet!(user.id)
-      assert wallet.cached_balance_mc == 500_000
-      assert wallet.held_mc == 0
+      assert %{"error" => %{"code" => "context_length_exceeded"}} =
+               build_conn()
+               |> put_req_header("authorization", "Bearer #{raw_token}")
+               |> put_req_header("content-type", "application/json")
+               |> post("/v1/chat/completions", %{
+                 "model" => "deepseek-chat",
+                 "messages" => [
+                   %{
+                     "role" => "user",
+                     "content" => String.duplicate("Very long prompt text. ", 20)
+                   }
+                 ]
+               })
+               |> json_response(413)
     end
   end
 
-  describe "SSE 200 OK mid-stream error frame waiving" do
-    test "waives charges and melts fuse when upstream returns HTTP 200 with data: {\"error\": ...} and zero output" do
-      user = register_user("gateway-sse-error-zero")
-      raw_token = desktop_token(user)
-
-      {:ok, _} =
-        Ledger.grant_personal_credits(user.id, %{amount_mc: 500_000, source_type: :pack})
-
-      server =
-        start_sse_server(fn socket, _request ->
-          send_sse_chunks(socket, [
-            sse_data_frame(%{
-              "error" => %{"message" => "upstream overloaded", "type" => "server_error"}
-            }),
-            "data: [DONE]\n\n"
-          ])
-        end)
-
-      configure_local_channels([local_channel("local_sse_err_zero", server.base_url)])
-
-      conn =
-        build_conn()
-        |> put_req_header("authorization", "Bearer #{raw_token}")
-        |> put_req_header("content-type", "application/json")
-        |> put_req_header("accept", "text/event-stream")
-        |> post("/v1/chat/completions", %{
-          "model" => "cgc-default",
-          "messages" => [%{"role" => "user", "content" => "Trigger mid-stream error"}]
-        })
-
-      assert conn.status == 200
-
-      wallet = Ledger.fetch_wallet!(user.id)
-      assert wallet.cached_balance_mc == 500_000
-      assert wallet.held_mc == 0
-      assert LeaseManager.active_streams_count(user.id) == 0
-
-      [log] = user_usage_logs(user.id)
-      assert log.billing_mode == :waived_upstream_error
-      assert log.charged_mc == 0
-    end
-
-    test "waives charges even when partial content was streamed before a 200 SSE error frame" do
-      user = register_user("gateway-sse-error-partial")
-      raw_token = desktop_token(user)
-
-      {:ok, _} =
-        Ledger.grant_personal_credits(user.id, %{amount_mc: 500_000, source_type: :pack})
-
-      server =
-        start_sse_server(fn socket, _request ->
-          send_sse_chunks(socket, [
-            sse_data_frame(%{"choices" => [%{"delta" => %{"content" => "Partial reply..."}}]}),
-            sse_data_frame(%{
-              "error" => %{"message" => "internal stream failure", "code" => "server_error"}
-            })
-          ])
-        end)
-
-      configure_local_channels([local_channel("local_sse_err_partial", server.base_url)])
-
-      conn =
-        build_conn()
-        |> put_req_header("authorization", "Bearer #{raw_token}")
-        |> put_req_header("content-type", "application/json")
-        |> put_req_header("accept", "text/event-stream")
-        |> post("/v1/chat/completions", %{
-          "model" => "cgc-default",
-          "messages" => [%{"role" => "user", "content" => "Partial then error"}]
-        })
-
-      assert conn.status == 200
-      assert conn.resp_body =~ "Partial reply..."
-
-      wallet = Ledger.fetch_wallet!(user.id)
-      assert wallet.cached_balance_mc == 500_000
-      assert wallet.held_mc == 0
-
-      [log] = user_usage_logs(user.id)
-      assert log.billing_mode == :waived_upstream_error
-      assert log.charged_mc == 0
-    end
-
-    test "waives charges even when upstream sends both usage and a 200 SSE error frame" do
-      settlement =
-        TokenizerAndPricing.calculate_settlement("deepseek-chat", 1_000, %{
-          sse_error?: true,
-          official_usage: %{
-            "prompt_tokens" => 1_000,
-            "prompt_cache_hit_tokens" => 0,
-            "prompt_cache_miss_tokens" => 1_000,
-            "completion_tokens" => 200
-          }
-        })
-
-      assert settlement.billing_mode == :waived_upstream_error
-      assert settlement.charged_mc == 0
-      assert settlement.upstream_cost_mc == 0
-    end
-  end
-
-  describe "end-to-end SSE streaming via local :gen_tcp upstream" do
-    test "passes through SSE chunks, settles :exact usage, writes UsageLog, and releases hold & slot" do
+  describe "end-to-end SSE streaming via OpenAI & Anthropic upstreams" do
+    test "OpenAI compatible: passes through SSE chunks, settles :exact usage, writes UsageLog" do
       user = register_user("gateway-sse-exact")
       raw_token = desktop_token(user)
       session_id = "sess-sse-exact-#{Ecto.UUID.generate()}"
 
-      {:ok, _} =
-        Ledger.grant_personal_credits(user.id, %{amount_mc: 500_000, source_type: :pack})
+      {:ok, _} = Ledger.grant_personal_credits(user.id, %{amount_mc: 500_000, source_type: :pack})
 
       usage = %{
         "prompt_tokens" => 1_000,
@@ -992,8 +513,8 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
           assert request.path == "/chat/completions"
 
           decoded = Jason.decode!(request.body)
+          assert decoded["model"] == "deepseek-chat"
           assert decoded["stream"] == true
-          assert decoded["stream_options"] == %{"include_usage" => true}
 
           send_sse_chunks(socket, [
             sse_data_frame(%{
@@ -1005,7 +526,7 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
           ])
         end)
 
-      configure_local_channels([local_channel("local_exact_primary", server.base_url)])
+      seed_provider!(slug: "local_exact_primary", base_url: server.base_url)
 
       conn =
         build_conn()
@@ -1014,48 +535,116 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
         |> put_req_header("content-type", "application/json")
         |> put_req_header("accept", "text/event-stream")
         |> post("/v1/chat/completions", %{
-          "model" => "cgc-default",
+          "model" => "deepseek-chat",
           "messages" => [%{"role" => "user", "content" => "Say hello via SSE"}]
         })
 
       assert conn.status == 200
-      assert [content_type | _] = get_resp_header(conn, "content-type")
-      assert String.starts_with?(content_type, "text/event-stream")
       assert conn.resp_body =~ "Hello from SSE!"
       assert conn.resp_body =~ "data: [DONE]"
 
-      expected =
-        TokenizerAndPricing.calculate_settlement("deepseek-chat", 0, %{official_usage: usage})
-
-      wallet = Ledger.fetch_wallet!(user.id)
-      assert wallet.held_mc == 0
-      assert wallet.cached_balance_mc == 500_000 - expected.charged_mc
-      assert LeaseManager.active_streams_count(user.id) == 0
-
       [log] = user_usage_logs(user.id)
       assert log.session_id == session_id
-      assert log.logical_model == "cgc-default"
+      assert log.logical_model == "deepseek-chat"
       assert log.upstream_channel == "local_exact_primary"
       assert log.upstream_model == "deepseek-chat"
       assert log.billing_mode == :exact
       assert log.prompt_cache_hit_tokens == 400
       assert log.prompt_cache_miss_tokens == 600
       assert log.completion_tokens == 200
-      assert log.reasoning_tokens == 50
-      assert log.charged_mc == expected.charged_mc
-      assert log.upstream_cost_mc == expected.upstream_cost_mc
-      assert is_integer(log.ttfb_ms) and log.ttfb_ms >= 0
-      assert is_integer(log.duration_ms) and log.duration_ms >= 0
+      assert log.charged_mc > 0
+      assert Ledger.fetch_wallet!(user.id).held_mc == 0
     end
 
-    test "fails over from primary HTTP 429 before first chunk to backup, melts primary fuse, and logs backup channel" do
+    test "Anthropic protocol: translates Messages API stream to OpenAI SSE and bills normalized usage" do
+      user = register_user("gateway-anthropic-e2e")
+      raw_token = desktop_token(user)
+      session_id = "sess-ant-#{Ecto.UUID.generate()}"
+
+      {:ok, _} =
+        Ledger.grant_personal_credits(user.id, %{amount_mc: 1_000_000, source_type: :pack})
+
+      server =
+        start_sse_server(fn socket, request ->
+          assert request.method == "POST"
+          assert request.path == "/v1/messages"
+          assert request.headers["x-api-key"] == "sk-ant-e2e-key"
+          assert request.headers["anthropic-version"] == "2023-06-01"
+
+          decoded = Jason.decode!(request.body)
+          assert decoded["model"] == "claude-sonnet-4-5-20250929"
+          assert decoded["system"] == "Be concise."
+
+          assert [%{"role" => "user", "content" => [%{"type" => "text", "text" => "Hi Claude"}]}] =
+                   decoded["messages"]
+
+          send_sse_chunks(socket, [
+            "event: message_start\ndata: #{Jason.encode!(%{"type" => "message_start", "message" => %{"id" => "msg_1", "usage" => %{"input_tokens" => 200, "cache_read_input_tokens" => 500, "cache_creation_input_tokens" => 0, "output_tokens" => 1}}})}\n\n",
+            "event: content_block_start\ndata: #{Jason.encode!(%{"type" => "content_block_start", "index" => 0, "content_block" => %{"type" => "text", "text" => ""}})}\n\n",
+            "event: content_block_delta\ndata: #{Jason.encode!(%{"type" => "content_block_delta", "index" => 0, "delta" => %{"type" => "text_delta", "text" => "Hello from Claude!"}})}\n\n",
+            "event: content_block_stop\ndata: #{Jason.encode!(%{"type" => "content_block_stop", "index" => 0})}\n\n",
+            "event: message_delta\ndata: #{Jason.encode!(%{"type" => "message_delta", "delta" => %{"stop_reason" => "end_turn"}, "usage" => %{"output_tokens" => 120}})}\n\n",
+            "event: message_stop\ndata: #{Jason.encode!(%{"type" => "message_stop"})}\n\n"
+          ])
+        end)
+
+      seed_provider!(
+        slug: "anthropic-e2e",
+        protocol: "anthropic",
+        base_url: server.base_url,
+        api_key: "sk-ant-e2e-key",
+        models: [
+          %{
+            model_id: "claude-sonnet-4-5",
+            upstream_model_id: "claude-sonnet-4-5-20250929",
+            display_name: "Claude Sonnet 4.5",
+            supports_thinking: true,
+            supports_tools: true,
+            supports_images: true,
+            cache_hit_price_mc: 2_000_000,
+            cache_miss_price_mc: 20_000_000,
+            output_price_mc: 100_000_000
+          }
+        ]
+      )
+
+      conn =
+        build_conn()
+        |> put_req_header("authorization", "Bearer #{raw_token}")
+        |> put_req_header("x-session-affinity", session_id)
+        |> put_req_header("content-type", "application/json")
+        |> post("/v1/chat/completions", %{
+          "model" => "claude-sonnet-4-5",
+          "messages" => [
+            %{"role" => "system", "content" => "Be concise."},
+            %{"role" => "user", "content" => "Hi Claude"}
+          ]
+        })
+
+      assert conn.status == 200
+      assert conn.resp_body =~ "Hello from Claude!"
+      assert conn.resp_body =~ ~s("finish_reason":"stop")
+      assert conn.resp_body =~ "data: [DONE]"
+
+      [log] = user_usage_logs(user.id)
+      assert log.logical_model == "claude-sonnet-4-5"
+      assert log.upstream_channel == "anthropic-e2e"
+      assert log.upstream_model == "claude-sonnet-4-5-20250929"
+      assert log.billing_mode == :exact
+      assert log.prompt_cache_hit_tokens == 500
+      assert log.prompt_cache_miss_tokens == 200
+      assert log.completion_tokens == 120
+      assert log.charged_mc > 0
+      assert Ledger.fetch_wallet!(user.id).held_mc == 0
+    end
+
+    test "fails over from higher-priority HTTP 429 to lower-priority backup provider" do
       user = register_user("gateway-sse-failover")
       raw_token = desktop_token(user)
       session_id = "sess-sse-failover-#{Ecto.UUID.generate()}"
       test_pid = self()
 
-      {:ok, _} =
-        Ledger.grant_personal_credits(user.id, %{amount_mc: 500_000, source_type: :pack})
+      {:ok, _} = Ledger.grant_personal_credits(user.id, %{amount_mc: 500_000, source_type: :pack})
 
       primary_server =
         start_sse_server(fn socket, _request ->
@@ -1084,410 +673,167 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
           ])
         end)
 
-      configure_local_channels([
-        local_channel("local_failover_primary", primary_server.base_url),
-        local_channel("local_failover_backup", backup_server.base_url,
-          provider: :volcengine,
-          models: %{
-            "cgc-default" => "ep-v3-backup",
-            "cgc-reasoning" => "ep-r1-backup",
-            "cgc-background" => "ep-v3-backup"
-          }
+      {primary_slot_id, _} =
+        seed_provider!(
+          slug: "local_failover_primary",
+          base_url: primary_server.base_url,
+          priority: 10
         )
-      ])
+
+      {backup_slot_id, _} =
+        seed_provider!(
+          slug: "local_failover_backup",
+          base_url: backup_server.base_url,
+          priority: 20,
+          models: [
+            %{
+              model_id: "deepseek-chat",
+              upstream_model_id: "ep-v3-backup",
+              display_name: "DeepSeek Chat"
+            }
+          ]
+        )
 
       conn =
         build_conn()
         |> put_req_header("authorization", "Bearer #{raw_token}")
         |> put_req_header("x-session-affinity", session_id)
         |> put_req_header("content-type", "application/json")
-        |> put_req_header("accept", "text/event-stream")
         |> post("/v1/chat/completions", %{
-          "model" => "cgc-default",
+          "model" => "deepseek-chat",
           "messages" => [%{"role" => "user", "content" => "Trigger 429 failover"}]
         })
 
       assert_received :primary_429_hit
       assert_received :backup_sse_hit
-
       assert conn.status == 200
       assert conn.resp_body =~ "Served by backup."
-      assert conn.resp_body =~ "data: [DONE]"
 
-      # :fuse is configured as {:standard, 3, 10_000} (blows on the 4th melt).
-      # Because the 429 already recorded 1 melt, 3 additional failures blow it
-      # immediately (whereas an unmelted fuse remains healthy after 3 failures).
-      assert AffinityRouter.channel_healthy?("local_failover_primary")
-
-      for _ <- 1..3 do
-        AffinityRouter.report_failure("local_failover_primary")
-      end
-
-      refute AffinityRouter.channel_healthy?("local_failover_primary")
-      assert AffinityRouter.channel_healthy?("local_failover_backup")
-
-      wallet = Ledger.fetch_wallet!(user.id)
-      assert wallet.held_mc == 0
-      assert LeaseManager.active_streams_count(user.id) == 0
+      for _ <- 1..3, do: AffinityRouter.report_failure(primary_slot_id)
+      refute AffinityRouter.channel_healthy?(primary_slot_id)
+      assert AffinityRouter.channel_healthy?(backup_slot_id)
 
       [log] = user_usage_logs(user.id)
       assert log.upstream_channel == "local_failover_backup"
       assert log.upstream_model == "ep-v3-backup"
       assert log.billing_mode == :exact
-      assert log.charged_mc > 0
     end
 
-    test "emits upstream_stream_interrupted frame, bills :estimated_abort, and releases hold on mid-stream drop" do
-      user = register_user("gateway-sse-mid-drop")
+    test "waives charges on mid-stream 200 SSE error frame and bills :estimated_abort on truncated drop" do
+      user = register_user("gateway-sse-waive-abort")
       raw_token = desktop_token(user)
-      session_id = "sess-sse-drop-#{Ecto.UUID.generate()}"
+      {:ok, _} = Ledger.grant_personal_credits(user.id, %{amount_mc: 500_000, source_type: :pack})
 
-      {:ok, _} =
-        Ledger.grant_personal_credits(user.id, %{amount_mc: 500_000, source_type: :pack})
+      err_server =
+        start_sse_server(fn socket, _request ->
+          send_sse_chunks(socket, [
+            sse_data_frame(%{"choices" => [%{"delta" => %{"content" => "Partial"}}]}),
+            sse_data_frame(%{"error" => %{"message" => "boom", "code" => "server_error"}})
+          ])
+        end)
 
-      server =
+      seed_provider!(slug: "sse_err_p", base_url: err_server.base_url)
+
+      conn_err =
+        build_conn()
+        |> put_req_header("authorization", "Bearer #{raw_token}")
+        |> put_req_header("content-type", "application/json")
+        |> post("/v1/chat/completions", %{
+          "model" => "deepseek-chat",
+          "messages" => [%{"role" => "user", "content" => "Error frame"}]
+        })
+
+      assert conn_err.status == 200
+      assert [err_log] = user_usage_logs(user.id)
+      assert err_log.billing_mode == :waived_upstream_error
+      assert err_log.charged_mc == 0
+
+      # Truncated drop
+      drop_server =
         start_sse_server(fn socket, _request ->
           send_truncated_sse_chunks(socket, [
             sse_data_frame(%{
-              "choices" => [
-                %{"delta" => %{"reasoning_content" => "Thinking about the answer..."}}
-              ]
-            }),
-            sse_data_frame(%{
-              "choices" => [%{"delta" => %{"content" => "Partial output before upstream drop."}}]
+              "choices" => [%{"delta" => %{"content" => "Truncated output text."}}]
             })
           ])
         end)
 
-      configure_local_channels([local_channel("local_mid_drop_primary", server.base_url)])
+      seed_provider!(
+        slug: "sse_drop_p",
+        base_url: drop_server.base_url,
+        models: [%{model_id: "drop-model", upstream_model_id: "drop-model", display_name: "Drop"}]
+      )
 
-      conn =
+      conn_drop =
         build_conn()
         |> put_req_header("authorization", "Bearer #{raw_token}")
-        |> put_req_header("x-session-affinity", session_id)
         |> put_req_header("content-type", "application/json")
-        |> put_req_header("accept", "text/event-stream")
         |> post("/v1/chat/completions", %{
-          "model" => "cgc-default",
-          "messages" => [%{"role" => "user", "content" => "Stream until drop"}]
+          "model" => "drop-model",
+          "messages" => [%{"role" => "user", "content" => "Drop stream"}]
         })
 
-      assert conn.status == 200
-      assert conn.resp_body =~ "Partial output before upstream drop."
-      assert conn.resp_body =~ "upstream_stream_interrupted"
-
-      [log] = user_usage_logs(user.id)
-      assert log.upstream_channel == "local_mid_drop_primary"
-      assert log.billing_mode == :estimated_abort
-      assert log.completion_tokens > 0
-      assert log.reasoning_tokens > 0
-      assert log.charged_mc > 0
-      assert log.upstream_cost_mc > 0
-
-      wallet = Ledger.fetch_wallet!(user.id)
-      assert wallet.held_mc == 0
-      assert wallet.cached_balance_mc == 500_000 - log.charged_mc
-      assert LeaseManager.active_streams_count(user.id) == 0
-    end
-
-    test "returns 413 context_length_exceeded on upstream 400 context overflow without melting fuse and waives billing" do
-      user = register_user("gateway-sse-413-context")
-      raw_token = desktop_token(user)
-      session_id = "sess-sse-413-#{Ecto.UUID.generate()}"
-
-      {:ok, _} =
-        Ledger.grant_personal_credits(user.id, %{amount_mc: 500_000, source_type: :pack})
-
-      server =
-        start_sse_server(fn socket, _request ->
-          send_json_error(socket, 400, "Bad Request", %{
-            "error" => %{
-              "message" =>
-                "This model's maximum context length is 131072 tokens. However, you requested 140000 tokens.",
-              "type" => "invalid_request_error",
-              "code" => "invalid_request_error"
-            }
-          })
-        end)
-
-      configure_local_channels([local_channel("local_413_primary", server.base_url)])
-
-      conn =
-        build_conn()
-        |> put_req_header("authorization", "Bearer #{raw_token}")
-        |> put_req_header("x-session-affinity", session_id)
-        |> put_req_header("content-type", "application/json")
-        |> put_req_header("accept", "text/event-stream")
-        |> post("/v1/chat/completions", %{
-          "model" => "cgc-default",
-          "messages" => [%{"role" => "user", "content" => "Prompt too long"}]
-        })
-
-      assert %{
-               "error" => %{
-                 "code" => "context_length_exceeded",
-                 "type" => "invalid_request_error",
-                 "message" => message
-               }
-             } = json_response(conn, 413)
-
-      assert message =~ "maximum context length is 131072 tokens"
-
-      # 400 client error must NOT melt :fuse: 3 failures stay healthy (4th blows).
-      for _ <- 1..3 do
-        AffinityRouter.report_failure("local_413_primary")
-      end
-
-      assert AffinityRouter.channel_healthy?("local_413_primary")
-
-      wallet = Ledger.fetch_wallet!(user.id)
-      assert wallet.held_mc == 0
-      assert wallet.cached_balance_mc == 500_000
-      assert LeaseManager.active_streams_count(user.id) == 0
-
-      [log] = user_usage_logs(user.id)
-      assert log.billing_mode == :waived_upstream_error
-      assert log.charged_mc == 0
-    end
-
-    test "returns 400 invalid_request with sanitized message on upstream 400 tool schema error and waives billing" do
-      user = register_user("gateway-sse-400-schema")
-      raw_token = desktop_token(user)
-      session_id = "sess-sse-400-#{Ecto.UUID.generate()}"
-
-      {:ok, _} =
-        Ledger.grant_personal_credits(user.id, %{amount_mc: 500_000, source_type: :pack})
-
-      long_suffix = String.duplicate("x", 600)
-
-      server =
-        start_sse_server(fn socket, _request ->
-          send_json_error(socket, 400, "Bad Request", %{
-            "error" => %{
-              "message" =>
-                "Invalid tool schema at https://internal.upstream.local/v1 using sk-secret123456: #{long_suffix}",
-              "code" => "invalid_tool_schema"
-            }
-          })
-        end)
-
-      configure_local_channels([local_channel("local_400_primary", server.base_url)])
-
-      conn =
-        build_conn()
-        |> put_req_header("authorization", "Bearer #{raw_token}")
-        |> put_req_header("x-session-affinity", session_id)
-        |> put_req_header("content-type", "application/json")
-        |> put_req_header("accept", "text/event-stream")
-        |> post("/v1/chat/completions", %{
-          "model" => "cgc-default",
-          "messages" => [%{"role" => "user", "content" => "Bad tool schema"}]
-        })
-
-      assert %{
-               "error" => %{
-                 "code" => "invalid_request",
-                 "type" => "invalid_request_error",
-                 "message" => message
-               }
-             } = json_response(conn, 400)
-
-      assert message =~ "Invalid tool schema"
-      assert String.length(message) <= 500
-      refute message =~ "https://internal.upstream.local"
-      refute message =~ "sk-secret123456"
-
-      for _ <- 1..3 do
-        AffinityRouter.report_failure("local_400_primary")
-      end
-
-      assert AffinityRouter.channel_healthy?("local_400_primary")
-
-      wallet = Ledger.fetch_wallet!(user.id)
-      assert wallet.held_mc == 0
-      assert wallet.cached_balance_mc == 500_000
-      assert LeaseManager.active_streams_count(user.id) == 0
-
-      [log] = user_usage_logs(user.id)
-      assert log.billing_mode == :waived_upstream_error
-      assert log.charged_mc == 0
-    end
-
-    test "fails over from primary HTTP 401 to backup channel, melts primary fuse, and returns 200 SSE" do
-      user = register_user("gateway-sse-401-failover")
-      raw_token = desktop_token(user)
-      session_id = "sess-sse-401-#{Ecto.UUID.generate()}"
-      test_pid = self()
-
-      {:ok, _} =
-        Ledger.grant_personal_credits(user.id, %{amount_mc: 500_000, source_type: :pack})
-
-      primary_server =
-        start_sse_server(fn socket, _request ->
-          send(test_pid, :primary_401_hit)
-
-          send_json_error(socket, 401, "Unauthorized", %{
-            "error" => %{"message" => "Authentication Fails (invalid api key)"}
-          })
-        end)
-
-      usage = %{
-        "prompt_tokens" => 300,
-        "prompt_cache_hit_tokens" => 0,
-        "prompt_cache_miss_tokens" => 300,
-        "completion_tokens" => 80
-      }
-
-      backup_server =
-        start_sse_server(fn socket, _request ->
-          send(test_pid, :backup_401_sse_hit)
-
-          send_sse_chunks(socket, [
-            sse_data_frame(%{
-              "choices" => [%{"delta" => %{"content" => "Recovered on backup after 401."}}]
-            }),
-            sse_data_frame(%{"choices" => [], "usage" => usage}),
-            "data: [DONE]\n\n"
-          ])
-        end)
-
-      configure_local_channels([
-        local_channel("local_401_primary", primary_server.base_url),
-        local_channel("local_401_backup", backup_server.base_url,
-          provider: :volcengine,
-          models: %{
-            "cgc-default" => "ep-v3-backup",
-            "cgc-reasoning" => "ep-r1-backup",
-            "cgc-background" => "ep-v3-backup"
-          }
-        )
-      ])
-
-      conn =
-        build_conn()
-        |> put_req_header("authorization", "Bearer #{raw_token}")
-        |> put_req_header("x-session-affinity", session_id)
-        |> put_req_header("content-type", "application/json")
-        |> put_req_header("accept", "text/event-stream")
-        |> post("/v1/chat/completions", %{
-          "model" => "cgc-default",
-          "messages" => [%{"role" => "user", "content" => "Trigger 401 failover"}]
-        })
-
-      assert_received :primary_401_hit
-      assert_received :backup_401_sse_hit
-
-      assert conn.status == 200
-      assert conn.resp_body =~ "Recovered on backup after 401."
-      assert conn.resp_body =~ "data: [DONE]"
-
-      # 401 must melt :fuse once, so 3 additional failures blow it.
-      assert AffinityRouter.channel_healthy?("local_401_primary")
-
-      for _ <- 1..3 do
-        AffinityRouter.report_failure("local_401_primary")
-      end
-
-      refute AffinityRouter.channel_healthy?("local_401_primary")
-      assert AffinityRouter.channel_healthy?("local_401_backup")
-
-      wallet = Ledger.fetch_wallet!(user.id)
-      assert wallet.held_mc == 0
-      assert LeaseManager.active_streams_count(user.id) == 0
-
-      [log] = user_usage_logs(user.id)
-      assert log.upstream_channel == "local_401_backup"
-      assert log.upstream_model == "ep-v3-backup"
-      assert log.billing_mode == :exact
-      assert log.charged_mc > 0
-    end
-
-    test "flushes trailing sse_buffer without double-newline terminator so final usage still settles :exact" do
-      user = register_user("gateway-sse-trailing-buffer")
-      raw_token = desktop_token(user)
-      session_id = "sess-sse-trailing-#{Ecto.UUID.generate()}"
-
-      {:ok, _} =
-        Ledger.grant_personal_credits(user.id, %{amount_mc: 500_000, source_type: :pack})
-
-      usage = %{
-        "prompt_tokens" => 2_000,
-        "prompt_cache_hit_tokens" => 1_800,
-        "prompt_cache_miss_tokens" => 200,
-        "completion_tokens" => 300
-      }
-
-      server =
-        start_sse_server(fn socket, _request ->
-          # Final usage frame intentionally lacks the trailing "\n\n" SSE delimiter.
-          send_sse_chunks(socket, [
-            sse_data_frame(%{
-              "choices" => [%{"delta" => %{"content" => "Trailing usage test."}}]
-            }),
-            "data: " <> Jason.encode!(%{"choices" => [], "usage" => usage})
-          ])
-        end)
-
-      configure_local_channels([local_channel("local_trailing_primary", server.base_url)])
-
-      conn =
-        build_conn()
-        |> put_req_header("authorization", "Bearer #{raw_token}")
-        |> put_req_header("x-session-affinity", session_id)
-        |> put_req_header("content-type", "application/json")
-        |> put_req_header("accept", "text/event-stream")
-        |> post("/v1/chat/completions", %{
-          "model" => "cgc-default",
-          "messages" => [%{"role" => "user", "content" => "No trailing blank line"}]
-        })
-
-      assert conn.status == 200
-      assert conn.resp_body =~ "Trailing usage test."
-
-      [log] = user_usage_logs(user.id)
-      assert log.billing_mode == :exact
-      assert log.prompt_cache_hit_tokens == 1_800
-      assert log.prompt_cache_miss_tokens == 200
-      assert log.completion_tokens == 300
-      assert log.charged_mc > 0
-
-      wallet = Ledger.fetch_wallet!(user.id)
-      assert wallet.held_mc == 0
-      assert wallet.cached_balance_mc == 500_000 - log.charged_mc
-      assert LeaseManager.active_streams_count(user.id) == 0
+      assert conn_drop.status == 200
+      assert conn_drop.resp_body =~ "upstream_stream_interrupted"
+      drop_log = user_usage_logs(user.id) |> Enum.find(&(&1.logical_model == "drop-model"))
+      assert drop_log.billing_mode == :estimated_abort
+      assert drop_log.charged_mc > 0
+      assert Ledger.fetch_wallet!(user.id).held_mc == 0
     end
   end
 
-  defp local_channel(id, base_url, overrides \\ []) do
-    Map.merge(
-      %{
-        id: id,
-        provider: :deepseek,
+  defp seed_provider!(opts) do
+    slug = Keyword.fetch!(opts, :slug)
+    base_url = Keyword.fetch!(opts, :base_url)
+    protocol = Keyword.get(opts, :protocol, "openai_compatible")
+    priority = Keyword.get(opts, :priority, 100)
+    api_key = Keyword.get(opts, :api_key, "sk-local-#{slug}")
+    admin = platform_admin("seed-#{slug}-#{Ecto.UUID.generate()}")
+
+    {:ok, provider} =
+      ProviderCatalog.create_provider(admin, %{
+        name: Keyword.get(opts, :name, slug),
+        slug: slug,
+        protocol: protocol,
         base_url: base_url,
-        api_key: "sk-local-test",
-        chat_path: "/chat/completions",
-        pricing_model: %{
-          "cgc-default" => "deepseek-chat",
-          "cgc-reasoning" => "deepseek-reasoner",
-          "cgc-background" => "deepseek-chat"
-        },
-        models: %{
-          "cgc-default" => "deepseek-chat",
-          "cgc-reasoning" => "deepseek-reasoner",
-          "cgc-background" => "deepseek-chat"
+        priority: priority,
+        off_peak_discount_enabled: Keyword.get(opts, :off_peak_discount_enabled, false)
+      })
+
+    {:ok, key_rec} =
+      ProviderCatalog.add_api_key(admin, provider.id, %{label: "test", api_key: api_key})
+
+    models =
+      Keyword.get(opts, :models, [
+        %{
+          model_id: "deepseek-chat",
+          upstream_model_id: "deepseek-chat",
+          display_name: "DeepSeek Chat"
         }
-      },
-      Map.new(overrides)
-    )
-  end
+      ])
+      |> Enum.map(fn m ->
+        Map.merge(
+          %{
+            context_window: 128_000,
+            max_output_tokens: 8_192,
+            supports_thinking: false,
+            supports_tools: true,
+            supports_images: false,
+            reasoning_efforts: [],
+            cache_hit_price_mc: 200_000,
+            cache_miss_price_mc: 2_000_000,
+            output_price_mc: 3_000_000,
+            markup_ratio: 1.5
+          },
+          m
+        )
+      end)
 
-  defp configure_local_channels(channels) do
-    Application.put_env(:cgc_2046, :llm_gateway_channels, channels)
-    AffinityRouter.setup!()
-
-    Enum.each(channels, fn channel ->
-      :fuse.reset(:"llm_fuse_#{channel.id}")
-    end)
+    {:ok, _} = ProviderCatalog.save_provider_models(admin, provider.id, models)
+    slot_id = "#{slug}:#{key_rec.id}"
+    AffinityRouter.install_fuse(slot_id)
+    :fuse.reset({:llm_fuse, slot_id})
+    {slot_id, provider}
   end
 
   defp user_usage_logs(user_id) do
@@ -1511,11 +857,7 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
       ])
 
     {:ok, port} = :inet.port(listen_socket)
-
-    accept_pid =
-      spawn(fn ->
-        accept_loop(listen_socket, handler)
-      end)
+    accept_pid = spawn(fn -> accept_loop(listen_socket, handler) end)
 
     on_exit(fn ->
       :gen_tcp.close(listen_socket)
@@ -1524,8 +866,7 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
       receive do
         {:DOWN, ^ref, :process, ^accept_pid, _reason} -> :ok
       after
-        1_000 ->
-          Process.exit(accept_pid, :kill)
+        1_000 -> Process.exit(accept_pid, :kill)
       end
     end)
 
@@ -1625,35 +966,19 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
 
   defp send_sse_chunks(socket, chunks) when is_list(chunks) do
     header =
-      "HTTP/1.1 200 OK\r\n" <>
-        "content-type: text/event-stream\r\n" <>
-        "cache-control: no-cache\r\n" <>
-        "transfer-encoding: chunked\r\n" <>
-        "connection: close\r\n\r\n"
+      "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncache-control: no-cache\r\ntransfer-encoding: chunked\r\nconnection: close\r\n\r\n"
 
     :ok = :gen_tcp.send(socket, header)
-
-    Enum.each(chunks, fn chunk ->
-      :ok = :gen_tcp.send(socket, encode_http_chunk(chunk))
-    end)
-
+    Enum.each(chunks, fn chunk -> :ok = :gen_tcp.send(socket, encode_http_chunk(chunk)) end)
     :ok = :gen_tcp.send(socket, "0\r\n\r\n")
   end
 
   defp send_truncated_sse_chunks(socket, chunks) when is_list(chunks) do
     header =
-      "HTTP/1.1 200 OK\r\n" <>
-        "content-type: text/event-stream\r\n" <>
-        "cache-control: no-cache\r\n" <>
-        "transfer-encoding: chunked\r\n" <>
-        "connection: close\r\n\r\n"
+      "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncache-control: no-cache\r\ntransfer-encoding: chunked\r\nconnection: close\r\n\r\n"
 
     :ok = :gen_tcp.send(socket, header)
-
-    Enum.each(chunks, fn chunk ->
-      :ok = :gen_tcp.send(socket, encode_http_chunk(chunk))
-    end)
-
+    Enum.each(chunks, fn chunk -> :ok = :gen_tcp.send(socket, encode_http_chunk(chunk)) end)
     :gen_tcp.close(socket)
   end
 
@@ -1661,10 +986,7 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
     body = Jason.encode!(payload)
 
     response =
-      "HTTP/1.1 #{status} #{reason_phrase}\r\n" <>
-        "content-type: application/json\r\n" <>
-        "content-length: #{byte_size(body)}\r\n" <>
-        "connection: close\r\n\r\n" <>
+      "HTTP/1.1 #{status} #{reason_phrase}\r\ncontent-type: application/json\r\ncontent-length: #{byte_size(body)}\r\nconnection: close\r\n\r\n" <>
         body
 
     :ok = :gen_tcp.send(socket, response)

@@ -775,8 +775,8 @@ fn managed_provider_turn_errors_emit_structured_turn_error_events() {
     let model = Model::new(
         ProviderId::new(CGC_CLOUD_PROVIDER_ID),
         "CGC Cloud",
-        "cgc-default",
-        "cgc-default",
+        "deepseek-chat",
+        "DeepSeek Chat",
         ModelLimits::new(8_000, 1_000),
     );
     let provider = Arc::new(FakeProvider::new(
@@ -881,8 +881,8 @@ fn base_tools_subagent_inherits_active_thread_affinity_session_id() {
     let model = Model::new(
         ProviderId::new(CGC_CLOUD_PROVIDER_ID),
         "CGC Cloud",
-        "cgc-default",
-        "cgc-default",
+        "deepseek-chat",
+        "DeepSeek Chat",
         ModelLimits::new(8_000, 1_000),
     );
     let provider = Arc::new(FakeProvider::new(

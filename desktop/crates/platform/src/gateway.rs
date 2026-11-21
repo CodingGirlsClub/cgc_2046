@@ -7,7 +7,7 @@
 //! 同一模块承载 `myLlmWallet`、`createLlmPaymentOrder`、`llmPaymentOrder` 的
 //! GraphQL 读写，供 native agent 状态栏与 402 续费卡使用。
 
-use std::sync::{LazyLock, RwLock};
+use std::sync::{LazyLock, OnceLock, RwLock};
 
 use serde_json::{json, Value};
 use url::Url;
@@ -62,6 +62,22 @@ mutation CreateLlmPaymentOrder(
   }
 }
 "#;
+
+const AVAILABLE_LLM_MODELS: &str = r#"query AvailableLlmModels {
+  availableLlmModels {
+    modelId
+    displayName
+    contextWindow
+    maxOutputTokens
+    supportsThinking
+    supportsTools
+    supportsImages
+    reasoningEfforts
+    inputPriceMc
+    cacheHitPriceMc
+    outputPriceMc
+  }
+}"#;
 
 const LLM_PAYMENT_ORDER: &str = r#"
 query LlmPaymentOrder($id: ID!) {
@@ -173,19 +189,65 @@ pub struct PaymentCheckout {
     pub credential: Value,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GatewayModel {
+    pub model_id: String,
+    pub display_name: String,
+    pub context_window: u32,
+    pub max_output_tokens: u32,
+    pub supports_thinking: bool,
+    pub supports_tools: bool,
+    pub supports_images: bool,
+    pub reasoning_efforts: Vec<String>,
+    pub input_price_mc: i64,
+    pub cache_hit_price_mc: i64,
+    pub output_price_mc: i64,
+}
+
 static SESSION: LazyLock<RwLock<Option<GatewaySession>>> = LazyLock::new(|| RwLock::new(None));
+static GATEWAY_MODELS: OnceLock<RwLock<Vec<GatewayModel>>> = OnceLock::new();
 
 fn session_slot() -> &'static RwLock<Option<GatewaySession>> {
     &SESSION
 }
 
+fn models_slot() -> &'static RwLock<Vec<GatewayModel>> {
+    GATEWAY_MODELS.get_or_init(|| RwLock::new(Vec::new()))
+}
+
+/// 读取最近一次从后端同步到的官方网关模型列表。
+pub fn cached_models() -> Vec<GatewayModel> {
+    models_slot()
+        .read()
+        .map(|slot| slot.clone())
+        .unwrap_or_default()
+}
+
+/// 更新内存中的官方网关模型缓存。
+pub fn set_cached_models(models: Vec<GatewayModel>) {
+    if let Ok(mut slot) = models_slot().write() {
+        *slot = models;
+    }
+}
+
 /// 登录态同步入口；只保留当前会话 token，不派生或持久化第二份凭据。
 pub fn set_session(session: Option<&SignedInSession>) {
-    if let Ok(mut slot) = session_slot().write() {
+    let should_clear_models = if let Ok(mut slot) = session_slot().write() {
+        let user_changed = match (slot.as_ref(), session) {
+            (_, None) => true,
+            (Some(prev), Some(next)) => prev.user_id != next.user_id,
+            (None, Some(_)) => false,
+        };
         *slot = session.map(|session| GatewaySession {
             token: session.token.clone(),
             user_id: session.user_id.clone(),
         });
+        user_changed
+    } else {
+        session.is_none()
+    };
+    if should_clear_models {
+        set_cached_models(Vec::new());
     }
 }
 
@@ -234,6 +296,23 @@ fn gateway_base_url_from(api: &str) -> Option<String> {
     url.set_query(None);
     url.set_fragment(None);
     Some(url.to_string().trim_end_matches('/').to_string())
+}
+
+/// 拉取官方网关当前可用模型目录并更新本地内存缓存。
+pub fn fetch_models() -> Result<Vec<GatewayModel>, GatewayError> {
+    let active_session = session().ok_or(GatewayError::Unauthenticated)?;
+    let value = graphql_client().post(
+        Some(&active_session.token),
+        AVAILABLE_LLM_MODELS,
+        serde_json::json!({}),
+    )?;
+    let models = parse_models(&value)?;
+    if session().as_ref().is_some_and(|cur| {
+        cur.user_id == active_session.user_id && cur.token == active_session.token
+    }) {
+        set_cached_models(models.clone());
+    }
+    Ok(models)
 }
 
 /// 当前钱包摘要（`myLlmWallet`）。
@@ -294,6 +373,95 @@ pub fn payment_order(id: &str) -> Result<PaymentOrderSummary, GatewayError> {
             message: "missing llmPaymentOrder payload".into(),
         })?;
     parse_order(order)
+}
+
+fn parse_models(value: &Value) -> Result<Vec<GatewayModel>, GatewayError> {
+    let items = value
+        .get("data")
+        .and_then(|data| data.get("availableLlmModels"))
+        .and_then(Value::as_array)
+        .ok_or_else(|| GatewayError::Graphql {
+            code: None,
+            message: "missing availableLlmModels payload".into(),
+        })?;
+    items.iter().map(parse_model).collect()
+}
+
+fn parse_model(value: &Value) -> Result<GatewayModel, GatewayError> {
+    let context_window_i64 = int_field(value, "contextWindow")?;
+    let max_output_i64 = int_field(value, "maxOutputTokens")?;
+    let context_window = u32::try_from(context_window_i64).map_err(|_| GatewayError::Graphql {
+        code: None,
+        message: "invalid contextWindow".into(),
+    })?;
+    let max_output_tokens = u32::try_from(max_output_i64).map_err(|_| GatewayError::Graphql {
+        code: None,
+        message: "invalid maxOutputTokens".into(),
+    })?;
+    Ok(GatewayModel {
+        model_id: string_field(value, "modelId")?,
+        display_name: string_field(value, "displayName")?,
+        context_window,
+        max_output_tokens,
+        supports_thinking: bool_field(value, "supportsThinking")?,
+        supports_tools: bool_field(value, "supportsTools")?,
+        supports_images: bool_field(value, "supportsImages")?,
+        reasoning_efforts: string_array_field(value, "reasoningEfforts")?,
+        input_price_mc: bigint_field(value, "inputPriceMc")?,
+        cache_hit_price_mc: bigint_field(value, "cacheHitPriceMc")?,
+        output_price_mc: bigint_field(value, "outputPriceMc")?,
+    })
+}
+
+fn bool_field(value: &Value, key: &str) -> Result<bool, GatewayError> {
+    value
+        .get(key)
+        .and_then(Value::as_bool)
+        .ok_or_else(|| GatewayError::Graphql {
+            code: None,
+            message: format!("missing {key}"),
+        })
+}
+
+fn string_array_field(value: &Value, key: &str) -> Result<Vec<String>, GatewayError> {
+    let items = value
+        .get(key)
+        .and_then(Value::as_array)
+        .ok_or_else(|| GatewayError::Graphql {
+            code: None,
+            message: format!("missing {key}"),
+        })?;
+    items
+        .iter()
+        .map(|entry| {
+            entry
+                .as_str()
+                .map(str::to_string)
+                .ok_or_else(|| GatewayError::Graphql {
+                    code: None,
+                    message: format!("invalid {key} entry"),
+                })
+        })
+        .collect()
+}
+
+fn bigint_field(value: &Value, key: &str) -> Result<i64, GatewayError> {
+    let field = value.get(key).ok_or_else(|| GatewayError::Graphql {
+        code: None,
+        message: format!("missing {key}"),
+    })?;
+    if let Some(num) = field.as_i64() {
+        return Ok(num);
+    }
+    if let Some(text) = field.as_str() {
+        if let Ok(num) = text.parse::<i64>() {
+            return Ok(num);
+        }
+    }
+    Err(GatewayError::Graphql {
+        code: None,
+        message: format!("invalid {key}"),
+    })
 }
 
 fn parse_wallet(value: &Value) -> Result<WalletSummary, GatewayError> {
@@ -484,5 +652,91 @@ mod tests {
         let debug = format!("{session:?}");
         assert!(!debug.contains(token));
         assert!(debug.contains("<redacted>"));
+    }
+
+    #[test]
+    fn available_llm_models_payload_parses_capabilities_and_bigint_prices() {
+        let large_price_mc: i64 = 5_000_000_000;
+        let payload = json!({
+            "data": {
+                "availableLlmModels": [
+                    {
+                        "modelId": "deepseek-reasoner",
+                        "displayName": "DeepSeek Reasoner",
+                        "contextWindow": 128000,
+                        "maxOutputTokens": 32768,
+                        "supportsThinking": true,
+                        "supportsTools": true,
+                        "supportsImages": false,
+                        "reasoningEfforts": ["low", "high"],
+                        "inputPriceMc": large_price_mc,
+                        "cacheHitPriceMc": 300000,
+                        "outputPriceMc": "6000000000"
+                    }
+                ]
+            }
+        });
+        let models = parse_models(&payload).expect("models");
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].model_id, "deepseek-reasoner");
+        assert_eq!(models[0].display_name, "DeepSeek Reasoner");
+        assert_eq!(models[0].context_window, 128_000);
+        assert_eq!(models[0].max_output_tokens, 32_768);
+        assert!(models[0].supports_thinking);
+        assert!(models[0].supports_tools);
+        assert!(!models[0].supports_images);
+        assert_eq!(models[0].reasoning_efforts, vec!["low", "high"]);
+        assert_eq!(models[0].input_price_mc, large_price_mc);
+        assert_eq!(models[0].cache_hit_price_mc, 300_000);
+        assert_eq!(models[0].output_price_mc, 6_000_000_000);
+    }
+
+    #[test]
+    fn set_session_clears_cached_models_on_sign_out_and_account_switch() {
+        let session_a = SignedInSession {
+            token: "tok-a".to_string(),
+            user_id: "user-a".to_string(),
+            email: None,
+            is_platform_admin: false,
+        };
+        let session_b = SignedInSession {
+            token: "tok-b".to_string(),
+            user_id: "user-b".to_string(),
+            email: None,
+            is_platform_admin: false,
+        };
+        let sample = vec![GatewayModel {
+            model_id: "deepseek-chat".to_string(),
+            display_name: "DeepSeek Chat".to_string(),
+            context_window: 128_000,
+            max_output_tokens: 8_192,
+            supports_thinking: false,
+            supports_tools: true,
+            supports_images: false,
+            reasoning_efforts: Vec::new(),
+            input_price_mc: 3_000_000,
+            cache_hit_price_mc: 300_000,
+            output_price_mc: 4_500_000,
+        }];
+
+        set_session(Some(&session_a));
+        set_cached_models(sample.clone());
+        assert_eq!(cached_models(), sample);
+
+        // Same user token refresh preserves cached models.
+        set_session(Some(&SignedInSession {
+            token: "tok-a-2".to_string(),
+            ..session_a
+        }));
+        assert_eq!(cached_models(), sample);
+
+        // Switching user clears cached models.
+        set_session(Some(&session_b));
+        assert!(cached_models().is_empty());
+
+        // Sign out clears cached models.
+        set_cached_models(sample);
+        set_session(None);
+        assert!(cached_models().is_empty());
     }
 }

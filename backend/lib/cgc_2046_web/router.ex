@@ -110,6 +110,7 @@ defmodule Cgc2046Web.Router do
   scope "/v1", Cgc2046Web do
     pipe_through(:llm_gateway)
 
+    get("/models", LlmGatewayController, :models)
     post("/chat/completions", LlmGatewayController, :chat_completions)
   end
 

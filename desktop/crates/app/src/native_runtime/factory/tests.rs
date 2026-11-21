@@ -326,27 +326,111 @@ fn endpoint_url_follows_protocol() {
     assert_eq!(super::endpoint_url(&provider), "https://openai.example/v1");
 }
 
-#[test]
-fn login_defaults_to_managed_provider_without_byok() {
-    let prefs = AgentPrefs::default();
-    let (managed, active) = resolve_active_provider(&prefs, true);
-    assert!(managed);
-    assert_eq!(active.expect("managed provider").id, CGC_CLOUD_PROVIDER_ID);
+fn sample_gateway_models() -> Vec<cgc_platform::gateway::GatewayModel> {
+    vec![
+        cgc_platform::gateway::GatewayModel {
+            model_id: "deepseek-chat".into(),
+            display_name: "DeepSeek Chat (CGC)".into(),
+            context_window: 128_000,
+            max_output_tokens: 8_192,
+            supports_thinking: false,
+            supports_tools: true,
+            supports_images: false,
+            reasoning_efforts: Vec::new(),
+            input_price_mc: 3_000_000,
+            cache_hit_price_mc: 300_000,
+            output_price_mc: 4_500_000,
+        },
+        cgc_platform::gateway::GatewayModel {
+            model_id: "claude-sonnet-4-5".into(),
+            display_name: "Claude Sonnet 4.5 (CGC)".into(),
+            context_window: 200_000,
+            max_output_tokens: 16_384,
+            supports_thinking: true,
+            supports_tools: true,
+            supports_images: true,
+            reasoning_efforts: vec!["low".into(), "high".into()],
+            input_price_mc: 30_000_000,
+            cache_hit_price_mc: 3_000_000,
+            output_price_mc: 150_000_000,
+        },
+    ]
+}
+
+fn sample_managed_provider(saved: Option<&ProviderPrefs>) -> Option<ProviderPrefs> {
+    super::cgc_cloud_provider_from_models(&sample_gateway_models(), saved)
 }
 
 #[test]
-fn login_keeps_configured_byok_provider() {
+fn login_defaults_to_managed_provider_without_byok() {
+    let prefs = AgentPrefs::default();
+    let (managed, active) = resolve_active_provider(&prefs, sample_managed_provider(None));
+    assert!(managed);
+    let active = active.expect("managed provider");
+    assert_eq!(active.id, CGC_CLOUD_PROVIDER_ID);
+    assert_eq!(active.models, vec!["deepseek-chat", "claude-sonnet-4-5"]);
+    assert_eq!(
+        active.model_config("deepseek-chat").display_name.as_deref(),
+        Some("DeepSeek Chat (CGC)")
+    );
+}
+
+#[test]
+fn login_keeps_configured_byok_provider_while_coexisting_with_cgc_cloud_in_picker() {
     let mut prefs = AgentPrefs::default();
-    prefs.providers.push(ProviderPrefs {
+    let byok = ProviderPrefs {
+        id: "deepseek".into(),
+        name: "DeepSeek".into(),
+        models: vec!["deepseek-chat".into()],
+        has_key: true,
+        enabled: true,
+        ..Default::default()
+    };
+    prefs.providers.push(byok);
+    let managed_provider = sample_managed_provider(prefs.provider(CGC_CLOUD_PROVIDER_ID));
+    let (managed, active) = resolve_active_provider(&prefs, managed_provider.clone());
+    assert!(!managed);
+    assert_eq!(active.expect("BYOK provider").id, "deepseek");
+
+    let available = super::merge_available_providers(&prefs.providers, managed_provider);
+    let ids: Vec<&str> = available.iter().map(|p| p.id.as_str()).collect();
+    assert_eq!(ids, vec![CGC_CLOUD_PROVIDER_ID, "deepseek"]);
+}
+
+#[test]
+fn signed_out_strips_stale_saved_cgc_cloud_from_available_providers() {
+    let mut prefs = AgentPrefs::default();
+    prefs.upsert_provider(cgc_cloud_provider_with_models(vec![ModelPrefs::new(
+        "stale-model",
+    )]));
+    prefs.upsert_provider(ProviderPrefs {
         id: "deepseek".into(),
         name: "DeepSeek".into(),
         has_key: true,
         enabled: true,
         ..Default::default()
     });
-    let (managed, active) = resolve_active_provider(&prefs, true);
-    assert!(!managed);
-    assert_eq!(active.expect("BYOK provider").id, "deepseek");
+    let available = super::merge_available_providers(&prefs.providers, None);
+    let ids: Vec<&str> = available.iter().map(|p| p.id.as_str()).collect();
+    assert_eq!(ids, vec!["deepseek"]);
+}
+
+#[test]
+fn removed_selected_gateway_model_falls_back_to_next_enabled_model() {
+    let mut active = sample_managed_provider(None).expect("managed");
+    if let Some(removed) = active
+        .model_params
+        .iter_mut()
+        .find(|m| m.id == "deepseek-chat")
+    {
+        removed.enabled = false;
+    }
+    let next_model = active
+        .models
+        .iter()
+        .find(|id| active.model_config(id).enabled)
+        .cloned();
+    assert_eq!(next_model.as_deref(), Some("claude-sonnet-4-5"));
 }
 
 #[test]
@@ -359,7 +443,7 @@ fn login_requires_a_key_before_byok_wins() {
         enabled: true,
         ..Default::default()
     });
-    let (managed, active) = resolve_active_provider(&prefs, true);
+    let (managed, active) = resolve_active_provider(&prefs, sample_managed_provider(None));
     assert!(managed);
     assert_eq!(active.expect("managed provider").id, CGC_CLOUD_PROVIDER_ID);
 }
@@ -367,22 +451,23 @@ fn login_requires_a_key_before_byok_wins() {
 #[test]
 fn login_preserves_saved_managed_model_enablement() {
     let mut prefs = AgentPrefs::default();
-    let mut managed = cgc_cloud_provider();
+    let mut managed = cgc_cloud_provider_with_models(vec![ModelPrefs::new("deepseek-chat")]);
     if let Some(model) = managed
         .model_params
         .iter_mut()
-        .find(|model| model.id == "cgc-default")
+        .find(|model| model.id == "deepseek-chat")
     {
         model.enabled = false;
     }
     prefs.upsert_provider(managed);
     prefs.selected_provider = Some(CGC_CLOUD_PROVIDER_ID.to_string());
 
-    let (is_managed, active) = resolve_active_provider(&prefs, true);
+    let managed_provider = sample_managed_provider(prefs.provider(CGC_CLOUD_PROVIDER_ID));
+    let (is_managed, active) = resolve_active_provider(&prefs, managed_provider);
 
     assert!(is_managed);
     let active = active.expect("saved managed provider");
-    assert!(!active.model_config("cgc-default").enabled);
+    assert!(!active.model_config("deepseek-chat").enabled);
 }
 
 #[test]
@@ -393,7 +478,8 @@ fn explicitly_disabled_managed_provider_is_not_recreated() {
     prefs.upsert_provider(managed);
     prefs.selected_provider = Some(CGC_CLOUD_PROVIDER_ID.to_string());
 
-    let (is_managed, active) = resolve_active_provider(&prefs, true);
+    let managed_provider = sample_managed_provider(prefs.provider(CGC_CLOUD_PROVIDER_ID));
+    let (is_managed, active) = resolve_active_provider(&prefs, managed_provider);
 
     assert!(!is_managed);
     assert!(
@@ -410,7 +496,8 @@ fn env_byok_credentials_override_managed_default_when_signed_in() {
         Some("https://byok.example/v1"),
         Some("sk-env-key")
     ));
-    let (managed, active) = super::resolve_active_provider_with_env(&prefs, true, true);
+    let (managed, active) =
+        super::resolve_active_provider_with_env(&prefs, sample_managed_provider(None), true);
     assert!(!managed);
     assert!(active.is_none());
 
@@ -427,7 +514,11 @@ fn env_byok_credentials_override_managed_default_when_signed_in() {
         None,
         Some("sk-env-key")
     ));
-    let (managed, active) = super::resolve_active_provider_with_env(&prefs_with_byok, true, true);
+    let (managed, active) = super::resolve_active_provider_with_env(
+        &prefs_with_byok,
+        sample_managed_provider(None),
+        true,
+    );
     assert!(!managed);
     assert_eq!(active.expect("BYOK provider").id, "deepseek");
 }

@@ -99,14 +99,14 @@ fn short_exchanges_exceeding_message_cap_trigger_compaction_and_stay_within_500_
     let model = Model::new(
         ProviderId::new("fake"),
         "Fake",
-        "cgc-default",
-        "cgc-default",
+        "deepseek-chat",
+        "DeepSeek Chat",
         ModelLimits::new(250_000, 8_192),
     );
     let provider = FakeProvider::new(ProviderId::new("fake"), "Fake", vec![model.clone()]);
     let mut thread = Thread::new(
         "message-cap-compaction",
-        SelectedModel::new(ProviderId::new("fake"), ModelId::new("cgc-default")),
+        SelectedModel::new(ProviderId::new("fake"), ModelId::new("deepseek-chat")),
     );
     // 260 轮短对话 => 520 条历史消息，总 token 远低于 250k 预算，但超过网关 500 条消息上限。
     for index in 0..260 {

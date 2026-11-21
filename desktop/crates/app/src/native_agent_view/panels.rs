@@ -215,8 +215,6 @@ impl NativeAgentView {
         }
         let current_provider_id = self.metadata().model.provider_id.as_str().to_string();
         let current_model_id = self.metadata().model.id.as_str().to_string();
-        let current_model_label =
-            model_picker_label(&current_model_id, self.metadata().model_setup);
         let current_model_config = self
             .metadata()
             .providers
@@ -224,6 +222,22 @@ impl NativeAgentView {
             .find(|provider| provider.id == self.metadata().model.provider_id.as_str())
             .map(|provider| provider.model_config(self.metadata().model.id.as_str()))
             .unwrap_or_default();
+        let current_model_display = current_model_config
+            .display_name
+            .as_deref()
+            .filter(|name| !name.trim().is_empty())
+            .or_else(|| {
+                let name = self.metadata().model.name.as_str();
+                (matches!(
+                    self.metadata().model_setup,
+                    crate::native_runtime::ModelSetup::Configured
+                        | crate::native_runtime::ModelSetup::PendingCredentials
+                ) && !name.trim().is_empty())
+                .then_some(name)
+            })
+            .unwrap_or(&current_model_id);
+        let current_model_label =
+            model_picker_label(current_model_display, self.metadata().model_setup);
         let thinking_supported = current_model_config.supports_thinking;
         let effort_levels =
             if thinking_supported && current_model_config.reasoning_efforts.is_empty() {
@@ -236,36 +250,11 @@ impl NativeAgentView {
         let model_root = cx.entity().downgrade();
         let thinking_root = cx.entity().downgrade();
         let approval_root = cx.entity().downgrade();
-        let model_groups: Vec<PickerGroup> = providers_for_menu
-            .iter()
-            .filter(|provider| provider.enabled)
-            .filter_map(|provider| {
-                let items: Vec<PickerItem> = provider
-                    .models
-                    .iter()
-                    .filter(|model| provider.model_config(model).enabled)
-                    .map(|model| {
-                        PickerItem::new(
-                            format!("native-model-{}-{}", provider.id, model),
-                            model.clone(),
-                        )
-                        .selected(provider.id == current_provider_id && *model == current_model_id)
-                    })
-                    .collect();
-                (!items.is_empty()).then(|| PickerGroup::titled(provider.name.clone(), items))
-            })
-            .collect();
-        let model_targets: Vec<(String, String)> = providers_for_menu
-            .iter()
-            .flat_map(|provider| {
-                provider
-                    .models
-                    .iter()
-                    .filter(|model| provider.model_config(model).enabled)
-                    .map(|model| (provider.id.clone(), model.clone()))
-                    .collect::<Vec<_>>()
-            })
-            .collect();
+        let (model_groups, model_targets) = collect_model_picker_entries(
+            &providers_for_menu,
+            &current_provider_id,
+            &current_model_id,
+        );
         let model_picker = render_picker_popover(PickerPopoverSpec {
             popover_id: SharedString::from("native-model-picker"),
             trigger_id: SharedString::from("native-model-trigger"),
@@ -384,10 +373,46 @@ impl NativeAgentView {
     }
 }
 
+fn collect_model_picker_entries(
+    providers: &[cgc_agent_store::ProviderPrefs],
+    current_provider_id: &str,
+    current_model_id: &str,
+) -> (Vec<PickerGroup>, Vec<(String, String)>) {
+    let mut groups = Vec::new();
+    let mut targets = Vec::new();
+    for provider in providers.iter().filter(|provider| provider.enabled) {
+        let mut items = Vec::new();
+        for model in provider
+            .models
+            .iter()
+            .filter(|model| provider.model_config(model).enabled)
+        {
+            let item_label = provider
+                .model_config(model)
+                .display_name
+                .filter(|name| !name.trim().is_empty())
+                .unwrap_or_else(|| model.clone());
+            items.push(
+                PickerItem::new(
+                    format!("native-model-{}-{}", provider.id, model),
+                    item_label,
+                )
+                .selected(provider.id == current_provider_id && model == current_model_id),
+            );
+            targets.push((provider.id.clone(), model.clone()));
+        }
+        if !items.is_empty() {
+            groups.push(PickerGroup::titled(provider.name.clone(), items));
+        }
+    }
+    (groups, targets)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::model_picker_label;
+    use super::{collect_model_picker_entries, model_picker_label};
     use crate::native_runtime::ModelSetup;
+    use cgc_agent_store::{cgc_cloud_provider_with_models, ModelPrefs, ProviderPrefs};
 
     #[test]
     fn model_picker_label_hides_echo_in_production() {
@@ -406,6 +431,50 @@ mod tests {
         assert_eq!(
             model_picker_label("deepseek-flash", ModelSetup::PendingCredentials),
             "deepseek-flash"
+        );
+    }
+
+    #[test]
+    fn collect_model_picker_entries_skips_disabled_providers_and_aligns_targets() {
+        let mut disabled = ProviderPrefs {
+            id: "disabled-p".into(),
+            name: "Disabled".into(),
+            models: vec!["ignored".into()],
+            enabled: false,
+            model_params: vec![ModelPrefs::new("ignored")],
+            ..Default::default()
+        };
+        disabled.enabled = false;
+        let managed = cgc_cloud_provider_with_models(vec![ModelPrefs {
+            display_name: Some("Claude Sonnet 4.5 (CGC)".into()),
+            ..ModelPrefs::new("claude-sonnet-4-5")
+        }]);
+        let byok = ProviderPrefs {
+            id: "deepseek".into(),
+            name: "DeepSeek".into(),
+            models: vec!["deepseek-chat".into()],
+            enabled: true,
+            model_params: vec![ModelPrefs::new("deepseek-chat")],
+            ..Default::default()
+        };
+
+        let (groups, targets) =
+            collect_model_picker_entries(&[disabled, managed, byok], "deepseek", "deepseek-chat");
+
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].title.as_deref(), Some("CGC Cloud"));
+        assert_eq!(groups[0].items.len(), 1);
+        assert_eq!(groups[0].items[0].label, "Claude Sonnet 4.5 (CGC)");
+        assert!(!groups[0].items[0].selected);
+        assert_eq!(groups[1].title.as_deref(), Some("DeepSeek"));
+        assert_eq!(groups[1].items[0].label, "deepseek-chat");
+        assert!(groups[1].items[0].selected);
+        assert_eq!(
+            targets,
+            vec![
+                ("cgc-cloud".to_string(), "claude-sonnet-4-5".to_string()),
+                ("deepseek".to_string(), "deepseek-chat".to_string()),
+            ]
         );
     }
 }
