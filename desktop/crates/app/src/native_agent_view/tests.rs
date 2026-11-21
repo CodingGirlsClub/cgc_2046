@@ -457,4 +457,24 @@ mod workspace_prompt_tests {
         assert!(prompt.contains("workspace_rules"));
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn unsandboxed_command_notice_only_warns_for_run_command_without_enforcing_sandbox() {
+        assert_eq!(
+            super::super::render::unsandboxed_command_notice(Some("run_command"), false),
+            Some("当前系统无 OS 沙箱保护，命令将直接在工作区执行，请仔细核对命令内容。")
+        );
+        assert_eq!(
+            super::super::render::unsandboxed_command_notice(Some("run_command"), true),
+            None
+        );
+        assert_eq!(
+            super::super::render::unsandboxed_command_notice(Some("write_file"), false),
+            None
+        );
+        assert_eq!(
+            super::super::render::unsandboxed_command_notice(None, false),
+            None
+        );
+    }
 }

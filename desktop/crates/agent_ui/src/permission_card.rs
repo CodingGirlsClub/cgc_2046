@@ -27,6 +27,7 @@ pub struct PermissionCardModel {
     pub args: Option<String>,
     pub options: Vec<PermissionOption>,
     pub resolved: Option<bool>,
+    pub risk_notice: Option<String>,
 }
 
 impl PermissionCardModel {
@@ -39,6 +40,7 @@ impl PermissionCardModel {
             args: request.args.clone(),
             options: request.options.clone(),
             resolved: None,
+            risk_notice: None,
         }
     }
 
@@ -63,7 +65,14 @@ impl PermissionCardModel {
             args: args.clone(),
             options: options.clone(),
             resolved: *resolved,
+            risk_notice: None,
         })
+    }
+
+    /// 附加高风险提示文案（如无 OS 沙箱降级执行的提示）。
+    pub fn with_risk_notice(mut self, risk_notice: Option<String>) -> Self {
+        self.risk_notice = risk_notice;
+        self
     }
 }
 
@@ -102,6 +111,7 @@ pub struct PermissionCardView {
     /// 待审批时的说明文案；已解决为 `None`。
     pub footnote: Option<String>,
     pub resolved: Option<bool>,
+    pub risk_notice: Option<String>,
 }
 
 const ARGS_PREVIEW_CHARS: usize = 400;
@@ -152,6 +162,10 @@ pub fn permission_card_view(model: &PermissionCardModel) -> PermissionCardView {
             .is_none()
             .then(|| "选项由请求方提供，选择会原样回传给 agent。".to_string()),
         resolved: model.resolved,
+        risk_notice: model
+            .risk_notice
+            .clone()
+            .filter(|notice| !notice.trim().is_empty()),
     }
 }
 
@@ -275,6 +289,20 @@ pub fn render_permission_card(spec: PermissionCardSpec) -> AnyElement {
             .text_color(style.ink_3)
             .child(view.description.clone()),
     );
+    if let Some(risk_notice) = &view.risk_notice {
+        card = card.child(
+            div()
+                .px(px(style.gap))
+                .py(px(style.gap / 2.0))
+                .rounded(px(style.radius))
+                .border_1()
+                .border_color(style.danger)
+                .bg(style.soft_bg)
+                .text_size(px(11.0))
+                .text_color(style.danger)
+                .child(risk_notice.clone()),
+        );
+    }
     if let Some(args) = &view.args {
         card = card.child(
             div()
@@ -543,5 +571,21 @@ mod tests {
             text: "x".to_string(),
         })
         .is_none());
+    }
+
+    #[test]
+    fn risk_notice_is_forwarded_only_when_non_empty() {
+        let base = PermissionCardModel::from_request(&native_request());
+        assert_eq!(permission_card_view(&base).risk_notice, None);
+
+        let blank = base.clone().with_risk_notice(Some("   ".to_string()));
+        assert_eq!(permission_card_view(&blank).risk_notice, None);
+
+        let notice = "当前系统无 OS 沙箱保护，命令将直接在工作区执行，请仔细核对命令内容。";
+        let warned = base.with_risk_notice(Some(notice.to_string()));
+        assert_eq!(
+            permission_card_view(&warned).risk_notice.as_deref(),
+            Some(notice)
+        );
     }
 }

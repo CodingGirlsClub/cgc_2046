@@ -4,6 +4,15 @@
 
 use super::*;
 
+/// 当 `run_command` 运行在无 OS 强制沙箱的平台（例如 Windows）时返回风险提示。
+pub(super) fn unsandboxed_command_notice(
+    tool: Option<&str>,
+    enforcing: bool,
+) -> Option<&'static str> {
+    (tool == Some("run_command") && !enforcing)
+        .then_some("当前系统无 OS 沙箱保护，命令将直接在工作区执行，请仔细核对命令内容。")
+}
+
 impl Render for NativeAgentView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.composer_context.ensure_auto(
@@ -114,9 +123,15 @@ impl Render for NativeAgentView {
                         let _ = view
                             .update(cx, |this, cx| this.resolve_permission_option(option_id, cx));
                     });
+                let enforcing = cgc_agent_tools::CommandSandbox::detect()
+                    .kind()
+                    .is_enforcing();
+                let risk_notice = unsandboxed_command_notice(request.tool.as_deref(), enforcing)
+                    .map(str::to_string);
                 render_permission_card(PermissionCardSpec {
                     id: SharedString::from("native-agent-permission"),
-                    model: PermissionCardModel::from_request(&request),
+                    model: PermissionCardModel::from_request(&request)
+                        .with_risk_notice(risk_notice),
                     hint: None,
                     style: crate::permission_ui::card_style(&palette),
                     on_select: Some(on_select),
