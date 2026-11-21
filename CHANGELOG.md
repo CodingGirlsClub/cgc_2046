@@ -26,6 +26,7 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 ### Fixed
 
 - [Backend] AnthropicAdapter 尊重 `max_completion_tokens`；Phoenix LiveView 升级到同期版本。
+- [Backend] 支付宝 `return_url` 改为从 `WEB_BASE_URL` 派生，不再依赖单独配置；创建订单时把预分配的 order id 传给支付适配器，避免重复建单。
 - [Web] 批量保存模型配置进行中时禁用行内变更，避免覆盖未提交编辑。
 - [Miniprogram] 同步 LLM Gateway 相关的 GraphQL codegen 产物。
 
