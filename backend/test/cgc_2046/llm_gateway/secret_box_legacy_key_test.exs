@@ -101,6 +101,21 @@ defmodule Cgc2046.LlmGateway.SecretBoxLegacyKeyTest do
     assert output =~ "reencrypted 0 llm provider api key(s)"
   end
 
+  test "mix task exits non-zero when rows remain undecryptable" do
+    {_provider, api_key} = seed_provider_key("sk-mix-broken")
+
+    Repo.update_all(
+      from(k in "llm_provider_api_keys", where: k.id == type(^api_key.id, Ecto.UUID)),
+      set: [encrypted_api_key: "v1:" <> Base.encode64(:crypto.strong_rand_bytes(48))]
+    )
+
+    Application.put_env(:cgc_2046, :llm_gateway_encryption_key, @primary)
+
+    assert_raise Mix.Error, ~r/could not be decrypted/, fn ->
+      Mix.Tasks.Cgc2046.ReencryptLlmKeys.run([])
+    end
+  end
+
   defp seed_provider_key(plaintext) do
     admin = Fixtures.platform_admin("legacy-key-admin")
     suffix = System.unique_integer([:positive])

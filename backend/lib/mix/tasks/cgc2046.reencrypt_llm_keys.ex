@@ -19,6 +19,9 @@ defmodule Mix.Tasks.Cgc2046.ReencryptLlmKeys do
   生产 release（运行时镜像只含 `bin/cgc_2046`、没有 mix）：
 
       bin/cgc_2046 eval "Cgc2046.Release.reencrypt_llm_keys"
+
+  退出语义与 release 入口一致：存在无法解密的行或未配置主密钥时以非零退出
+  （`Mix.Error`），便于脚本把退出码当作迁移门禁。
   """
 
   use Mix.Task
@@ -32,7 +35,7 @@ defmodule Mix.Tasks.Cgc2046.ReencryptLlmKeys do
         Mix.shell().info("reencrypted #{reencrypted} llm provider api key(s)")
 
       {:ok, %{reencrypted: reencrypted, failed: failed}} ->
-        Mix.shell().info(
+        Mix.raise(
           "reencrypted #{reencrypted} llm provider api key(s); " <>
             "#{failed} could not be decrypted and must be re-entered in the admin console"
         )

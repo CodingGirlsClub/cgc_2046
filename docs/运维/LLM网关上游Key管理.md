@@ -44,10 +44,10 @@ kamal app exec --primary 'bin/cgc_2046 eval "Cgc2046.Release.reencrypt_llm_keys"
 mix cgc2046.reencrypt_llm_keys
 ```
 
-输出与退出码：
+输出与退出码（两条入口一致，均以非零退出表示需要人工介入）：
 
 - `reencrypted N llm provider api key(s)` + 退出 0：全部迁移完成。
-- `... F could not be decrypted and must be re-entered in the admin console` + 退出 1：有坏行，保留原样，需后台重录。
+- `... F could not be decrypted and must be re-entered in the admin console` + 退出 1（mix 侧为 `Mix.Error`）：有坏行，保留原样，需后台重录。
 - `LLM_GATEWAY_ENCRYPTION_KEY is not configured` + 退出 1：主密钥没注入容器，先查 Kamal secret 名单。
 
 **未完成迁移前不要轮换 `secret_key_base`**：回落密钥是旧密文的唯一依靠。
