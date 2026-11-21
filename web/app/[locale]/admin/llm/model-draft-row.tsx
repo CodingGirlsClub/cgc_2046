@@ -6,6 +6,7 @@ import { type ModelDraft, userPricePreview } from "./model-draft-helpers";
 interface ModelDraftRowProps {
 	draft: ModelDraft;
 	deleting: boolean;
+	saving?: boolean;
 	onUpdate: (patch: Partial<ModelDraft>) => void;
 	onDelete: () => void;
 }
@@ -13,6 +14,7 @@ interface ModelDraftRowProps {
 export default function ModelDraftRow({
 	draft,
 	deleting,
+	saving = false,
 	onUpdate,
 	onDelete,
 }: ModelDraftRowProps) {
@@ -39,7 +41,7 @@ export default function ModelDraftRow({
 				</div>
 				<button
 					type="button"
-					disabled={deleting}
+					disabled={deleting || saving}
 					onClick={onDelete}
 					className="l-btn-outline text-xs text-red-400"
 				>

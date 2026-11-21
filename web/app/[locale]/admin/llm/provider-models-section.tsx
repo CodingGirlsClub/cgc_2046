@@ -94,7 +94,7 @@ export default function ProviderModelsSection({
 	}
 
 	function handleAddSelectedDiscovered() {
-		if (!discovered) return;
+		if (saving || !discovered) return;
 		const existing = new Set(drafts.map((d) => d.modelId));
 		const additions = discovered
 			.filter((item) => selectedIds.has(item.modelId) && !existing.has(item.modelId))
@@ -107,6 +107,7 @@ export default function ProviderModelsSection({
 	}
 
 	function handleAddManual() {
+		if (saving) return;
 		setError(null);
 		setStatus(null);
 		const modelId = manualModelId.trim();
@@ -138,6 +139,7 @@ export default function ProviderModelsSection({
 	}
 
 	async function handleDeleteRow(target: ModelDraft) {
+		if (saving) return;
 		const { modelId, savedId } = target;
 		setError(null);
 		setStatus(null);
@@ -166,6 +168,7 @@ export default function ProviderModelsSection({
 	}
 
 	async function handleSaveAll() {
+		if (saving || deletingIds.size > 0) return;
 		setError(null);
 		setStatus(null);
 
@@ -292,6 +295,7 @@ export default function ProviderModelsSection({
 							</button>
 							<button
 								type="button"
+								disabled={saving}
 								onClick={handleAddSelectedDiscovered}
 								className="l-btn-primary text-xs"
 							>
@@ -375,6 +379,7 @@ export default function ProviderModelsSection({
 				</label>
 				<button
 					type="button"
+					disabled={saving}
 					onClick={handleAddManual}
 					className="l-btn-outline text-xs"
 				>
@@ -391,6 +396,7 @@ export default function ProviderModelsSection({
 							key={draft.modelId}
 							draft={draft}
 							deleting={Boolean(draft.savedId && deletingIds.has(draft.savedId))}
+							saving={saving}
 							onUpdate={(patch) => updateDraft(draft.modelId, patch)}
 							onDelete={() => void handleDeleteRow(draft)}
 						/>
