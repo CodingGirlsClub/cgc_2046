@@ -1,8 +1,8 @@
-//! CGC Cloud provider adapter: dynamic terminal MCP token + logical model routing.
+//! CGC Cloud provider adapter: 第一方登录态 Bearer 鉴权。
 
 use std::sync::Arc;
 
-use cgc_agent_provider::{BearerTokenSource, Model, ProviderError, Request};
+use cgc_agent_provider::{BearerTokenSource, ProviderError};
 
 pub(super) fn token_source() -> Arc<dyn BearerTokenSource> {
     Arc::new(GatewayTokenSource)
@@ -31,53 +31,5 @@ fn map_gateway_error(error: cgc_platform::gateway::GatewayError) -> ProviderErro
             Some("unauthorized") | Some("unauthenticated") => ProviderError::api(401, message),
             _ => ProviderError::api(500, message),
         },
-    }
-}
-
-/// CGC Cloud logical model routing:
-/// - background compaction/title requests explicitly select `cgc-background`;
-/// - thinking requests go to `cgc-reasoning`;
-/// - everything else uses `cgc-default`.
-pub(super) fn managed_model_id(model: &Model, request: &Request) -> String {
-    if model.id.as_str() == "cgc-background" {
-        return "cgc-background".to_string();
-    }
-    if model.id.as_str() == "cgc-reasoning" || request.thinking_enabled == Some(true) {
-        return "cgc-reasoning".to_string();
-    }
-    "cgc-default".to_string()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use cgc_agent_provider::{ModelLimits, ProviderId};
-
-    fn model(id: &str) -> Model {
-        Model::new(
-            ProviderId::new("cgc-cloud"),
-            "CGC Cloud",
-            id,
-            id,
-            ModelLimits::new(250_000, 32_768),
-        )
-    }
-
-    #[test]
-    fn routes_managed_models_by_thinking_and_background() {
-        let request = Request::new(Vec::new());
-        assert_eq!(
-            managed_model_id(&model("cgc-default"), &request),
-            "cgc-default"
-        );
-        let thinking = Request::new(Vec::new()).with_thinking_enabled(true);
-        assert_eq!(
-            managed_model_id(&model("cgc-default"), &thinking),
-            "cgc-reasoning"
-        );
-        assert_eq!(
-            managed_model_id(&model("cgc-background"), &request),
-            "cgc-background"
-        );
     }
 }

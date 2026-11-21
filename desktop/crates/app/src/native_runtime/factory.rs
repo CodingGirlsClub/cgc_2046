@@ -3,14 +3,16 @@ use cgc_agent_core::{run_subagent_with_affinity, Agent, SelectedModel};
 use cgc_agent_provider::{
     AnthropicCompatibleConfig, AnthropicCompatibleProvider, EchoProvider, ModelCapabilities,
     ModelLimits, OpenAiCompatibleConfig, OpenAiCompatibleProvider, ProviderId, ProviderProtocol,
-    ResponsesCompatibleConfig, ResponsesCompatibleProvider, UnconfiguredProvider,
+    ResponsesCompatibleConfig, ResponsesCompatibleProvider, ThinkingMode, UnconfiguredProvider,
 };
 use cgc_agent_store::{
-    cgc_cloud_provider, provider_key_account, AgentPrefs, PrefsStore, CGC_CLOUD_PROVIDER_ID,
+    cgc_cloud_provider, cgc_cloud_provider_with_models, provider_key_account, AgentPrefs,
+    ModelPrefs, PrefsStore, CGC_CLOUD_PROVIDER_ID,
 };
 use cgc_agent_tools::{
     ActionSink, SandboxPolicy, SubagentEvent, SubagentEventSink, SubagentRunner,
 };
+use cgc_platform::gateway::GatewayModel;
 use cgc_platform::session::KeychainStore;
 use std::sync::Weak;
 
@@ -66,18 +68,80 @@ pub(super) fn has_env_byok(
     }
 }
 
-/// Unconfigured，而不是重新创建 CGC 后又在 available 列表里过滤掉。
+pub(super) fn cgc_cloud_provider_from_models(
+    remote: &[GatewayModel],
+    saved_managed: Option<&ProviderPrefs>,
+) -> Option<ProviderPrefs> {
+    if remote.is_empty() {
+        return None;
+    }
+    let models = remote
+        .iter()
+        .map(|item| {
+            let enabled = saved_managed
+                .and_then(|provider| provider.model_params.iter().find(|m| m.id == item.model_id))
+                .is_none_or(|saved| saved.enabled);
+            ModelPrefs {
+                id: item.model_id.clone(),
+                display_name: (!item.display_name.trim().is_empty())
+                    .then(|| item.display_name.clone()),
+                context_window: item.context_window,
+                max_output_tokens: item.max_output_tokens,
+                supports_thinking: item.supports_thinking,
+                enabled,
+                supports_tools: item.supports_tools,
+                supports_images: item.supports_images,
+                reasoning_efforts: item.reasoning_efforts.clone(),
+                thinking_mode: ThinkingMode::Disabled,
+            }
+        })
+        .collect();
+    let mut provider = cgc_cloud_provider_with_models(models);
+    provider.enabled = saved_managed.is_none_or(|saved| saved.enabled);
+    Some(provider)
+}
+
+pub(super) fn cgc_cloud_provider_from_gateway(
+    saved_managed: Option<&ProviderPrefs>,
+) -> Option<ProviderPrefs> {
+    if !cgc_platform::gateway::signed_in() {
+        return None;
+    }
+    let remote = cgc_platform::gateway::cached_models();
+    cgc_cloud_provider_from_models(&remote, saved_managed)
+}
+
+pub(super) fn merge_available_providers(
+    saved: &[ProviderPrefs],
+    managed_provider: Option<ProviderPrefs>,
+) -> Vec<ProviderPrefs> {
+    let mut available = Vec::new();
+    if let Some(managed) = managed_provider {
+        if managed.enabled && !managed.models.is_empty() {
+            available.push(managed);
+        }
+    }
+    available.extend(
+        saved
+            .iter()
+            .filter(|provider| provider.id != CGC_CLOUD_PROVIDER_ID && provider.enabled)
+            .cloned(),
+    );
+    available
+}
+
+/// 测试用包装：由 `resolve_active_provider_with_env` 复用真实逻辑。
 #[cfg(test)]
 pub(super) fn resolve_active_provider(
     prefs: &AgentPrefs,
-    managed_available: bool,
+    managed_provider: Option<ProviderPrefs>,
 ) -> (bool, Option<ProviderPrefs>) {
-    resolve_active_provider_with_env(prefs, managed_available, false)
+    resolve_active_provider_with_env(prefs, managed_provider, false)
 }
 
 pub(super) fn resolve_active_provider_with_env(
     prefs: &AgentPrefs,
-    managed_available: bool,
+    managed_provider: Option<ProviderPrefs>,
     env_byok_configured: bool,
 ) -> (bool, Option<ProviderPrefs>) {
     if env_byok_configured {
@@ -87,37 +151,44 @@ pub(super) fn resolve_active_provider_with_env(
             .cloned();
         return (false, byok_active);
     }
-    let saved_managed = prefs.provider(CGC_CLOUD_PROVIDER_ID).cloned();
-    let configured_active = prefs
-        .active_provider()
-        .filter(|provider| provider.has_key || !managed_available)
-        .cloned()
+    let saved_managed = prefs.provider(CGC_CLOUD_PROVIDER_ID);
+    let managed_available = managed_provider
+        .as_ref()
+        .is_some_and(|provider| provider.enabled && !provider.models.is_empty());
+    let configured_byok = prefs
+        .providers
+        .iter()
+        .find(|provider| {
+            prefs.selected_provider.as_deref() == Some(provider.id.as_str())
+                && provider.id != CGC_CLOUD_PROVIDER_ID
+                && provider.enabled
+        })
         .or_else(|| {
-            saved_managed
-                .as_ref()
-                .filter(|provider| provider.enabled && managed_available)
-                .cloned()
-        });
-    let managed = managed_available
-        && match saved_managed.as_ref() {
-            Some(provider) => {
-                provider.enabled
-                    && configured_active
-                        .as_ref()
-                        .is_none_or(|active| active.id == CGC_CLOUD_PROVIDER_ID)
-            }
-            None => configured_active
-                .as_ref()
-                .is_none_or(|active| active.id == CGC_CLOUD_PROVIDER_ID),
-        };
-    let active = if managed {
-        saved_managed
-            .filter(|provider| provider.enabled)
-            .or_else(|| Some(cgc_cloud_provider()))
-    } else {
-        configured_active
-    };
-    (managed, active)
+            prefs
+                .providers
+                .iter()
+                .find(|provider| provider.id != CGC_CLOUD_PROVIDER_ID && provider.enabled)
+        })
+        .filter(|provider| provider.has_key || !managed_available)
+        .cloned();
+
+    if prefs.selected_provider.as_deref() == Some(CGC_CLOUD_PROVIDER_ID) {
+        if saved_managed.is_some_and(|provider| !provider.enabled) {
+            return (false, configured_byok);
+        }
+        if managed_available {
+            return (true, managed_provider);
+        }
+        return (false, configured_byok);
+    }
+
+    if let Some(byok) = configured_byok {
+        return (false, Some(byok));
+    }
+    if managed_available {
+        return (true, managed_provider);
+    }
+    (false, None)
 }
 
 pub(super) struct Production {
@@ -156,10 +227,11 @@ pub(super) fn initialize_with_keychain(
     std::fs::create_dir_all(&scope.root)
         .map_err(|error| NativeRuntimeError::Storage(error.to_string()))?;
     let prefs = PrefsStore::new(data_root.join("agent_prefs.json")).load();
-    let managed_available = cgc_platform::gateway::signed_in();
+    let managed_prefs = cgc_cloud_provider_from_gateway(prefs.provider(CGC_CLOUD_PROVIDER_ID));
     let (env_base_url, env_key) = env_byok_credentials();
     let env_byok = has_env_byok(&prefs, env_base_url.as_deref(), env_key.as_deref());
-    let (managed, active) = resolve_active_provider_with_env(&prefs, managed_available, env_byok);
+    let (managed, active) =
+        resolve_active_provider_with_env(&prefs, managed_prefs.clone(), env_byok);
     let protocol = std::env::var("CGC_AGENT_PROTOCOL")
         .ok()
         .map(|value| value.parse::<ProviderProtocol>())
@@ -222,11 +294,16 @@ pub(super) fn initialize_with_keychain(
         .or_else(|| active.as_ref().map(|provider| provider.name.clone()))
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| "OpenAI Compatible".into());
+    let model_display_name = model_config
+        .display_name
+        .clone()
+        .filter(|display| !display.trim().is_empty())
+        .unwrap_or_else(|| model_id.clone());
     let model = Model::new(
         ProviderId::new(provider_id),
         name,
-        model_id.clone(),
         model_id,
+        model_display_name,
         ModelLimits::new(model_config.context_window, model_config.max_output_tokens),
     )
     .with_thinking_mode(model_config.thinking_mode)
@@ -268,7 +345,7 @@ pub(super) fn initialize_with_keychain(
     if pending.is_some() {
         model_setup = ModelSetup::PendingCredentials;
     }
-    let mut agent = Agent::new(
+    let agent = Agent::new(
         Thread::new(
             fresh_thread_id(),
             SelectedModel::new(model.provider_id.clone(), model.id.clone()),
@@ -277,13 +354,6 @@ pub(super) fn initialize_with_keychain(
             &scope.root,
         )),
     );
-    if managed {
-        if let Some(active) = active.as_ref() {
-            if let Some(background) = configured_model(active, "cgc-background") {
-                agent.set_background_model(Some(background));
-            }
-        }
-    }
     let config = NativeRuntimeConfig {
         provider,
         model,
@@ -292,25 +362,13 @@ pub(super) fn initialize_with_keychain(
         context_size: model_config.context_window as u64,
         auto_approve: false,
     };
-    let mut available_providers = prefs.providers;
-    if managed
-        && !available_providers
-            .iter()
-            .any(|provider| provider.id == CGC_CLOUD_PROVIDER_ID)
-    {
-        available_providers.push(cgc_cloud_provider());
-    }
+    let available_providers = merge_available_providers(&prefs.providers, managed_prefs);
     Ok((
         agent,
         config,
         Production {
             host,
-            providers: Arc::new(
-                available_providers
-                    .into_iter()
-                    .filter(|provider| provider.enabled)
-                    .collect(),
-            ),
+            providers: Arc::new(available_providers),
             data_root,
             keychain,
             allow_echo,
@@ -323,10 +381,7 @@ pub(super) fn initialize_with_keychain(
 fn managed_provider(model: &Model, base_url: &str) -> Arc<dyn Provider> {
     let config =
         OpenAiCompatibleConfig::new(base_url.to_string(), String::new(), vec![model.clone()])
-            .with_token_source(super::gateway::token_source())
-            .with_model_resolver(Arc::new(|model, request| {
-                super::gateway::managed_model_id(model, request)
-            }));
+            .with_token_source(super::gateway::token_source());
     Arc::new(OpenAiCompatibleProvider::new(config))
 }
 
@@ -424,7 +479,8 @@ pub(super) fn save_model_selection(
     if model.provider_id.as_str() == CGC_CLOUD_PROVIDER_ID
         && prefs.provider(CGC_CLOUD_PROVIDER_ID).is_none()
     {
-        prefs.upsert_provider(cgc_cloud_provider());
+        let fallback = cgc_cloud_provider_from_gateway(None).unwrap_or_else(cgc_cloud_provider);
+        prefs.upsert_provider(fallback);
     }
     prefs.selected_provider = Some(model.provider_id.as_str().to_string());
     prefs.selected_model = Some(SelectedModel::new(
@@ -436,18 +492,6 @@ pub(super) fn save_model_selection(
         .map_err(|error| NativeRuntimeError::Storage(error.to_string()))
 }
 
-pub(super) fn managed_background_model(
-    production: &Production,
-) -> Option<(Arc<dyn Provider>, Model)> {
-    let configured = production
-        .providers
-        .iter()
-        .find(|provider| provider.id == CGC_CLOUD_PROVIDER_ID)?;
-    let model = configured_model(configured, "cgc-background")?;
-    let base_url = cgc_platform::gateway::gateway_base_url()?;
-    Some((managed_provider(&model, &base_url), model))
-}
-
 /// 会话标题生成模型：读用户设置文件的 `agent.thread_summary_model`（对齐 Zed 的
 /// thread summary model），未配置或不可用时由调用方回退当前对话模型。
 pub(super) fn summary_title_model(
@@ -457,12 +501,11 @@ pub(super) fn summary_title_model(
     let selection = settings.agent.thread_summary_model.as_ref()?;
     let store = PrefsStore::new(production.data_root.join("agent_prefs.json"));
     let prefs = store.load();
-    let configured = prefs
-        .provider(selection.provider.as_str())
-        .cloned()
-        .or_else(|| {
-            (selection.provider.as_str() == CGC_CLOUD_PROVIDER_ID).then(cgc_cloud_provider)
-        })?;
+    let configured = if selection.provider.as_str() == CGC_CLOUD_PROVIDER_ID {
+        cgc_cloud_provider_from_gateway(prefs.provider(CGC_CLOUD_PROVIDER_ID))
+    } else {
+        prefs.provider(selection.provider.as_str()).cloned()
+    }?;
     if !configured.enabled {
         return None;
     }
@@ -499,12 +542,16 @@ fn configured_model(configured: &ProviderPrefs, model_id: &str) -> Option<Model>
     if !limits.enabled {
         return None;
     }
+    let display_name = limits
+        .display_name
+        .filter(|display| !display.trim().is_empty())
+        .unwrap_or_else(|| model_id.to_string());
     Some(
         Model::new(
             ProviderId::new(configured.id.clone()),
             configured.name.clone(),
             model_id,
-            model_id,
+            display_name,
             ModelLimits::new(limits.context_window, limits.max_output_tokens),
         )
         .with_thinking_mode(limits.thinking_mode)

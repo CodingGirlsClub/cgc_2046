@@ -111,8 +111,8 @@ fn tool_loop_keeps_session_affinity_strips_reasoning_and_preserves_prefix_bytes(
     let model = Model::new(
         ProviderId::new("cgc-cloud"),
         "CGC Cloud",
-        "cgc-reasoning",
-        "CGC Reasoning",
+        "deepseek-reasoner",
+        "DeepSeek Reasoner",
         ModelLimits::new(64_000, 4_096),
     )
     .with_capabilities(ModelCapabilities {
@@ -128,7 +128,10 @@ fn tool_loop_keeps_session_affinity_strips_reasoning_and_preserves_prefix_bytes(
 
     let thread = Thread::new(
         "native-session-affinity-001",
-        SelectedModel::new(ProviderId::new("cgc-cloud"), ModelId::new("cgc-reasoning")),
+        SelectedModel::new(
+            ProviderId::new("cgc-cloud"),
+            ModelId::new("deepseek-reasoner"),
+        ),
     );
     let system_prompt = "你运行在用户的本地工作区。当前日期：2026-11-18".to_string();
     let mut agent = Agent::new(thread, Some(system_prompt));
@@ -279,16 +282,16 @@ fn compaction_uses_background_logical_model_and_preserves_session_affinity() {
     let default_model = Model::new(
         ProviderId::new("cgc-cloud"),
         "CGC Cloud",
-        "cgc-default",
-        "CGC Default",
+        "deepseek-chat",
+        "DeepSeek Chat",
         // 窄窗口触发自动前缀压缩（capacity = 260 - 64 - 32 = 164 tokens）。
         ModelLimits::new(260, 64),
     );
     let background_model = Model::new(
         ProviderId::new("cgc-cloud"),
         "CGC Cloud",
-        "cgc-background",
-        "CGC Background",
+        "deepseek-chat-fast",
+        "DeepSeek Chat Fast",
         ModelLimits::new(8_000, 1_024),
     );
     let provider = OpenAiCompatibleProvider::new(OpenAiCompatibleConfig::new(
@@ -299,7 +302,7 @@ fn compaction_uses_background_logical_model_and_preserves_session_affinity() {
 
     let mut thread = Thread::new(
         "native-compaction-session",
-        SelectedModel::new(ProviderId::new("cgc-cloud"), ModelId::new("cgc-default")),
+        SelectedModel::new(ProviderId::new("cgc-cloud"), ModelId::new("deepseek-chat")),
     );
     thread.push_user("第一轮长历史：".to_string() + &"甲乙丙丁戊己庚辛".repeat(16));
     thread.push_assistant(
@@ -331,6 +334,6 @@ fn compaction_uses_background_logical_model_and_preserves_session_affinity() {
     let summary_json: serde_json::Value =
         serde_json::from_str(&summary_req.body).expect("summary body");
     let main_json: serde_json::Value = serde_json::from_str(&main_req.body).expect("main body");
-    assert_eq!(summary_json["model"], "cgc-background");
-    assert_eq!(main_json["model"], "cgc-default");
+    assert_eq!(summary_json["model"], "deepseek-chat-fast");
+    assert_eq!(main_json["model"], "deepseek-chat");
 }

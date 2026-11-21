@@ -23,6 +23,11 @@ fn from_remote(remote: &RemoteModel, catalog: &[ModelPrefs]) -> ModelPrefs {
         .min(context_window);
     ModelPrefs {
         id: remote.id.clone(),
+        display_name: remote
+            .name
+            .clone()
+            .filter(|name| !name.trim().is_empty())
+            .or(known.display_name),
         context_window,
         max_output_tokens,
         supports_thinking: if remote.reasoning_efforts.is_empty() {

@@ -20,22 +20,66 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 ### Added
 
-- [Desktop] 新增 DeepSeek Harness 外部 Agent，支持复用本地 DSH 模型与会话，未安装 DSH 时使用内置运行时。
-
-### Changed
-
-- [Desktop] DeepSeek Harness 以 plugin 形态安装或升级时默认启用自动对话标题，保留用户显式关闭的设置。
-- [Desktop] `gpui-kit` 升到 0.9.1，同步 `AGENTS.md` 的版本约束；顺带修复 `rustls-webpki` CVE。
+- [Backend] LLM Provider 目录改为数据库驱动：平台管理员在 `/admin/llm` 维护供应商、模型与定价预设，支持运行时增删改与批量保存。
+- [Backend] Provider 上游密钥加密落库，提供 `mix cgc2046.reencrypt_llm_keys`（release 内 `Cgc2046.Release.reencrypt_llm_keys`）执行密钥重加密；运维手册见 `docs/运维/LLM网关上游Key管理.md`。
 
 ### Fixed
 
-- [Desktop] 修复外部 Agent 历史的重命名、归档和切换归属，鉴权重试继续恢复原会话，恢复后保留生成标题并使旧审批失效。
-- [Desktop] 修复 DSH profile 空值配置的标题插件安装和自定义数据目录卸载，忽略不可执行的 dsh 路径及停用的 Provider。
-- [Desktop] 修复 DSH 探测在 Windows 条件编译下的 lint 错误，恢复 Windows 桌面构建。
-- [Desktop] 修复 Windows 上 DSH CLI 的 `.exe` / `.cmd` / `.bat` 查找，避免本地 profile 被误判缺失。
-- [Desktop] 显式新建会话时清除待恢复目标，避免鉴权或恢复期间的新消息误用旧会话上下文。
-- [Desktop] DeepSeek 已就绪时提供重新安装入口，旧版 profile adapter 标记为待升级；本地 DSH 尚未安装 adapter 时也能初始化 profile 与自动标题配置，安装和卸载互斥。
-- [Desktop] DSH 会话恢复测试失败时不再在诊断日志打印会话标识符。
+- [Backend] AnthropicAdapter 尊重 `max_completion_tokens`；Phoenix LiveView 升级到同期版本。
+- [Backend] 支付宝 `return_url` 改为从 `WEB_BASE_URL` 派生，不再依赖单独配置；创建订单时把预分配的 order id 传给支付适配器，避免重复建单。
+- [Web] 批量保存模型配置进行中时禁用行内变更，避免覆盖未提交编辑。
+- [Miniprogram] 同步 LLM Gateway 相关的 GraphQL codegen 产物。
+
+### Security
+
+- [Backend] 新增独立部署 secret `LLM_GATEWAY_ENCRYPTION_KEY`（GitHub secret 缺失时 deploy 在 Kamal 前置校验失败）；运行时缺失则回退 `secret_key_base`，保证启动不被阻断。
+
+## [Desktop v0.1.0-dev.20261120]
+
+> 桌面客户端内测版由 tag `desktop-v*` 触发发布，不走 develop→main 的 Web/后端发布流程。
+
+### Added
+
+- [Desktop] 接入 CGC Cloud 托管模型：额度钱包与授信批次、微信与套餐结账、结构化 402/403 错误、退出登录吊销托管 token。
+- [Desktop] 网关会话亲和、reasoning 流回放与确定性前缀复用；`/v1` 改为 first-party desktop JWT。
+
+### Fixed
+
+- [Desktop] 与管理端 250k prompt 上限对齐，500 消息上限触发 compaction；托管 provider 与配额恢复稳定性修复。
+
+## [Desktop v0.1.0-dev.20261116]
+
+### Added
+
+- [Desktop] 集成 DeepSeek Harness 外部 Agent（ACP），复用本地 DSH 模型与会话，支持生成式会话标题。
+- [Desktop] 终端按实例关闭与 `⌥⌘[` / `⌥⌘]` 循环切换。
+
+### Changed
+
+- [Desktop] `gpui-kit` 升到 0.9.1，同步 `AGENTS.md` 版本约束，顺带修复 `rustls-webpki` CVE。
+- [Desktop] 供应商/模型区重构：标签化模型选择、参数卡片折叠、供应商目录持久化与分页。
+
+### Fixed
+
+- [Desktop] DSH profile 安装/卸载、Windows 探测与可执行扩展名、审批与恢复边界、诊断日志脱敏等系列修复。
+- [Desktop] 折叠态面板在切换终端/侧栏关闭时正确展开；标题编辑锁定提交目标；终端聚焦时全局快捷键冒泡。
+
+## [Desktop v0.1.0-dev.20261114]
+
+### Added
+
+- [Desktop] 终端多实例（按 id、同目录明示、上限 5）；重启后恢复 active 终端。
+
+### Fixed
+
+- [Desktop] 终端标题单一来源（`custom_title` / 撞车去重 / `cwd` 副标题），header 与列表共用 live `cwd`；OSC 变化只更新对应行。
+- [Desktop] Agent Panel header 跟随可见条目，隐藏终端不再劫持图标与标题。
+
+## [Desktop v0.1.0-dev.20261113]
+
+### Changed
+
+- [Desktop] 随包内置 Inter 字体，UI 正文不再回退系统字体；Windows 改 GUI 子系统并隐藏所有子进程控制台。
 
 ## [2026-11-20]
 

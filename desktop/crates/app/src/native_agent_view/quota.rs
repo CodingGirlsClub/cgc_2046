@@ -101,6 +101,11 @@ fn provider_label(provider: &str) -> &'static str {
 }
 
 impl NativeAgentView {
+    /// 仅当当前激活模型属于 CGC 官方托管网关时展示额度 UI 与拉取钱包。
+    pub(super) fn is_managed_model_selected(&self) -> bool {
+        self.metadata().model.provider_id.as_str() == cgc_agent_store::CGC_CLOUD_PROVIDER_ID
+    }
+
     /// 账号/scope 切换时清掉上一账号的钱包与收银台状态，并推进 serial
     /// 让在途的 wallet / checkout / polling 回调全部失效。
     pub(crate) fn reset_account_state(&mut self, cx: &mut Context<Self>) {
@@ -122,6 +127,9 @@ impl NativeAgentView {
 
     /// 点击状态栏算力徽章：切换主动钱包面板并刷新余额。
     pub(super) fn toggle_wallet_panel(&mut self, cx: &mut Context<Self>) {
+        if !self.is_managed_model_selected() {
+            return;
+        }
         self.wallet_panel_open = !self.wallet_panel_open;
         if !self.wallet_panel_open && !self.insufficient_quota {
             self.quota_checkout = None;
@@ -142,10 +150,15 @@ impl NativeAgentView {
     }
 
     /// 登录成功 / 每轮结束后异步刷新 `myLlmWallet`；失败不阻塞对话。
-    pub(super) fn refresh_wallet(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn refresh_wallet(&mut self, cx: &mut Context<Self>) {
         if !cgc_platform::gateway::signed_in() {
             self.wallet = None;
             // 让已经发出的 wallet 请求在回调里也被丢弃。
+            self.wallet_refresh_serial = self.wallet_refresh_serial.wrapping_add(1);
+            cx.notify();
+            return;
+        }
+        if !self.is_managed_model_selected() {
             self.wallet_refresh_serial = self.wallet_refresh_serial.wrapping_add(1);
             cx.notify();
             return;
@@ -180,6 +193,9 @@ impl NativeAgentView {
         palette: &theme::Palette,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
+        if !self.is_managed_model_selected() {
+            return None;
+        }
         let wallet = self.wallet.as_ref()?;
         let percentage = wallet.remaining_percentage.clamp(0, 100);
         let frozen = wallet.status == "frozen";
@@ -368,7 +384,9 @@ impl NativeAgentView {
         palette: &theme::Palette,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        if wallet_card_visible(self.insufficient_quota, self.wallet_panel_open) {
+        if !self.is_managed_model_selected()
+            || wallet_card_visible(self.insufficient_quota, self.wallet_panel_open)
+        {
             return None;
         }
         let notice = self.wallet_frozen_notice.as_ref()?;
@@ -420,7 +438,9 @@ impl NativeAgentView {
         palette: &theme::Palette,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        if !wallet_card_visible(self.insufficient_quota, self.wallet_panel_open) {
+        if !self.is_managed_model_selected()
+            || !wallet_card_visible(self.insufficient_quota, self.wallet_panel_open)
+        {
             return None;
         }
         let weak = cx.entity().downgrade();

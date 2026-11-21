@@ -5320,6 +5320,15 @@ type RootQueryType {
   "工作台算力池与最近派发记录（Owner\/Admin；PlatformAdmin 跨租户可读）"
   workspaceLlmPool(workspaceId: ID!): LlmWorkspacePoolSummary
 
+  "当前登录用户可用的 CGC 官方网关模型列表"
+  availableLlmModels: [AvailableLlmModel!]!
+
+  "PlatformAdmin 读取全部上游 LLM Provider（含脱敏 Key 与模型目录）"
+  adminLlmProviders: [AdminLlmProvider!]!
+
+  "PlatformAdmin 读取内置主流模型参考单价与能力预设"
+  adminLlmPricingPresets: [LlmModelPricingPreset!]!
+
   "Placeholder query until the first resource is added"
   ping: String
 
@@ -6472,6 +6481,33 @@ type RootMutationType {
   "PlatformAdmin 调整用户 LLM 并发流上限（范围 1..20）；与 AdminActionLog 同事务"
   adminUpdateUserLlmConcurrency(userId: ID!, maxConcurrentStreams: Int!): LlmWalletSummary
 
+  "PlatformAdmin 创建上游 LLM Provider"
+  adminCreateLlmProvider(input: AdminLlmProviderInput!): AdminLlmProvider
+
+  "PlatformAdmin 更新上游 LLM Provider"
+  adminUpdateLlmProvider(id: ID!, input: AdminLlmProviderInput!): AdminLlmProvider
+
+  "PlatformAdmin 删除上游 LLM Provider"
+  adminDeleteLlmProvider(id: ID!): Boolean!
+
+  "PlatformAdmin 为 Provider 添加 API Key"
+  adminAddLlmProviderApiKey(providerId: ID!, label: String!, apiKey: String!): AdminLlmProviderApiKey
+
+  "PlatformAdmin 更新 Provider API Key 备注或启停状态"
+  adminUpdateLlmProviderApiKey(id: ID!, label: String, enabled: Boolean): AdminLlmProviderApiKey
+
+  "PlatformAdmin 删除 Provider API Key"
+  adminDeleteLlmProviderApiKey(id: ID!): Boolean!
+
+  "PlatformAdmin 从上游 Provider 拉取可用模型列表并预填参考单价"
+  adminFetchLlmProviderUpstreamModels(providerId: ID!, apiKey: String): [LlmUpstreamDiscoveredModel!]!
+
+  "PlatformAdmin 批量保存 Provider 下的模型配置与单价"
+  adminSaveLlmProviderModels(providerId: ID!, models: [AdminLlmProviderModelInput!]!): [AdminLlmProviderModel!]!
+
+  "PlatformAdmin 删除单个模型配置"
+  adminDeleteLlmProviderModel(id: ID!): Boolean!
+
   "Owner\/Admin 创建一次性工作台邀请小程序码"
   generateMiniProgramCode(workspaceId: ID!, platform: String!): MiniprogramCodeResult
 
@@ -6653,6 +6689,127 @@ string, including UTC timezone ("Z"). The parsed date and time string will
 be converted to UTC if there is an offset.
 """
 scalar DateTime
+
+type AvailableLlmModel {
+  modelId: String!
+  displayName: String!
+  contextWindow: Int!
+  maxOutputTokens: Int!
+  supportsThinking: Boolean!
+  supportsTools: Boolean!
+  supportsImages: Boolean!
+  reasoningEfforts: [String!]!
+  inputPriceMc: BigInt!
+  cacheHitPriceMc: BigInt!
+  outputPriceMc: BigInt!
+}
+
+type AdminLlmProviderApiKey {
+  id: ID!
+  providerId: ID!
+  label: String!
+  keyPreview: String!
+  enabled: Boolean!
+  insertedAt: DateTime!
+}
+
+type AdminLlmProviderModel {
+  id: ID!
+  providerId: ID!
+  modelId: String!
+  upstreamModelId: String!
+  displayName: String!
+  enabled: Boolean!
+  contextWindow: Int!
+  maxOutputTokens: Int!
+  supportsThinking: Boolean!
+  supportsTools: Boolean!
+  supportsImages: Boolean!
+  reasoningEfforts: [String!]!
+  cacheHitPriceMc: BigInt!
+  cacheMissPriceMc: BigInt!
+  outputPriceMc: BigInt!
+  markupRatio: Float!
+  insertedAt: DateTime!
+}
+
+type AdminLlmProvider {
+  id: ID!
+  name: String!
+  slug: String!
+  protocol: String!
+  baseUrl: String!
+  chatPath: String
+  modelsPath: String
+  priority: Int!
+  offPeakDiscountEnabled: Boolean!
+  enabled: Boolean!
+  apiKeys: [AdminLlmProviderApiKey!]!
+  models: [AdminLlmProviderModel!]!
+  insertedAt: DateTime!
+  updatedAt: DateTime!
+}
+
+type LlmUpstreamDiscoveredModel {
+  modelId: String!
+  upstreamModelId: String!
+  displayName: String!
+  contextWindow: Int!
+  maxOutputTokens: Int!
+  supportsThinking: Boolean!
+  supportsTools: Boolean!
+  supportsImages: Boolean!
+  reasoningEfforts: [String!]!
+  cacheHitPriceMc: BigInt!
+  cacheMissPriceMc: BigInt!
+  outputPriceMc: BigInt!
+  markupRatio: Float!
+  presetMatched: Boolean!
+}
+
+type LlmModelPricingPreset {
+  modelId: String!
+  displayName: String!
+  contextWindow: Int!
+  maxOutputTokens: Int!
+  supportsThinking: Boolean!
+  supportsTools: Boolean!
+  supportsImages: Boolean!
+  reasoningEfforts: [String!]!
+  cacheHitPriceMc: BigInt!
+  cacheMissPriceMc: BigInt!
+  outputPriceMc: BigInt!
+  markupRatio: Float!
+}
+
+input AdminLlmProviderInput {
+  name: String!
+  slug: String!
+  protocol: String!
+  baseUrl: String!
+  chatPath: String
+  modelsPath: String
+  priority: Int
+  offPeakDiscountEnabled: Boolean
+  enabled: Boolean
+}
+
+input AdminLlmProviderModelInput {
+  modelId: String!
+  upstreamModelId: String
+  displayName: String!
+  enabled: Boolean
+  contextWindow: Int!
+  maxOutputTokens: Int!
+  supportsThinking: Boolean
+  supportsTools: Boolean
+  supportsImages: Boolean
+  reasoningEfforts: [String!]
+  cacheHitPriceMc: BigInt!
+  cacheMissPriceMc: BigInt!
+  outputPriceMc: BigInt!
+  markupRatio: Float
+}
 
 "Signed 64-bit integer (microcredits). Accepts integer or numeric string; serializes as JSON integer."
 scalar BigInt

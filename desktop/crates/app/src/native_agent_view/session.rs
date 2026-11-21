@@ -279,8 +279,10 @@ impl NativeAgentView {
         self.snapshot = Some(snapshot);
         if provider_changed {
             self.insufficient_quota = false;
+            self.wallet_panel_open = false;
             self.wallet_frozen_notice = None;
             self.quota_checkout = None;
+            self.quota_checkout_serial = self.quota_checkout_serial.wrapping_add(1);
         }
         if title_changed {
             cx.emit(NativeAgentViewEvent::TitleChanged);

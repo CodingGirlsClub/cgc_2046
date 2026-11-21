@@ -112,18 +112,42 @@ export function formatTokenCount(tokens: McInput): string {
 	return formatMcInteger(tokens);
 }
 
-/**
- * 解析用户输入的人民币正数字符串（最多 6 位小数）为精确 BigInt 微积分。
- * 空串、非正数、非数字或超过 6 位小数返回 null。
- */
-export function parseCnyInputToMc(input: string): bigint | null {
+function parseCnyRawToMc(input: string): bigint | null {
 	const trimmed = input.trim();
 	const match = /^(\d+)(?:\.(\d{1,6}))?$/.exec(trimmed);
 	if (!match) return null;
 	const whole = BigInt(match[1]);
 	const frac = BigInt((match[2] ?? "").padEnd(6, "0"));
-	const total = whole * MC_PER_CNY + frac;
-	return total > ZERO ? total : null;
+	return whole * MC_PER_CNY + frac;
+}
+
+/**
+ * 解析用户输入的人民币正数字符串（最多 6 位小数）为精确 BigInt 微积分。
+ * 空串、非正数、非数字或超过 6 位小数返回 null。
+ */
+export function parseCnyInputToMc(input: string): bigint | null {
+	const total = parseCnyRawToMc(input);
+	return total !== null && total > ZERO ? total : null;
+}
+
+/**
+ * 解析用户输入的人民币非负字符串（允许 "0"，最多 6 位小数）为精确 BigInt 微积分。
+ */
+export function parseNonNegativeCnyInputToMc(input: string): bigint | null {
+	return parseCnyRawToMc(input);
+}
+
+/**
+ * 将微积分（mc）格式化为适合表单输入回填的无逗号小数字符串（如 200000 → "0.2"）。
+ */
+export function formatMcToPlainCny(mc: McInput): string {
+	const raw = toBigIntMc(mc);
+	const negative = raw < ZERO;
+	const abs = negative ? -raw : raw;
+	const whole = abs / MC_PER_CNY;
+	const frac = (abs % MC_PER_CNY).toString().padStart(6, "0").replace(/0+$/, "");
+	const sign = negative && abs > ZERO ? "-" : "";
+	return frac ? `${sign}${whole.toString()}.${frac}` : `${sign}${whole.toString()}`;
 }
 
 /**

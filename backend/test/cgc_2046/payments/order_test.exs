@@ -903,6 +903,86 @@ defmodule Cgc2046.Payments.OrderTest do
     end
   end
 
+  describe "渠道下单与换渠道透传持久化订单 id（ADR-0008 return_url 真实调用链）" do
+    test "create_for_enrollment：向渠道传入与入库主键一致的 order.id，供 Alipay 派生 return_url" do
+      %{enrollment: enrollment, learner: learner, workspace: workspace} =
+        deposit_payment_pending_enrollment("return-url-create")
+
+      test_pid = self()
+
+      Fake.script!(
+        create_payment: fn order_shape, _ctx ->
+          send(test_pid, {:channel_order, order_shape})
+          {:ok, %{"type" => "redirect", "url" => "https://pay.alipay.example/page"}}
+        end
+      )
+
+      assert {:ok, created} =
+               Order
+               |> Ash.Changeset.for_create(:create_for_enrollment, %{
+                 enrollment_id: enrollment.id,
+                 provider: :alipay_page,
+                 deposit_consent: true
+               })
+               |> Ash.create(tenant: workspace.id, actor: learner)
+
+      assert_receive {:channel_order, order_shape}
+      assert order_shape.id == created.id
+      assert order_shape.out_trade_no == created.out_trade_no
+
+      assert %{return_url: expected_url} =
+               Cgc2046.Payments.Providers.Alipay.maybe_put_return_url(
+                 %{},
+                 order_shape,
+                 "https://codingirlsclub.com"
+               )
+
+      assert expected_url == "https://codingirlsclub.com/orders/#{created.id}"
+    after
+      Fake.reset!()
+    end
+
+    test "replace_provider：换渠道向渠道传入新订单的持久化 order.id，供 Alipay 派生 return_url" do
+      %{enrollment: enrollment, learner: learner, workspace: workspace} =
+        deposit_payment_pending_enrollment("return-url-replace")
+
+      assert {:ok, first} = checkout(enrollment, learner)
+
+      test_pid = self()
+
+      Fake.script!(
+        create_payment: fn order_shape, _ctx ->
+          send(test_pid, {:replaced_channel_order, order_shape})
+          {:ok, %{"type" => "redirect", "url" => "https://pay.alipay.example/wap"}}
+        end
+      )
+
+      assert {:ok, replaced} =
+               Order
+               |> Ash.Changeset.for_create(:replace_provider, %{
+                 order_id: first.id,
+                 provider: :alipay_wap
+               })
+               |> Ash.create(tenant: workspace.id, actor: learner)
+
+      assert_receive {:replaced_channel_order, order_shape}
+      assert replaced.id != first.id
+      assert order_shape.id == replaced.id
+      assert order_shape.out_trade_no == replaced.out_trade_no
+
+      assert %{return_url: expected_url} =
+               Cgc2046.Payments.Providers.Alipay.maybe_put_return_url(
+                 %{},
+                 order_shape,
+                 "https://codingirlsclub.com"
+               )
+
+      assert expected_url == "https://codingirlsclub.com/orders/#{replaced.id}"
+    after
+      Fake.reset!()
+    end
+  end
+
   # ── 布置与断言帮手 ─────────────────────────────────────────────────────────
 
   defp enrollment_fixture do

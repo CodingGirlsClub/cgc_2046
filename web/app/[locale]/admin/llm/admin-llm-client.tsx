@@ -28,6 +28,9 @@ import {
 	parseCnyInputToMc,
 	toBigIntMc,
 } from "@/lib/llm-credits";
+import ProviderManager from "./provider-manager";
+
+type AdminLlmTab = "analytics" | "providers";
 
 const ZERO = BigInt(0);
 const DAY_WINDOWS = [7, 14, 30] as const;
@@ -75,6 +78,13 @@ function errorMessage(err: unknown, fallback: string): string {
 
 export default function AdminLlmClient() {
 	const t = useTranslations("adminLlm");
+	const [activeTab, setActiveTab] = useState<AdminLlmTab>(() => {
+		if (typeof window !== "undefined") {
+			const param = new URLSearchParams(window.location.search).get("tab");
+			if (param === "providers") return "providers";
+		}
+		return "analytics";
+	});
 	const [days, setDays] = useState<DayWindow>(14);
 	const [rows, setRows] = useState<LlmDailyChannelMetric[] | null>(null);
 	const [loading, setLoading] = useState(true);
@@ -363,29 +373,58 @@ export default function AdminLlmClient() {
 					<p className="admin-page__desc">{t("subtitle")}</p>
 				</div>
 				<div className="flex flex-wrap items-center gap-2">
-					<div className="admin-tabs" role="group" aria-label={t("windowAria")}>
-						{DAY_WINDOWS.map((w) => (
-							<button
-								key={w}
-								type="button"
-								aria-pressed={days === w}
-								onClick={() => handleSelectDays(w)}
-								className={`admin-tabs__tab ${days === w ? "bg-card text-ink font-medium" : ""}`}
-							>
-								{t("daysOption", { days: w })}
-							</button>
-						))}
+					<div className="admin-tabs" role="tablist" aria-label={t("sectionTabsAria")}>
+						<button
+							type="button"
+							role="tab"
+							aria-selected={activeTab === "analytics"}
+							onClick={() => setActiveTab("analytics")}
+							className={`admin-tabs__tab ${activeTab === "analytics" ? "bg-card text-ink font-medium" : ""}`}
+						>
+							{t("tabAnalytics")}
+						</button>
+						<button
+							type="button"
+							role="tab"
+							aria-selected={activeTab === "providers"}
+							onClick={() => setActiveTab("providers")}
+							className={`admin-tabs__tab ${activeTab === "providers" ? "bg-card text-ink font-medium" : ""}`}
+						>
+							{t("tabProviders")}
+						</button>
 					</div>
-					<button
-						type="button"
-						onClick={() => void loadAnalytics(days)}
-						disabled={loading}
-						className="l-btn-outline"
-					>
-						{t("refresh")}
-					</button>
+					{activeTab === "analytics" && (
+						<>
+							<div className="admin-tabs" role="group" aria-label={t("windowAria")}>
+								{DAY_WINDOWS.map((w) => (
+									<button
+										key={w}
+										type="button"
+										aria-pressed={days === w}
+										onClick={() => handleSelectDays(w)}
+										className={`admin-tabs__tab ${days === w ? "bg-card text-ink font-medium" : ""}`}
+									>
+										{t("daysOption", { days: w })}
+									</button>
+								))}
+							</div>
+							<button
+								type="button"
+								onClick={() => void loadAnalytics(days)}
+								disabled={loading}
+								className="l-btn-outline"
+							>
+								{t("refresh")}
+							</button>
+						</>
+					)}
 				</div>
 			</div>
+
+			{activeTab === "providers" ? (
+				<ProviderManager />
+			) : (
+				<>
 
 			{/* KPI 汇总卡片 */}
 			<div
@@ -801,6 +840,8 @@ export default function AdminLlmClient() {
 					</form>
 				</div>
 			</div>
+				</>
+			)}
 		</section>
 	);
 }
