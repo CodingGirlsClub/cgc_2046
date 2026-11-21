@@ -27,15 +27,15 @@ CGC 平台最初的技术方案是**网站自研 AI Agent**：后端用 `ash_ai`
 |---|---|
 | D1 | 删除 `ash_ai`；网站不做 AI Agent（不跑 LLM/ToolLoop） |
 | D2 | 领域模型重定义：**Agent = 授权/配置登记**（`type / allowed_roles / owner` + `openclacky_profile / model / system_prompt / skills`）；**AgentRun = 领域操作聚合记录**（v1 就做） |
-| D3 | BYO 粒度 = 每用户强制安装 OpenClacky；平台零 AI 成本；连接方向 = 用户侧主动连（出站、无隧道）；用户离线则该用户 Agent 任务不可用（接受） |
-| D4 | 网站 UI = 形态 X（无对话/执行页）：工作台、成员/角色、Workflow 产出展示、审批、审计查看；聊天全在用户自己的 OpenClacky。**已被 ADR-0022 修订：课程学习页内嵌对话栏，经 CGC 本机 Host 驱动学员电脑上的 agent；对话仍在学员电脑上执行，平台不运行模型。** |
+| D3 | BYO 粒度 = 每用户强制安装 OpenClacky；平台零 AI 成本；连接方向 = 用户侧主动连（出站、无隧道）；用户离线则该用户 Agent 任务不可用（接受）。**已被 ADR-0028 修订（2026-10-25）：保留 BYO，不再强制每用户安装 OpenClacky；新增桌面客户端第一方 Native Agent 默认轨道（`desktop/`）与平台托管算力代理 `Cgc2046.LlmGateway`（`POST /v1/chat/completions`），平台自此提供可选模型服务（详见 ADR-0028 决策 4/8 与 ADR-0007 2026-11-19 补记）。** |
+| D4 | 网站 UI = 形态 X（无对话/执行页）：工作台、成员/角色、Workflow 产出展示、审批、审计查看；聊天全在用户自己的 OpenClacky。**已被 ADR-0022 修订：课程学习页内嵌对话栏，经 CGC 本机 Host 驱动学员电脑上的 agent；对话仍在学员电脑上执行，平台不运行模型。** **2026-10-26 修订：Web 端学习搭子与 `cgc-host/` 已整体移除，学习对话入口统一迁至桌面客户端（ADR-0025 / ADR-0028）。** |
 | D5 | 通道：**B 通道（网站 MCP server）为主干**；A 通道（网站派活）消失 |
 | D6 | 连接模型：**单 MCP server**（anubis_mcp，Elixir/Phoenix）+ **每用户连接 token**（绑用户、可多 Workspace、按目标资源判定租户）+ RBAC 强制（Agent 权限 = 用户权限，越权被拒）；原则：工具 = 形状、租户 = 过滤器、每次工具调用 = 审计记录。**已被 ADR-0022 修订：Agent 权限不超过用户权限；配对签发给 CGC 本机 Host 的学习凭证（`kind = learning_host`）只放行学习工具。** |
 | D7 | MCP 工具集：读 + 写 + **管理类全进**（低风险直做；高风险走确认流） |
 | D8 | 确认流 = 方案二（原生 `request_user_feedback`）：pending 记录 → `needs_confirmation` → 用户点选 → `confirm(id)` 落库；**无 confirm 不落库** |
 | D9 | AgentRun = 领域操作聚合：网站自动记录每次 MCP 工具调用（谁/工具/参数/结果/确认/时间），按 Step 聚合；**不做用户侧上报** |
-| D10 | 公共 Agent 分发 = **任务指令模式**：Agent 定义存网站，MCP 提供 `get_agent_instruction(workspace_id, agent_id)`；不做运行时下发文件，不做纯静态打包 |
-| D11 | 工作区 Skill 同步到本地：Skill 定义存网站，经连接器扩展同步到 `~/.clacky/skills/`（`SkillLoader#create_skill / delete_skill` 运行时写文件 + 立即注册）；角色过滤在网站侧 |
+| D10 | 公共 Agent 分发 = **任务指令模式**：Agent 定义存网站，MCP 提供 `get_agent_instruction(workspace_id, agent_id)`；不做运行时下发文件，不做纯静态打包。**实施现状（2026-11-22 核实）：`get_agent_instruction` 仍属 roadmap（未落地）；当前以角色维度 `get_role_playbook`（`Cgc2046.Mcp.Playbooks` + ADR-0012 私有增量）与 OpenClacky 扩展静态打包三助手（`cgc-assistant` / `cgc-tutor` / `cgc-admin`）承载。** |
+| D11 | 工作区 Skill 同步到本地：Skill 定义存网站，经连接器扩展同步到 `~/.clacky/skills/`（`SkillLoader#create_skill / delete_skill` 运行时写文件 + 立即注册）；角色过滤在网站侧。**已废弃（未落地，2026-11-22 核实）：工作区 Skill 存库与本地同步（`SkillLoader` / `~/.clacky/skills/` / `cgc-sync`）未实施，已由平台单点维护的四角色 Playbook（`get_role_playbook`）与扩展静态打包 skill 取代。** |
 | D12 | 多工作区 Scope = **无状态 workspace_id**：所有 MCP 工具必填 `workspace_id`（每调用鉴权 + 审计）；"当前工作区"= 对话上下文由 CGC 助手维护；Skill 本地同步加前缀 `cgc2046-<ws>-<skill>`；不做"每工作区一个 MCP server" |
 | D13 | Onboarding = 一次性三步（装 OpenClacky → 粘贴 mcp.json 片段 + 生成连接 token → `openclacky ext install`）；**单一配置点 = mcp.json**（扩展自动读 cgc 条目）；不做"一条命令全自动"。**已被 ADR-0022 修订：CGC 本机 Host 一条命令安装；网页对话的 CGC 能力经 ACP 会话下发，不读 mcp.json；终端接入仍以 mcp.json 为配置点。** **2026-10-29 勘误：omp / opencode / dsh 三条终端接入形态全部下线，终端侧官方载体只剩 OpenClacky 扩展；mcp.json 现仅服务用户自配的 MCP 客户端（Claude Code / Cursor 等）。** |
 | D14 | 连接器扩展命名 = `cgc-2046`（扩展 id / MCP server 条目名 / 本地技能前缀统一） |
