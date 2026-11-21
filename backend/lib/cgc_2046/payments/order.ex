@@ -843,9 +843,11 @@ defmodule Cgc2046.Payments.Order do
     enrollment_id = Ash.Changeset.get_argument(changeset, :enrollment_id)
     provider = Ash.Changeset.get_argument(changeset, :provider)
 
-    # out_trade_no 单点生成：先定号再传渠道与落库——两处分别生成会导致
-    # 「渠道单号 ≠ 库内单号」（真实验收实证：支付回调按渠道单号查库必 404，
-    # 形成渠道有我无孤儿单）。故先生成，channel_create_payment 与 force_change 共用。
+    # order_id / out_trade_no 单点预分配：先定号再传渠道与落库——两处分别生成会导致
+    # 「渠道单号 / return_url 订单号 ≠ 库内主键或单号」（真实验收实证：支付回调按渠道单号查库
+    # 必 404，或网页回跳 /orders/<id> 与持久化订单主键不一致）。故先生成，channel_create_payment
+    # 与 force_change 共用。
+    order_id = Ash.UUID.generate()
     out_trade_no = generate_out_trade_no()
 
     with {:ok, enrollment} <- load_enrollment(enrollment_id),
@@ -860,7 +862,8 @@ defmodule Cgc2046.Payments.Order do
          :ok <- discard_stale_pending_order(enrollment.id),
          {:ok, tier} <- resolve_order_amount(enrollment, target),
          {:ok, expire_at} <- order_expire_at(target),
-         {:ok, credential} <- channel_create_payment(provider, enrollment, tier, out_trade_no) do
+         {:ok, credential} <-
+           channel_create_payment(order_id, provider, enrollment, tier, out_trade_no) do
       # 同意留痕（#750）：门通过即落同意事实（时点 + 条款版本，#510 同形）——
       # 押金没收（no-show forfeit）是不可逆资金动作，事后可举证。非押金单不落。
       {consent_at, consent_terms} =
@@ -869,6 +872,7 @@ defmodule Cgc2046.Payments.Order do
           else: {nil, nil}
 
       changeset
+      |> Ash.Changeset.force_change_attribute(:id, order_id)
       |> Ash.Changeset.force_change_attribute(:workspace_id, enrollment.workspace_id)
       |> Ash.Changeset.force_change_attribute(:enrollment_id, enrollment.id)
       |> Ash.Changeset.force_change_attribute(:order_kind, order_kind(enrollment, target))
@@ -893,6 +897,7 @@ defmodule Cgc2046.Payments.Order do
     order_id = Ash.Changeset.get_argument(changeset, :order_id)
     provider = Ash.Changeset.get_argument(changeset, :provider)
 
+    new_order_id = Ash.UUID.generate()
     out_trade_no = generate_out_trade_no()
 
     with {:ok, old_order} <- load_order(order_id),
@@ -906,9 +911,11 @@ defmodule Cgc2046.Payments.Order do
          :ok <- deposit_consent_inheritable?(old_order),
          {:ok, tier} <- resolve_replaced_amount(old_order, enrollment, target),
          {:ok, expire_at} <- order_expire_at(target),
-         {:ok, credential} <- channel_create_payment(provider, enrollment, tier, out_trade_no),
+         {:ok, credential} <-
+           channel_create_payment(new_order_id, provider, enrollment, tier, out_trade_no),
          :ok <- cancel_old_order(order_id) do
       changeset
+      |> Ash.Changeset.force_change_attribute(:id, new_order_id)
       |> Ash.Changeset.force_change_attribute(:workspace_id, enrollment.workspace_id)
       |> Ash.Changeset.force_change_attribute(:enrollment_id, enrollment.id)
       # order_kind 与金额源同源（见 resolve_replaced_amount/3）：换渠道继承被替换
@@ -1198,7 +1205,7 @@ defmodule Cgc2046.Payments.Order do
 
   # 渠道下单（事务内；失败回滚 = 无凭据无订单）。JSAPI 需要报名者的微信 openid
   # （小程序 identity，下单参数由本处提供，KTD3）。
-  defp channel_create_payment(provider, enrollment, tier, out_trade_no) do
+  defp channel_create_payment(order_id, provider, enrollment, tier, out_trade_no) do
     ctx =
       if provider == :wechat_jsapi do
         with {:ok, openid} <- wechat_openid(enrollment.user_id), do: {:ok, %{openid: openid}}
@@ -1208,6 +1215,7 @@ defmodule Cgc2046.Payments.Order do
 
     with {:ok, ctx} <- ctx do
       order_shape = %{
+        id: order_id,
         provider: provider,
         out_trade_no: out_trade_no,
         amount_cents: tier["amount_cents"],
