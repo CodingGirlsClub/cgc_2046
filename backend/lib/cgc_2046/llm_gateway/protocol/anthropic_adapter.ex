@@ -26,11 +26,7 @@ defmodule Cgc2046.LlmGateway.Protocol.AnthropicAdapter do
 
     {system_parts, messages} = convert_messages(Map.get(params, "messages", []))
 
-    max_tokens =
-      case Map.get(params, "max_tokens") do
-        val when is_integer(val) and val > 0 -> min(val, max_output_limit)
-        _ -> min(@default_output_tokens, max_output_limit)
-      end
+    max_tokens = resolve_max_tokens(params, max_output_limit)
 
     body =
       %{
@@ -56,6 +52,21 @@ defmodule Cgc2046.LlmGateway.Protocol.AnthropicAdapter do
       body: body,
       upstream_model: upstream_model
     }
+  end
+
+  defp resolve_max_tokens(params, max_output_limit) do
+    requested =
+      Enum.find_value(["max_tokens", "max_completion_tokens"], fn key ->
+        case Map.get(params, key) do
+          val when is_integer(val) and val > 0 -> val
+          _ -> nil
+        end
+      end)
+
+    case requested do
+      val when is_integer(val) -> min(val, max_output_limit)
+      nil -> min(@default_output_tokens, max_output_limit)
+    end
   end
 
   @spec messages_url(map()) :: String.t()

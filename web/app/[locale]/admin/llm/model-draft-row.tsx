@@ -25,6 +25,10 @@ export default function ModelDraftRow({
 			className="grid gap-3 rounded-lg border border-line bg-surface p-3 text-xs"
 			data-testid={`provider-model-row-${draft.modelId}`}
 		>
+			<fieldset
+				disabled={deleting || saving}
+				className="m-0 grid min-w-0 gap-3 border-0 p-0"
+			>
 			<div className="flex flex-wrap items-center justify-between gap-2">
 				<div className="flex flex-wrap items-center gap-2">
 					<span className="font-mono font-semibold text-ink">
@@ -185,6 +189,7 @@ export default function ModelDraftRow({
 					/>
 				</label>
 			</div>
+			</fieldset>
 		</div>
 	);
 }

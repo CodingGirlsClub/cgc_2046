@@ -419,7 +419,7 @@ describe("ProviderManager background refresh", () => {
 		expect(within(card).getByRole("button", { name: "保存全部模型" })).not.toBeDisabled();
 	});
 
-	it("批量保存模型进行中时禁用删除与新增模型按钮，保存完成后恢复", async () => {
+	it("批量保存模型进行中时禁用行编辑、删除与新增按钮，保存完成后恢复", async () => {
 		const [deepseekProvider] = makeProvidersFixture();
 		const savedDraft = { ...deepseekProvider.models[0], id: "m-custom", modelId: "custom-draft", upstreamModelId: "custom-draft", displayName: "custom-draft" };
 		let currentModels = [...deepseekProvider.models];
@@ -450,9 +450,17 @@ describe("ProviderManager background refresh", () => {
 		const savedDeleteBtn = within(savedRow).getByRole("button", { name: "删除" });
 		const unsavedDeleteBtn = within(unsavedRow).getByRole("button", { name: "删除" });
 		const addManualBtn = within(card).getByRole("button", { name: "手动添加模型" });
+		const savedDisplayInput = within(savedRow).getByLabelText("展示名称");
+		const savedEnabledInput = within(savedRow).getByLabelText("已启用");
+		const unsavedDisplayInput = within(unsavedRow).getByLabelText("展示名称");
 		expect(savedDeleteBtn).toBeDisabled();
 		expect(unsavedDeleteBtn).toBeDisabled();
 		expect(addManualBtn).toBeDisabled();
+		expect(savedDisplayInput).toBeDisabled();
+		expect(savedEnabledInput).toBeDisabled();
+		expect(unsavedDisplayInput).toBeDisabled();
+		fireEvent.change(savedDisplayInput, { target: { value: "Mid-save Edit" } });
+		expect(savedDisplayInput).toHaveValue("DeepSeek Chat");
 		fireEvent.click(savedDeleteBtn);
 		fireEvent.click(unsavedDeleteBtn);
 		expect(mutateMock).not.toHaveBeenCalledWith(expect.objectContaining({ mutation: ADMIN_DELETE_LLM_PROVIDER_MODEL }));
@@ -460,6 +468,7 @@ describe("ProviderManager background refresh", () => {
 		resolveSave();
 		await waitFor(() => expect(within(card).getByRole("button", { name: "保存全部模型" })).not.toBeDisabled());
 		expect(addManualBtn).not.toBeDisabled();
+		expect(within(within(card).getByTestId("provider-model-row-deepseek-chat")).getByLabelText("展示名称")).not.toBeDisabled();
 		expect(within(within(card).getByTestId("provider-model-row-deepseek-chat")).getByRole("button", { name: "删除" })).not.toBeDisabled();
 		expect(within(within(card).getByTestId("provider-model-row-custom-draft")).getByRole("button", { name: "删除" })).not.toBeDisabled();
 	});

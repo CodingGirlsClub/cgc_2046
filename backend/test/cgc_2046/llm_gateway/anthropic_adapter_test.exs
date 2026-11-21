@@ -3,15 +3,17 @@ defmodule Cgc2046.LlmGateway.AnthropicAdapterTest do
 
   alias Cgc2046.LlmGateway.Protocol.AnthropicAdapter
 
+  @anthropic_channel %{
+    base_url: "https://api.anthropic.com",
+    chat_path: nil,
+    api_key: "sk-ant-test",
+    upstream_model_id: "claude-sonnet-4-5",
+    max_output_tokens: 16_384,
+    supports_thinking: true
+  }
+
   test "build_request converts OpenAI messages, tools, images, tool_results, and thinking" do
-    channel = %{
-      base_url: "https://api.anthropic.com",
-      chat_path: nil,
-      api_key: "sk-ant-test",
-      upstream_model_id: "claude-sonnet-4-5",
-      max_output_tokens: 16_384,
-      supports_thinking: true
-    }
+    channel = @anthropic_channel
 
     params = %{
       "model" => "claude-sonnet-4-5",
@@ -343,15 +345,6 @@ defmodule Cgc2046.LlmGateway.AnthropicAdapterTest do
              }
            ]
 
-    channel = %{
-      base_url: "https://api.anthropic.com",
-      chat_path: nil,
-      api_key: "sk-ant-test",
-      upstream_model_id: "claude-sonnet-4-5",
-      max_output_tokens: 16_384,
-      supports_thinking: true
-    }
-
     continuation =
       AnthropicAdapter.build_request(
         %{
@@ -383,7 +376,7 @@ defmodule Cgc2046.LlmGateway.AnthropicAdapterTest do
             }
           ]
         },
-        channel
+        @anthropic_channel
       )
 
     assert continuation.body["thinking"] == %{"type" => "enabled", "budget_tokens" => 8_192}
@@ -425,15 +418,6 @@ defmodule Cgc2046.LlmGateway.AnthropicAdapterTest do
   end
 
   test "build_request omits thinking on tool continuation when assistant lacks signed thinking" do
-    channel = %{
-      base_url: "https://api.anthropic.com",
-      chat_path: nil,
-      api_key: "sk-ant-test",
-      upstream_model_id: "claude-sonnet-4-5",
-      max_output_tokens: 16_384,
-      supports_thinking: true
-    }
-
     req =
       AnthropicAdapter.build_request(
         %{
@@ -457,7 +441,7 @@ defmodule Cgc2046.LlmGateway.AnthropicAdapterTest do
             %{"role" => "tool", "tool_call_id" => "call_unsigned", "content" => "pong"}
           ]
         },
-        channel
+        @anthropic_channel
       )
 
     refute Map.has_key?(req.body, "thinking")
@@ -470,6 +454,35 @@ defmodule Cgc2046.LlmGateway.AnthropicAdapterTest do
              },
              _
            ] = req.body["messages"]
+  end
+
+  test "build_request honors max_completion_tokens when max_tokens is omitted" do
+    msgs = [%{"role" => "user", "content" => "Hi"}]
+
+    req_low =
+      AnthropicAdapter.build_request(
+        %{"max_completion_tokens" => 512, "reasoning_effort" => "high", "messages" => msgs},
+        @anthropic_channel
+      )
+
+    assert req_low.body["max_tokens"] == 512
+    refute Map.has_key?(req_low.body, "thinking")
+
+    req_cap =
+      AnthropicAdapter.build_request(
+        %{"max_completion_tokens" => 99_999, "messages" => msgs},
+        @anthropic_channel
+      )
+
+    assert req_cap.body["max_tokens"] == 16_384
+
+    req_both =
+      AnthropicAdapter.build_request(
+        %{"max_tokens" => 2_048, "max_completion_tokens" => 6_000, "messages" => msgs},
+        @anthropic_channel
+      )
+
+    assert req_both.body["max_tokens"] == 2_048
   end
 
   defp sse(event, payload) do

@@ -133,6 +133,7 @@ export default function ProviderModelsSection({
 	}
 
 	function updateDraft(modelId: string, patch: Partial<ModelDraft>) {
+		if (saving) return;
 		setDrafts((prev) =>
 			prev.map((item) => (item.modelId === modelId ? { ...item, ...patch } : item)),
 		);
