@@ -94,7 +94,7 @@ defmodule Cgc2046.Payments.Providers.Alipay do
         %{out_trade_no: order.out_trade_no, total_amount: yuan(order.amount_cents)}
         |> Map.put(:subject, payment_subject(order))
         |> Map.put(:notify_url, notify_url())
-        |> maybe_put_return_url(order.provider)
+        |> maybe_put_return_url(order)
 
       case Client.post(endpoint, body) do
         {:ok, %Tesla.Env{status: 200, body: resp}} ->
@@ -120,10 +120,30 @@ defmodule Cgc2046.Payments.Providers.Alipay do
     end
   end
 
-  defp maybe_put_return_url(body, provider) do
-    # precreate 无 return_url 概念（扫码即付，无浏览器回跳）
-    if provider == :alipay_qr, do: body, else: Map.put(body, :return_url, config()[:return_url])
+  # 公开 helper（web_base_url 可显式传参，供契约测试直测且不碰全局 env，同 app_bound?/2 先例）。
+  # precreate（:alipay_qr）无浏览器回跳；网页跳转型（:alipay_page / :alipay_wap）从
+  # WEB_BASE_URL（唯一主域真源，ADR-0008）派生按单回跳链接，不另设 ALIPAY_RETURN_URL。
+  @doc false
+  def maybe_put_return_url(body, order, web_base_url \\ web_base_url()) do
+    case return_url(order, web_base_url) do
+      nil -> body
+      url -> Map.put(body, :return_url, url)
+    end
   end
+
+  @doc false
+  def return_url(%{provider: :alipay_qr}, _web_base_url), do: nil
+
+  def return_url(%{provider: provider, id: id}, web_base_url)
+      when provider in [:alipay_page, :alipay_wap] and is_binary(id) and id != "" and
+             is_binary(web_base_url) do
+    case web_base_url |> String.trim() |> String.trim_trailing("/") do
+      "" -> nil
+      base -> "#{base}/orders/#{id}"
+    end
+  end
+
+  def return_url(_order, _web_base_url), do: nil
 
   @impl Cgc2046.Payments.Provider
   def fetch_transaction(out_trade_no) do
@@ -383,6 +403,8 @@ defmodule Cgc2046.Payments.Providers.Alipay do
   # ── 配置 ───────────────────────────────────────────────────────────────────
 
   defp config, do: Application.get_env(:cgc_2046, @config_key, [])
+
+  defp web_base_url, do: Application.get_env(:cgc_2046, :web_base_url)
 
   defp ensure_configured do
     if config()[:app_id] && config()[:private_key] do

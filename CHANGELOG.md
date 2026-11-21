@@ -18,6 +18,21 @@ develop→main 发布时把该段改名为 `## [发布日期]` 并重新立一�
 commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `miniprogram`）。
 ## [Unreleased]
 
+### Added
+
+- [Backend] LLM Provider 目录改为数据库驱动：平台管理员在 `/admin/llm` 维护供应商、模型与定价预设，支持运行时增删改与批量保存。
+- [Backend] Provider 上游密钥加密落库，提供 `mix cgc2046.reencrypt_llm_keys`（release 内 `Cgc2046.Release.reencrypt_llm_keys`）执行密钥重加密；运维手册见 `docs/运维/LLM网关上游Key管理.md`。
+
+### Fixed
+
+- [Backend] AnthropicAdapter 尊重 `max_completion_tokens`；Phoenix LiveView 升级到同期版本。
+- [Web] 批量保存模型配置进行中时禁用行内变更，避免覆盖未提交编辑。
+- [Miniprogram] 同步 LLM Gateway 相关的 GraphQL codegen 产物。
+
+### Security
+
+- [Backend] 新增独立部署 secret `LLM_GATEWAY_ENCRYPTION_KEY`（GitHub secret 缺失时 deploy 在 Kamal 前置校验失败）；运行时缺失则回退 `secret_key_base`，保证启动不被阻断。
+
 ## [Desktop v0.1.0-dev.20261120]
 
 > 桌面客户端内测版由 tag `desktop-v*` 触发发布，不走 develop→main 的 Web/后端发布流程。

@@ -202,6 +202,65 @@ defmodule Cgc2046.Payments.ProvidersTest do
     end
   end
 
+  describe "支付宝 return_url 派生（ADR-0008：单源 WEB_BASE_URL）" do
+    test "网页跳转型（alipay_page / alipay_wap）从 web_base_url 按单派生，自动去尾斜杠" do
+      alias Cgc2046.Payments.Providers.Alipay, as: AlipayProvider
+
+      page_order = %{id: "ord-123", provider: :alipay_page}
+      wap_order = %{id: "ord-456", provider: :alipay_wap}
+
+      assert %{return_url: "https://codingirlsclub.com/orders/ord-123"} =
+               AlipayProvider.maybe_put_return_url(%{}, page_order, "https://codingirlsclub.com")
+
+      assert %{return_url: "https://codingirlsclub.com/orders/ord-456"} =
+               AlipayProvider.maybe_put_return_url(%{}, wap_order, "https://codingirlsclub.com/")
+
+      # 默认 2 参读取应用环境 :web_base_url（test 环境默认 http://localhost:3000）
+      assert %{return_url: "http://localhost:3000/orders/ord-123"} =
+               AlipayProvider.maybe_put_return_url(%{}, page_order)
+    end
+
+    test "扫码型（alipay_qr）或缺少 web_base_url / order.id 时不写 return_url 键" do
+      alias Cgc2046.Payments.Providers.Alipay, as: AlipayProvider
+
+      qr_order = %{id: "ord-qr", provider: :alipay_qr}
+      page_order = %{id: "ord-123", provider: :alipay_page}
+
+      refute Map.has_key?(
+               AlipayProvider.maybe_put_return_url(%{}, qr_order, "https://codingirlsclub.com"),
+               :return_url
+             )
+
+      refute Map.has_key?(
+               AlipayProvider.maybe_put_return_url(%{}, page_order, nil),
+               :return_url
+             )
+
+      refute Map.has_key?(
+               AlipayProvider.maybe_put_return_url(%{}, page_order, "   "),
+               :return_url
+             )
+
+      refute Map.has_key?(
+               AlipayProvider.maybe_put_return_url(
+                 %{},
+                 %{id: nil, provider: :alipay_page},
+                 "https://codingirlsclub.com"
+               ),
+               :return_url
+             )
+
+      refute Map.has_key?(
+               AlipayProvider.maybe_put_return_url(
+                 %{},
+                 %{id: "", provider: :alipay_page},
+                 "https://codingirlsclub.com"
+               ),
+               :return_url
+             )
+    end
+  end
+
   # ── 布置 ──
 
   defp fake_order do

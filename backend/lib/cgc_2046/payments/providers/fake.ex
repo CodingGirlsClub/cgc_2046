@@ -15,9 +15,10 @@ defmodule Cgc2046.Payments.Providers.Fake do
   @default_credential %{"type" => "jsapi", "pay_params" => %{"appId" => "wx-fake"}}
 
   @impl Cgc2046.Payments.Provider
-  def create_payment(order, _ctx) do
+  def create_payment(order, ctx) do
     case scripted(:create_payment) do
       nil -> {:ok, Map.put(@default_credential, "out_trade_no", order.out_trade_no)}
+      fun when is_function(fun, 2) -> fun.(order, ctx)
       result -> result
     end
   end
