@@ -112,7 +112,13 @@ DSH 的 ACP bundle 默认将 `session-title-llm` 设为 `disabled: true`。CGC �
 
 ## 参考
 
-- 方案文档（本地工作稿）：`tmp/answers/dsh-acp-plan.md`
+- 方案文档（本地工作稿，未入库）：`tmp/answers/dsh-acp-plan.md`
 - 适配器包：<https://www.npmjs.com/package/@openma/deepseek-harness-acp/v/0.4.41>
 - 上游仓库：<https://github.com/openma-ai/deepseek-harness-acp>
 - 许可规则：`docs/开源合规/依赖引入规则.md`
+- 核心源码与门禁文件：
+  - 注册表与安装：`desktop/crates/platform/resources/registry.json`、`desktop/crates/platform/src/registry/install.rs`
+  - 运行时探测、插件与启动：`desktop/crates/platform/src/agent/dsh_plugin.rs`、`desktop/crates/platform/src/agent/dsh_plugin/tests.rs`、`desktop/crates/platform/src/agent/dsh_runtime.rs`、`desktop/crates/platform/src/agent/detect.rs`、`desktop/crates/platform/src/agent/launch.rs`
+  - 应用层桥接与注册表 UI：`desktop/crates/app/src/dsh_agent.rs`、`desktop/crates/app/src/root_view/controller.rs`、`desktop/crates/app/src/root_view/screens/workspace/agent_registry.rs`、`desktop/crates/app/src/root_view/agent_registry_tests.rs`
+  - 多语言词表：`desktop/resources/i18n/zh.lang`、`desktop/resources/i18n/en.lang`
+  - 开源许可门禁：`desktop/scripts/npm_licenses.json`、`desktop/scripts/check_licenses.py`、`desktop/NOTICE`
