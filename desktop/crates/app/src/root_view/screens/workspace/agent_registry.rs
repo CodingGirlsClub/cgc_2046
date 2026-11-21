@@ -196,7 +196,7 @@ pub(in crate::root_view) fn render_agent_registry(
                                 })
                                 .ghost()
                                 .with_size(gpui_kit::component::Size::Small)
-                                .disabled(is_uninstalling)
+                                .disabled(is_installing || is_uninstalling)
                                 .on_click(move |_, _, cx| {
                                     let _ = root.update(cx, |this, cx| {
                                         this.uninstall_agent(&uninstall_id, cx);
@@ -253,23 +253,31 @@ pub(in crate::root_view) fn render_agent_registry(
                                                     )),
                                             ),
                                     )
-                                    .child(
+                                    .child({
+                                        let share_hint = translate(
+                                            language,
+                                            if dsh_share_local {
+                                                Key::AgentRegistryDshShareLocalOn
+                                            } else {
+                                                Key::AgentRegistryDshShareLocalHint
+                                            },
+                                        );
                                         div()
+                                            .id(SharedString::from(format!(
+                                                "agent-dsh-share-hint-{}",
+                                                entry.id
+                                            )))
+                                            .test_support()
+                                            .role(Role::Status)
+                                            .aria_label(share_hint)
                                             .text_size(px(10.0))
                                             .text_color(if dsh_share_local {
                                                 palette.warning
                                             } else {
                                                 palette.ink_3
                                             })
-                                            .child(translate(
-                                                language,
-                                                if dsh_share_local {
-                                                    Key::AgentRegistryDshShareLocalOn
-                                                } else {
-                                                    Key::AgentRegistryDshShareLocalHint
-                                                },
-                                            )),
-                                    )
+                                            .child(share_hint)
+                                    })
                                     .children((dsh_share_local && dsh_version_mismatch).then(
                                         || {
                                             div()

@@ -19,10 +19,10 @@ pub use action::{ActionSink, AppAction};
 pub use approval::{Approval, ApprovalDecision};
 pub use error::ToolError;
 pub use mcp::{
-    discover_read_only_mcp_tools, discover_read_only_mcp_tools_with, is_read_only_mcp_tool,
-    merge_injected_args, register_read_only_mcp_tools, register_read_only_mcp_tools_from_lease,
-    register_read_only_mcp_tools_from_lease_with, register_read_only_mcp_tools_with,
-    READ_ONLY_MCP_TOOLS,
+    discover_learning_host_mcp_tools, discover_learning_host_mcp_tools_with,
+    is_learning_host_mcp_tool, merge_injected_args, register_learning_host_mcp_tools,
+    register_learning_host_mcp_tools_from_lease, register_learning_host_mcp_tools_from_lease_with,
+    register_learning_host_mcp_tools_with, LEARNING_HOST_MCP_TOOLS,
 };
 pub use policy::{CommandDecision, CommandPolicy};
 pub use registry::ToolRegistry;

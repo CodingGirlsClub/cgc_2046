@@ -3,7 +3,7 @@
 
 use cgc_agent_store::AuditLog;
 use cgc_agent_tools::mcp::McpLeaseGuard;
-use cgc_agent_tools::{discover_read_only_mcp_tools_with, SharedAgentState, Tool};
+use cgc_agent_tools::{discover_learning_host_mcp_tools_with, SharedAgentState, Tool};
 use cgc_platform::mcp::{
     client::{McpClientError, McpHttpClient},
     credential::LearningHostLease,
@@ -94,7 +94,7 @@ impl McpContext {
             .as_ref()
             .map(|id| serde_json::json!({ "workspace_id": id }));
         let client = McpHttpClient::new(&self.0.endpoint).with_bearer_token(&self.0.lease.token);
-        let mut tools = discover_read_only_mcp_tools_with(
+        let mut tools = discover_learning_host_mcp_tools_with(
             NATIVE_MCP_SERVER,
             client,
             injected,
