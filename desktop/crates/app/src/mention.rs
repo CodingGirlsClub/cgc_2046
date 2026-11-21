@@ -393,9 +393,13 @@ pub(crate) fn display_text(text: &str) -> String {
 
 /// 技能 / 文件内容读取与展示，统一走工作区扫描后的结果。
 pub(crate) fn load_skills(workspace: &Path) -> Vec<SkillEntry> {
+    load_skills_with_home(workspace, cgc_platform::paths::home_dir())
+}
+
+fn load_skills_with_home(workspace: &Path, home: Option<PathBuf>) -> Vec<SkillEntry> {
     let mut roots: Vec<(PathBuf, &'static str)> = Vec::new();
-    if let Some(home) = std::env::var_os("HOME") {
-        roots.push((PathBuf::from(home).join(".agents").join("skills"), "global"));
+    if let Some(home) = home {
+        roots.push((home.join(".agents").join("skills"), "global"));
     }
     roots.push((workspace.join(".agents").join("skills"), "project"));
     roots.push((workspace.join("skills"), "project"));
@@ -798,6 +802,36 @@ mod tests {
         assert_eq!(skills[0].scope, "project");
         assert_eq!(skills[0].description, "项目部署");
         assert_eq!(skills[0].file_path, project.join("deploy/SKILL.md"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_skills_with_windows_home_discovers_global_skills() {
+        use std::collections::HashMap;
+        let dir = temp_dir("windows-home-skills");
+        let userprofile = dir.join("userprofile");
+        let workspace = dir.join("workspace");
+        std::fs::create_dir_all(userprofile.join(".agents/skills/win-skill")).unwrap();
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::write(
+            userprofile.join(".agents/skills/win-skill/SKILL.md"),
+            "---\nname: win-skill\ndescription: Windows home 技能\n---\n",
+        )
+        .unwrap();
+
+        let env = HashMap::from([
+            ("HOME".to_string(), PathBuf::new()),
+            ("USERPROFILE".to_string(), userprofile.clone()),
+        ]);
+        let home = cgc_platform::paths::home_dir_from(|key| env.get(key).cloned());
+        let skills = load_skills_with_home(&workspace, home);
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].name, "win-skill");
+        assert_eq!(skills[0].scope, "global");
+        assert_eq!(
+            skills[0].file_path,
+            userprofile.join(".agents/skills/win-skill/SKILL.md")
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

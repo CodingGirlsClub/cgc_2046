@@ -57,7 +57,7 @@ fn find_dsh_in(env: impl Fn(&str) -> Option<PathBuf>, windows: bool) -> Option<P
     }) {
         return Some(path);
     }
-    env("HOME").and_then(|home| {
+    crate::paths::home_dir_from(&env).and_then(|home| {
         names
             .iter()
             .map(|name| home.join(".local/bin").join(name))

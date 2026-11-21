@@ -115,6 +115,7 @@ fn execute(
     sandbox: Option<SandboxPolicy>,
     cancelled: Option<crate::tool::CancelProbe>,
 ) -> Result<ToolResult, ToolError> {
+    let cwd = cgc_platform::paths::strip_windows_verbatim(&cwd);
     let mut process = match sandbox {
         Some(policy) => CommandSandbox::detect().wrap(&command, &cwd, &policy),
         None => {
