@@ -16,7 +16,7 @@
 
 1. **浏览器会话唯一归属 `codingirlsclub.com` 一个 origin。** `api.codingirlsclub.com` 只服务非浏览器客户端（`Authorization: Bearer` / 渠道验签 webhook / MCP 连接 token）。
 2. 任何需要会话的浏览器面必须经主域路由到达：`/ops/*` 由 kamal-proxy **path 路由**直达 backend 容器（backend `ops` role，`host: codingirlsclub.com` + `path_prefix: /ops`，不 strip prefix），不经 Next.js。
-3. **所有回跳/链接类 env 必须指向主域**（`ALIPAY_RETURN_URL`、`WEB_BASE_URL`、`PAYMENTS_WEBHOOK_BASE_URL` 例外——它接收的是支付宝服务器回调，非浏览器，指 api 域正确）。
+3. **所有回跳/链接类 URL 必须指向主域**（统一由 `WEB_BASE_URL` 派生，如支付宝网页支付回跳 `<WEB_BASE_URL>/orders/<id>`，不另设 `ALIPAY_RETURN_URL`；`PAYMENTS_WEBHOOK_BASE_URL` 例外——它接收的是支付平台服务器回调，非浏览器，指 api 域正确）。
 4. cookie 保持 host-only（最小权限），禁止放宽为 `domain: .codingirlsclub.com`。
 
 ### 拒绝的替代
@@ -30,4 +30,4 @@
 - **正面：** `/ops/admin` 在主域登录态下直接可用（管理员直觉 URL）；Phoenix/Next 业务代码零改动（只动「谁在哪个 URL 上被看见」）；WebSocket 由 kamal-proxy 原生支持。
 - **实现细节（已固化）：** Phoenix 挂 `/ops/live` socket（`check_origin` 显式含主域）+ `ash_admin(..., live_socket_path: "/ops/live")`；未登录 `/ops/admin` → 403（`PlatformAdminPlug`）纳入部署冒烟（404 = path 规则失效红线）。kamal-proxy path 前缀路由优先于同 host 的 catch-all 服务，已在生产实证（临时探针 `/opsprobe/healthz` → backend `ok`，2026-08-21）。
 - **代价/风险：** backend 起第二个容器（同镜像，内存 +1 份 BEAM）；api 域上的 `/ops` 维持 403 现状（无 cookie 永远 403，无害）。
-- **同族遗留（另案处理）：** 反向代理链上 client IP 默认丢失——所有 per-IP 限流退化成全站共享一个桶（`conn.remote_ip` 恒为代理容器 IP），需 `remote_ip` 类方案修复，独立推进。
+- **同族遗留（已解决，#278）：** 反向代理链上 client IP 默认丢失问题已通过 `remote_ip` plug（`backend/lib/cgc_2046_web/endpoint.ex`）与 `backend/config/deploy.yml` 分角色 `forward_headers` 配置修复。
