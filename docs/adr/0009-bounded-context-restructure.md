@@ -54,21 +54,31 @@ Curriculum (core，教研) —— 教研产出物（outline/materials/issues/arc
   │ 被 Events/Courses 实例化引用；被 Learning 读契约消费
 
 Sponsorship (core) —— 两级赞助（Event 级/Workspace 级）+ 履约账本
-Learning (core) —— LearningRecord（记忆挂人）、进度投影
+Learning (core) —— Learning.Attempt（不可变评价账本）、Learning.CourseNote、Mastery/NextAction/Runs 投影（ADR-0011 取代原 LearningRecord）
 Workflows (generic) —— WorkflowDefinition/WorkflowRun/Step、信号总线
 Notification (supporting) —— Fanout/Service/Templates
 Platform Reporting (supporting) —— Reconciliation Finding 底座（各域扫描器写入）
 MCP gateway (interface layer) —— 工具面/鉴权/审计（适配器，不含领域逻辑）
+
+── 后续新增域（2026-09 起，config.exs 现注册 17 个 Ash Domain）──
+Initiatives —— 平台级倡导活动与规则继承（跨工作台挂载）
+Recruitment —— RecruitmentCohort / ResumeProfile / VolunteerApplication
+Flashback —— 闪念间档案 / 愿望 / 共鸣
+Miniprogram —— 分享深链缓存 ShareScheme
+LlmGateway —— 托管算力钱包 / 工作台算力池 / 独立收银台 PaymentOrder / 上游渠道目录
 ```
 
 ### 分项决策
 
 1. **D1：Admission（报名）独立限界上下文。** Enrollment + InviteBatch 迁入；enrollments **保持单表不复制**；Events/Courses 是其上游。取代 D-A4「Enrollment 归活动 context」。
 2. **D2：名额账本归 Admission。** offering launched 信号到达时建 capacity 投影；占位/释放的原子 CAS 在 Admission 自己的账本表内进行（超卖防护不变甚至更强）；offering 上的 `confirmed_count` 退化为**展示投影**，信号最终一致同步。消除系统唯一的跨 context 写点（今天 Enrollment 创建事务里对 `events/courses.confirmed_count` 的条件 UPDATE）——**更正补记（2026-08-28 实施期）**：「唯一」实为三处——enrollment.ex reserve / release 两处裸 SQL 条件 UPDATE、order.ex expire 链的名额回落、events/courses 上 confirmed_count check constraint 与账本语义的耦合；三处均已在 PR⑤ 收编进名额账本。落实「服务独占自己数据的更新权」。已知代价：capacity 调小后存在信号同步窗口期的理论超卖风险，由账本侧 CAS 兜底拒单 + 对账规则兜底。
+   - **2026-11-22 刻意边界例外登记（只记不拆，附拆解触发条件）**：
+     - **例外 1（`LlmGateway.Ledger` → `workspaces.credit_pool_mc`）**：`backend/lib/cgc_2046/llm_gateway/ledger.ex` 通过 `SELECT ... FOR UPDATE` 与原子 SQL 更新 `Accounts` 属主表 `workspaces.credit_pool_mc`（`workspace.ex` 设为 `public?: false, writable?: false`，配套对账规则 `:llm_workspace_pool_mismatch` 守恒校核）。暂不拆独立表以避免两阶段活表迁移；**拆解触发条件**：工作台算力池新增独立状态字段（如冻结/透支/多币种）或 `workspaces` 行锁成为并发热点时，拆出 `llm_workspace_pools` 并退役该列。
+     - **例外 2（`Accounts.WorkspaceMembership :destroy` → `Events.Changes.RevokeModerationsOnLeave`）**：`backend/lib/cgc_2046/accounts/workspace_membership.ex` 同事务挂载 `Events` 域 change（裸 SQL 删除 `event_moderators` + 记审计），用以零异步窗口死守「主理人 ⇒ 仍在台成员」押金核销安全不变量（#561，`events/moderators.ex` 直接依赖）。已于 2026-11-22 经 `mix xref` 实测确认：`RevokeModerationsOnLeave` 无任何 `compile-connected` 入边、`NOT_IN_ANY_CYCLE`（Ash `change/1` 仅为运行时模块原子引用），保留同步事务级联零编译环代价。暂不引入抽象钩子注册表；**拆解触发条件**：出现第 2 个需要「成员离台同事务清理」的下游域时，再抽象 `LeaveHooks` 反转依赖。
 3. **D3：内容归 Curriculum（教研）context，Course 持发布投影。** 教研产出物（现 `ResearchOutput` 家族：outline/materials/issues/archive）的起草/审核/归档归 Curriculum；Courses 拥有课程供给（排期/定价/报名策略/发布状态）与「哪版内容已发布」的投影；Learning 经读契约消费已发布内容。物理基础已存在（内容本体存 ResearchOutput，`course_content/1` 本为读 seam）。
 4. **D4：Sponsorship 独立 context。** 两级赞助（Event 级单场 / Workspace 级长期）+ 履约账本，不纯是 Event 的附属；Event 引用改软引用。
 5. **D5：Offering 保留命名、转正为发布语言读端口。** 英文标识符不动（`Cgc2046.Offering`，移出 events/ 至中立位置，或作 `Admission.Offering` 上游端口）；中文统一语言定名**供给物**。模块变薄：纯读取投影契约，零写入；Events/Courses 各实现 adapter。消费面不变：Admission 校验、小程序分享深链（target_kind/target_id）、PendingApprovals 标题、通知 target_title、GraphQL offeringReadiness、公开浏览族。
-6. **D6：Payments 为 supporting domain，Order 锚 enrollment_id 不变。** 报名是唯一收费场景（赞助 v1 不收款），**放弃 `(subject_kind, subject_id)` 泛化**（无需求抽象）；Admission 独立后 order.ex 的 event/course 双分叉 JOIN 收敛为单 JOIN。资金对账（PaymentReconciliationWorker / ReplaySettlement）留 Payments 域内；Reconciliation Finding 底座与 /admin 对账页保持「底座共享 + 扫描器归各域」结构不动。**(措辞更正,2026-08-29 复审 A2:「扫描器归各域」未落实且被取代——reconciliation_scan_worker 一体留守并归 `reconciliation/`(ADR-0010 W1 拍板,保守路径:单文件 12 规则硬编码 11 域不变量,拆开收益不抵分散风险);「归各域」措辞自此作废,以 ADR-0010 为准。)****（实施期补记，2026-08-29 Fable 5 评审 M2：PR⑤ 漏收一处逆向写点——Enrollment 直写 `payments_orders` 作废 pending 单的裸 SQL,已收编为 Payments 端口 `Order.void_pending_for_enrollment/2`,Admission 侧三处调用点改走端口,语义逐行等价。）**
+6. **D6：Payments 为 supporting domain，Order 锚 enrollment_id 不变。** 报名是唯一收费场景（赞助 v1 不收款），**放弃 `(subject_kind, subject_id)` 泛化**（无需求抽象）；Admission 独立后 order.ex 的 event/course 双分叉 JOIN 收敛为单 JOIN。资金对账（PaymentReconciliationWorker / ReplaySettlement）留 Payments 域内；Reconciliation Finding 底座与 /admin 对账页保持「底座共享 + 扫描器归各域」结构不动。**(措辞更正,2026-08-29 复审 A2:「扫描器归各域」未落实且被取代——reconciliation_scan_worker 一体留守并归 `reconciliation/`(ADR-0010 W1 拍板,保守路径:单文件 12 规则硬编码 11 域不变量,拆开收益不抵分散风险);「归各域」措辞自此作废,以 ADR-0010 为准。)****（实施期补记，2026-08-29 Fable 5 评审 M2：PR⑤ 漏收一处逆向写点——Enrollment 直写 `payments_orders` 作废 pending 单的裸 SQL,已收编为 Payments 端口 `Order.void_pending_for_enrollment/2`,Admission 侧三处调用点改走端口,语义逐行等价。）** **（2026-11-22 演进补记：`Payments.Order` 维持单锚 `enrollment_id` 不泛化；平台后续新增的第二收费场景（托管算力充值）以独立收银台 `Cgc2046.LlmGateway.PaymentOrder` 承接，不破坏 `Payments.Order` 边界，详见 ADR-0007 2026-11-19 补记。）**
 7. **D7：教研英文命名 = Curriculum。** Research 太宽泛，Teaching Research 为中式英语；学科通用名 instructional design，命名取产出物本质（Curriculum = 课程编制）。`ResearchOutput → Curriculum 家族`、`ResearchInstantiator → CurriculumInstantiator`、`research_enabled → curriculum_enabled` 等改名随迁移序列进行；中文文档继续称「教研」。
 8. **D8：迁移策略——模型先行、五步 PR 序列**（数据库可重置，无绞杀/兼容层）：
    - **PR① Admission 抽出**：Enrollment/InviteBatch 迁入 `admission/`；Offering 读契约改上游端口（移出 events/）；信号名 `enrollment.*` 不变（订阅方零改动）。
