@@ -97,7 +97,16 @@ defmodule Cgc2046.Accounts.AdminActionLog do
           :llm_user_credit_grant,
           # Phase 4 补齐：平台管理员冻结/解冻用户 LLM 额度账户、调整并发流上限
           :llm_wallet_status_update,
-          :llm_wallet_concurrency_update
+          :llm_wallet_concurrency_update,
+          # Provider Catalog：动态管理上游 Provider / API Key / 模型目录
+          :llm_provider_create,
+          :llm_provider_update,
+          :llm_provider_delete,
+          :llm_provider_api_key_create,
+          :llm_provider_api_key_update,
+          :llm_provider_api_key_delete,
+          :llm_provider_model_upsert,
+          :llm_provider_model_delete
         ]
       ],
       description: "治理动作类型"
@@ -118,7 +127,10 @@ defmodule Cgc2046.Accounts.AdminActionLog do
           :initiative,
           # 闪念间触达运营（R1/R2）：批量发送 target = 场次，重发 target = 校友
           :flashback_event_archive,
-          :flashback_person
+          :flashback_person,
+          :llm_provider,
+          :llm_provider_api_key,
+          :llm_provider_model
         ]
       ],
       description: "目标资源类型"

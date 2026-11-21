@@ -297,8 +297,31 @@ fn message_to_json_with_reasoning(message: &Message, include_reasoning: bool) ->
                 "role": "assistant",
                 "content": if text.is_empty() { Value::Null } else { json!(text) }
             });
-            if include_reasoning && !reasoning_text.is_empty() {
-                json["reasoning_content"] = json!(reasoning_text);
+            if include_reasoning {
+                if !reasoning_text.is_empty() {
+                    json["reasoning_content"] = json!(reasoning_text);
+                }
+                let signed_blocks: Vec<Value> = message
+                    .content
+                    .iter()
+                    .filter_map(|content| match content {
+                        Content::Thinking { text, signature } if !signature.is_empty() => {
+                            Some(json!({
+                                "type": "thinking",
+                                "thinking": text,
+                                "signature": signature,
+                            }))
+                        }
+                        Content::RedactedThinking { data } if !data.is_empty() => Some(json!({
+                            "type": "redacted_thinking",
+                            "data": data,
+                        })),
+                        _ => None,
+                    })
+                    .collect();
+                if !signed_blocks.is_empty() {
+                    json["thinking_blocks"] = json!(signed_blocks);
+                }
             }
             if !tool_calls.is_empty() {
                 json["tool_calls"] = json!(tool_calls);
@@ -450,6 +473,7 @@ struct StreamState {
     stop_sent: bool,
     replay_emitted: bool,
     reasoning_buf: String,
+    signed_thinking_blocks: Vec<Content>,
     text_buf: String,
     tool_calls: BTreeMap<u32, PendingToolCall>,
 }
@@ -474,6 +498,28 @@ impl StreamState {
                         text: reasoning,
                         signature: None,
                     });
+                }
+                for block in delta.thinking_blocks {
+                    match block {
+                        OpenAiThinkingBlock::Thinking {
+                            thinking,
+                            signature,
+                        } if !signature.is_empty() => {
+                            events.push(CompletionEvent::Thinking {
+                                text: String::new(),
+                                signature: Some(signature.clone()),
+                            });
+                            self.signed_thinking_blocks.push(Content::Thinking {
+                                text: thinking,
+                                signature,
+                            });
+                        }
+                        OpenAiThinkingBlock::RedactedThinking { data } if !data.is_empty() => {
+                            self.signed_thinking_blocks
+                                .push(Content::RedactedThinking { data });
+                        }
+                        _ => {}
+                    }
                 }
                 if let Some(content) = delta.content.filter(|content| !content.is_empty()) {
                     self.text_buf.push_str(&content);
@@ -537,14 +583,23 @@ impl StreamState {
     }
 
     fn emit_replay_blocks(&mut self, events: &mut Vec<CompletionEvent>, tool_uses: &[ToolUse]) {
-        if self.replay_emitted || self.reasoning_buf.is_empty() {
+        if self.replay_emitted
+            || (self.reasoning_buf.is_empty() && self.signed_thinking_blocks.is_empty())
+        {
             return;
         }
         self.replay_emitted = true;
-        events.push(CompletionEvent::ContentBlock(Content::Thinking {
-            text: std::mem::take(&mut self.reasoning_buf),
-            signature: String::new(),
-        }));
+        if !self.signed_thinking_blocks.is_empty() {
+            self.reasoning_buf.clear();
+            for block in std::mem::take(&mut self.signed_thinking_blocks) {
+                events.push(CompletionEvent::ContentBlock(block));
+            }
+        } else {
+            events.push(CompletionEvent::ContentBlock(Content::Thinking {
+                text: std::mem::take(&mut self.reasoning_buf),
+                signature: String::new(),
+            }));
+        }
         let text = std::mem::take(&mut self.text_buf);
         if !text.is_empty() {
             events.push(CompletionEvent::ContentBlock(Content::Text(text)));
@@ -597,7 +652,26 @@ struct OpenAiDelta {
     content: Option<String>,
     #[serde(alias = "reasoning")]
     reasoning_content: Option<String>,
+    #[serde(default)]
+    thinking_blocks: Vec<OpenAiThinkingBlock>,
     tool_calls: Option<Vec<OpenAiToolCallDelta>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum OpenAiThinkingBlock {
+    Thinking {
+        #[serde(default)]
+        thinking: String,
+        #[serde(default)]
+        signature: String,
+    },
+    RedactedThinking {
+        #[serde(default)]
+        data: String,
+    },
+    #[serde(other)]
+    Other,
 }
 
 #[derive(Debug, Deserialize)]

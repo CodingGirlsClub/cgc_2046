@@ -145,4 +145,6 @@ config :cgc_2046,
   wechat_web: [
     appid: "test-wechat-web-appid",
     secret: "test-wechat-web-secret"
-  ]
+  ],
+  llm_gateway_catalog_cache_enabled: false,
+  llm_gateway_allow_private_upstreams: true

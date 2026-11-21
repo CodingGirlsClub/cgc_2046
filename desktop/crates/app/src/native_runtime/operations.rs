@@ -3,7 +3,7 @@ use super::*;
 use cgc_agent_checkpoint::CheckpointManager;
 use cgc_agent_core::{Agent, SelectedModel};
 use cgc_agent_provider::{EchoProvider, UnconfiguredProvider};
-use cgc_agent_store::{cgc_cloud_provider, PrefsStore, CGC_CLOUD_PROVIDER_ID};
+use cgc_agent_store::{PrefsStore, CGC_CLOUD_PROVIDER_ID};
 use cgc_agent_tools::SandboxPolicy;
 
 impl Owner {
@@ -220,13 +220,7 @@ impl Owner {
             )),
         ));
         if let Some(agent) = self.agent.as_mut() {
-            let background = self.production.as_ref().and_then(|production| {
-                (self.config.model.provider_id.as_str() == CGC_CLOUD_PROVIDER_ID)
-                    .then(|| factory::managed_background_model(production))
-                    .flatten()
-                    .map(|(_, model)| model)
-            });
-            agent.set_background_model(background);
+            agent.set_background_model(None);
         }
         self.rebuild_tools();
         self.freeze();
@@ -353,11 +347,6 @@ impl Owner {
             model.provider_id.as_str(),
             self.config.model.provider_id.as_str(),
         );
-        let managed = model.provider_id.as_str() == CGC_CLOUD_PROVIDER_ID;
-        let background_model = managed
-            .then(|| factory::managed_background_model(production))
-            .flatten()
-            .map(|(_, model)| model);
         self.persist();
         self.config.provider = provider;
         self.config.context_size = model.limits.context_window as u64;
@@ -367,7 +356,7 @@ impl Owner {
             self.effort_index = 0;
         }
         if let Some(agent) = self.agent.as_mut() {
-            agent.set_background_model(background_model);
+            agent.set_background_model(None);
         }
         self.replace(
             thread_for_model_switch(
@@ -392,20 +381,14 @@ impl Owner {
             .as_mut()
             .ok_or_else(|| NativeRuntimeError::Configuration("runtime 未配置模型目录".into()))?;
         let prefs = PrefsStore::new(production.data_root.join("agent_prefs.json")).load();
-        let managed_available = cgc_platform::gateway::signed_in();
+        let managed_provider =
+            factory::cgc_cloud_provider_from_gateway(prefs.provider(CGC_CLOUD_PROVIDER_ID));
         let (env_base_url, env_key) = factory::env_byok_credentials();
         let env_byok = factory::has_env_byok(&prefs, env_base_url.as_deref(), env_key.as_deref());
         let (managed, active) =
-            factory::resolve_active_provider_with_env(&prefs, managed_available, env_byok);
-        let mut available_providers = prefs.providers.clone();
-        if managed
-            && !available_providers
-                .iter()
-                .any(|provider| provider.id == CGC_CLOUD_PROVIDER_ID)
-        {
-            available_providers.push(cgc_cloud_provider());
-        }
-        available_providers.retain(|provider| provider.enabled);
+            factory::resolve_active_provider_with_env(&prefs, managed_provider.clone(), env_byok);
+        let available_providers =
+            factory::merge_available_providers(&prefs.providers, managed_provider);
         production.providers = Arc::new(available_providers.clone());
         self.providers = Arc::new(available_providers);
         let model_id = active.as_ref().and_then(|active| {
@@ -454,11 +437,7 @@ impl Owner {
             self.effort_index = 0;
         }
         if let Some(agent) = self.agent.as_mut() {
-            let background = managed
-                .then(|| factory::managed_background_model(production))
-                .flatten()
-                .map(|(_, model)| model);
-            agent.set_background_model(background);
+            agent.set_background_model(None);
         }
         let selected = SelectedModel::new(model.provider_id.clone(), model.id.clone());
         if self.frozen.model != selected {

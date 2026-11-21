@@ -17,5 +17,8 @@ defmodule Cgc2046.LlmGateway do
     resource(Cgc2046.LlmGateway.CreditGrant)
     resource(Cgc2046.LlmGateway.UsageLog)
     resource(Cgc2046.LlmGateway.PaymentOrder)
+    resource(Cgc2046.LlmGateway.Provider)
+    resource(Cgc2046.LlmGateway.ProviderApiKey)
+    resource(Cgc2046.LlmGateway.ProviderModel)
   end
 end

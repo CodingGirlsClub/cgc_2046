@@ -1,62 +1,21 @@
 defmodule Cgc2046.LlmGateway.AffinityRouter do
   @moduledoc """
-  Session-affinity 路由与 `:fuse` 熔断器管理。
+  基于 DB `ProviderCatalog` 的模型感知粘性路由与 `:fuse` 熔断器管理。
 
-  同一 `x-session-affinity`（或 `session_id`）始终优先命中同一上游渠道，
-  以最大化 DeepSeek 的 KV 前缀缓存命中率；渠道连续失败触发 `:fuse` 熔断
-  后，在未向客户端发送任何内容前无缝漂移到下一个候选渠道。
+  - 按请求的 `model_id` 从 `ProviderCatalog` 查询支持该模型的可用渠道槽位；
+  - 同 `priority` 优先级层内基于 `(session_id | user_id, model_id)` 做会话粘性；
+  - 渠道连续失败触发 `:fuse` 熔断后，在未向客户端发送首包前无缝漂移到同层下一槽位或更高优先数备用渠道。
   """
+
+  alias Cgc2046.LlmGateway.Protocol.AnthropicAdapter
+  alias Cgc2046.LlmGateway.Protocol.OpenaiAdapter
+  alias Cgc2046.LlmGateway.ProviderCatalog
 
   @ets_table :llm_session_affinity
   @affinity_ttl_seconds 7_200
-  @max_output_tokens_default 8_192
-  @default_output_tokens_default 4_096
-  @max_output_tokens_reasoning 32_768
-  @default_output_tokens_reasoning 16_384
-  @background_output_tokens 1_024
-
-  # 上游转发参数白名单：严格剔除 "n"、"session_id"、"stream"、"stream_options"、"user"
-  # 及任意客户端自定义字段，防止多候选倍率套利或协议注入。
-  @allowed_upstream_keys ~w(
-    model
-    messages
-    tools
-    tool_choice
-    max_tokens
-    temperature
-    top_p
-    presence_penalty
-    frequency_penalty
-    stop
-    response_format
-    seed
-    reasoning_effort
-    logprobs
-    top_logprobs
-  )
-
-  @default_channels [
-    %{
-      id: "deepseek_official_1",
-      provider: :deepseek,
-      base_url: "https://api.deepseek.com",
-      api_key: "sk-dev-placeholder",
-      chat_path: "/chat/completions",
-      pricing_model: %{
-        "cgc-default" => "deepseek-chat",
-        "cgc-reasoning" => "deepseek-reasoner",
-        "cgc-background" => "deepseek-chat"
-      },
-      models: %{
-        "cgc-default" => "deepseek-chat",
-        "cgc-reasoning" => "deepseek-reasoner",
-        "cgc-background" => "deepseek-chat"
-      }
-    }
-  ]
 
   @doc """
-  初始化 ETS 会话粘性表并安装配置渠道的熔断器；幂等。
+  初始化 ETS 会话粘性表；幂等。
   """
   def setup! do
     if :ets.whereis(@ets_table) == :undefined do
@@ -69,7 +28,6 @@ defmodule Cgc2046.LlmGateway.AffinityRouter do
       ])
     end
 
-    Enum.each(configured_channels(), fn channel -> install_fuse(channel.id) end)
     :ok
   end
 
@@ -88,13 +46,11 @@ defmodule Cgc2046.LlmGateway.AffinityRouter do
   end
 
   @doc """
-  为渠道安装熔断器：10 秒内 3 次失败即熔断，60 秒后自动恢复。
+  为渠道槽位安装熔断器：10 秒内 3 次失败即熔断，60 秒后自动恢复。
   """
   def install_fuse(channel_id) when is_binary(channel_id) do
     name = fuse_name(channel_id)
 
-    # 已存在时不能重复 install：fuse 的 install 会 reset 计数，
-    # 会让连续的 report_failure 永远攒不到熔断阈值。
     case :fuse.ask(name, :sync) do
       {:error, :not_found} ->
         _ = :fuse.install(name, {{:standard, 3, 10_000}, {:reset, 60_000}})
@@ -106,35 +62,57 @@ defmodule Cgc2046.LlmGateway.AffinityRouter do
   end
 
   @doc """
-  返回按优先级排列的候选渠道。首元素为粘性主渠道，其余为未发首包前的
-  故障转移候选；配置为空时返回 `[]`（由 controller 返回 503）。
+  为指定的 `requested_model` 解析按优先级与粘性排序的候选渠道。
+  - 返回 `{:ok, [primary | rest]}`；
+  - 目录内有其他可用模型但无该模型时返回 `{:error, :model_not_found}`；
+  - 整个目录无可用渠道时返回 `{:error, :no_channels}`。
   """
-  def candidate_channels(user_id, session_id) do
+  def candidate_channels(user_id, session_id, requested_model)
+      when is_binary(requested_model) do
     setup!()
 
-    case configured_channels() do
+    case ProviderCatalog.resolve_candidates_for_model(requested_model) do
       [] ->
-        []
+        if ProviderCatalog.has_any_active_channel?() do
+          {:error, :model_not_found}
+        else
+          {:error, :no_channels}
+        end
 
       all_channels ->
+        Enum.each(all_channels, &install_fuse(&1.id))
         healthy = Enum.filter(all_channels, &channel_healthy?(&1.id))
-        # 全部熔断时仍返回全量，让请求有机会触发恢复
         pool = if healthy == [], do: all_channels, else: healthy
 
         affinity_key =
           case session_id do
-            bin when is_binary(bin) and byte_size(bin) > 0 -> "session:#{bin}"
-            _ -> "user:#{user_id}"
+            bin when is_binary(bin) and byte_size(bin) > 0 ->
+              "session:#{bin}:#{requested_model}"
+
+            _ ->
+              "user:#{user_id}:#{requested_model}"
           end
 
         now = System.system_time(:second)
         primary = resolve_sticky_primary(affinity_key, pool, now)
-        [primary | Enum.reject(pool, &(&1.id == primary.id))]
+        {:ok, [primary | Enum.reject(pool, &(&1.id == primary.id))]}
+    end
+  end
+
+  def candidate_channels(_user_id, _session_id, _requested_model), do: {:error, :model_not_found}
+
+  @doc """
+  按渠道协议构造上游 HTTP 请求（URL、Headers、协议转换后 Body）。
+  """
+  def build_upstream_request(params, channel) when is_map(params) and is_map(channel) do
+    case Map.get(channel, :protocol, :openai_compatible) do
+      :anthropic -> AnthropicAdapter.build_request(params, channel)
+      _ -> OpenaiAdapter.build_request(params, channel)
     end
   end
 
   @doc """
-  记录一次可重试的上游失败（429/5xx/网络错误），喂给熔断器。
+  记录一次可重试的上游失败（401/403/429/5xx/网络错误），喂给熔断器。
   """
   def report_failure(channel_id) when is_binary(channel_id) do
     install_fuse(channel_id)
@@ -155,111 +133,6 @@ defmodule Cgc2046.LlmGateway.AffinityRouter do
     end
   end
 
-  @doc """
-  把逻辑模型别名解析成渠道物理模型，并清洗该逻辑模型的冲突参数。
-  返回 `{logical_model, upstream_model, payload}`。
-  """
-  def prepare_upstream_payload(params, channel) when is_map(params) and is_map(channel) do
-    logical_model = Map.get(params, "model") || "cgc-default"
-    models = Map.get(channel, :models, %{})
-
-    upstream_model =
-      Map.get(models, logical_model) ||
-        Map.get(models, "cgc-default") ||
-        "deepseek-chat"
-
-    cleaned_params =
-      params
-      |> Map.take(@allowed_upstream_keys)
-      |> Map.put("model", upstream_model)
-      |> Map.put("stream", true)
-      |> Map.put("stream_options", %{"include_usage" => true})
-      |> sanitize_for_logical_model(logical_model, upstream_model)
-
-    {logical_model, upstream_model, cleaned_params}
-  end
-
-  @doc """
-  拼接渠道的 OpenAI-compatible chat completions URL。
-  """
-  def chat_url(channel) when is_map(channel) do
-    base_url =
-      channel
-      |> Map.get(:base_url, "")
-      |> to_string()
-      |> String.trim_trailing("/")
-
-    path =
-      channel
-      |> Map.get(:chat_path, "/chat/completions")
-      |> to_string()
-      |> ensure_leading_slash()
-
-    base_url <> path
-  end
-
-  @doc """
-  返回渠道/逻辑模型对应的计费模型。渠道可显式配置 `pricing_model` 映射，
-  避免从火山方舟 `ep-...` 这类不透明上游 ID 猜模型族。
-  """
-  def pricing_model(channel, logical_model) when is_map(channel) and is_binary(logical_model) do
-    case get_in(channel, [:pricing_model, logical_model]) do
-      model when is_binary(model) -> model
-      _ -> default_pricing_model(logical_model)
-    end
-  end
-
-  defp default_pricing_model("cgc-reasoning"), do: "deepseek-reasoner"
-  defp default_pricing_model(_logical_model), do: "deepseek-chat"
-
-  def configured_channels do
-    case Application.get_env(:cgc_2046, :llm_gateway_channels, @default_channels) do
-      channels when is_list(channels) -> channels
-      _ -> @default_channels
-    end
-  end
-
-  defp sanitize_for_logical_model(params, logical_model, upstream_model) do
-    is_reasoner? =
-      logical_model == "cgc-reasoning" or
-        String.contains?(upstream_model, "reasoner") or
-        String.contains?(upstream_model, "-r1") or
-        String.contains?(upstream_model, "v4-pro")
-
-    params =
-      if is_reasoner? do
-        Map.drop(params, [
-          "temperature",
-          "top_p",
-          "presence_penalty",
-          "frequency_penalty",
-          "logprobs",
-          "top_logprobs"
-        ])
-      else
-        params
-      end
-
-    output_limit =
-      case Map.get(params, "max_tokens") do
-        max_tokens when is_integer(max_tokens) and max_tokens > 0 ->
-          cond do
-            logical_model == "cgc-background" -> min(max_tokens, @background_output_tokens)
-            is_reasoner? -> min(max_tokens, @max_output_tokens_reasoning)
-            true -> min(max_tokens, @max_output_tokens_default)
-          end
-
-        _ ->
-          cond do
-            logical_model == "cgc-background" -> @background_output_tokens
-            is_reasoner? -> @default_output_tokens_reasoning
-            true -> @default_output_tokens_default
-          end
-      end
-
-    Map.put(params, "max_tokens", output_limit)
-  end
-
   defp resolve_sticky_primary(affinity_key, pool, now) do
     case :ets.lookup(@ets_table, affinity_key) do
       [{^affinity_key, bound_channel_id, expires_at}] when expires_at > now ->
@@ -278,19 +151,15 @@ defmodule Cgc2046.LlmGateway.AffinityRouter do
   end
 
   defp bind_new_channel(affinity_key, pool, now) do
-    primaries = Enum.reject(pool, &String.contains?(&1.id, "backup"))
-    selection_pool = if primaries != [], do: primaries, else: pool
+    min_priority = pool |> Enum.map(&Map.get(&1, :priority, 100)) |> Enum.min()
+    primary_tier = Enum.filter(pool, &(Map.get(&1, :priority, 100) == min_priority))
 
-    idx = :erlang.phash2(affinity_key, length(selection_pool))
-    chosen = Enum.at(selection_pool, idx)
+    idx = :erlang.phash2(affinity_key, length(primary_tier))
+    chosen = Enum.at(primary_tier, idx)
 
     :ets.insert(@ets_table, {affinity_key, chosen.id, now + @affinity_ttl_seconds})
     chosen
   end
 
-  defp ensure_leading_slash(path) do
-    if String.starts_with?(path, "/"), do: path, else: "/" <> path
-  end
-
-  defp fuse_name(channel_id), do: :"llm_fuse_#{channel_id}"
+  defp fuse_name(channel_id), do: {:llm_fuse, channel_id}
 end

@@ -119,6 +119,47 @@ impl NativeComposerProbe {
     }
 }
 
+fn set_probe_active_model(
+    view: &mut NativeAgentView,
+    provider_id: &str,
+    provider_name: &str,
+    model_id: &str,
+    display_name: &str,
+    providers: Vec<cgc_agent_store::ProviderPrefs>,
+) {
+    let snapshot = view.snapshot.as_ref().expect("runtime snapshot");
+    let model = Model::new(
+        ProviderId::new(provider_id),
+        provider_name,
+        model_id,
+        display_name,
+        ModelLimits::new(128_000, 8_192),
+    );
+    view.snapshot = Some(Arc::new(crate::native_runtime::NativeRuntimeSnapshot {
+        thread: snapshot.thread.clone(),
+        model: Arc::new(model),
+        workspace: snapshot.workspace.clone(),
+        phase: snapshot.phase,
+        generation: snapshot.generation,
+        revision: snapshot.revision,
+        authorization_epoch: snapshot.authorization_epoch,
+        mcp_unavailable_reason: snapshot.mcp_unavailable_reason.clone(),
+        display_title: snapshot.display_title.clone(),
+        title_generating: snapshot.title_generating,
+        title_generation_error: snapshot.title_generation_error.clone(),
+        schemas: snapshot.schemas.clone(),
+        providers: Arc::new(providers),
+        model_setup: crate::native_runtime::ModelSetup::Configured,
+        thinking_enabled: snapshot.thinking_enabled,
+        effort_index: snapshot.effort_index,
+        approval_mode: snapshot.approval_mode,
+        checkpoints: snapshot.checkpoints.clone(),
+        changes: snapshot.changes.clone(),
+        agent_state: snapshot.agent_state.clone(),
+        persistence_available: snapshot.persistence_available,
+    }));
+}
+
 impl Render for NativeComposerProbe {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let composer = self.view.update(cx, |view, cx| {
@@ -693,6 +734,17 @@ fn wallet_badge_toggles_proactive_panel_and_distinguishes_paid_state_from_402(
     cx.update_window(handle, |_, window, cx| {
         let view = probe.read(cx).view.clone();
         view.update(cx, |view, cx| {
+            let managed = cgc_agent_store::cgc_cloud_provider_with_models(vec![
+                cgc_agent_store::ModelPrefs::new("deepseek-chat"),
+            ]);
+            set_probe_active_model(
+                view,
+                cgc_agent_store::CGC_CLOUD_PROVIDER_ID,
+                "CGC Cloud",
+                "deepseek-chat",
+                "DeepSeek Chat",
+                vec![managed],
+            );
             view.wallet = Some(sample_wallet());
             cx.notify();
         });
@@ -793,6 +845,20 @@ fn structured_turn_error_opens_quota_card_for_402_and_frozen_notice_for_403(
     });
     cx.update_window(handle, |_, window, cx| {
         let view = probe.read(cx).view.clone();
+        view.update(cx, |view, cx| {
+            let managed = cgc_agent_store::cgc_cloud_provider_with_models(vec![
+                cgc_agent_store::ModelPrefs::new("deepseek-chat"),
+            ]);
+            set_probe_active_model(
+                view,
+                cgc_agent_store::CGC_CLOUD_PROVIDER_ID,
+                "CGC Cloud",
+                "deepseek-chat",
+                "DeepSeek Chat",
+                vec![managed],
+            );
+            cx.notify();
+        });
         let generation = view.read(cx).metadata().generation;
 
         // 403 WalletFrozen must NOT open recharge card; displays frozen notice instead.
@@ -837,6 +903,166 @@ fn structured_turn_error_opens_quota_card_for_402_and_frozen_notice_for_403(
 
 #[path = "paste_tests.rs"]
 mod paste_tests;
+
+#[gpui_kit::test]
+fn non_cgc_model_hides_all_quota_ui_and_switching_back_restores_badge(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let (handle, probe) = cx.update(|cx| {
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds {
+                    origin: Default::default(),
+                    size: size(px(440.0), px(640.0)),
+                })),
+                ..Default::default()
+            },
+            cx,
+            |window, cx| cx.new(|cx| NativeComposerProbe::new(window, cx)),
+        )
+        .unwrap()
+    });
+    let sample_wallet = cgc_platform::gateway::WalletSummary {
+        wallet_id: "w-hide".into(),
+        cached_balance_mc: 12_000_000,
+        held_mc: 0,
+        available_mc: 12_000_000,
+        max_concurrent_streams: 2,
+        status: "active".into(),
+        remaining_percentage: 90,
+        active_grants: Vec::new(),
+    };
+    let managed =
+        cgc_agent_store::cgc_cloud_provider_with_models(vec![cgc_agent_store::ModelPrefs {
+            display_name: Some("DeepSeek Chat 官方版".into()),
+            ..cgc_agent_store::ModelPrefs::new("deepseek-chat")
+        }]);
+    let byok = cgc_agent_store::ProviderPrefs {
+        id: "deepseek".into(),
+        name: "DeepSeek BYOK".into(),
+        models: vec!["deepseek-chat".into()],
+        has_key: true,
+        enabled: true,
+        model_params: vec![cgc_agent_store::ModelPrefs::new("deepseek-chat")],
+        ..Default::default()
+    };
+
+    cx.update_window(handle, |_, window, cx| {
+        let view = probe.read(cx).view.clone();
+        // Start with non-CGC model while stale wallet/panel/quota state exists: nothing may render.
+        view.update(cx, |view, cx| {
+            set_probe_active_model(
+                view,
+                "deepseek",
+                "DeepSeek BYOK",
+                "deepseek-chat",
+                "deepseek-chat",
+                vec![managed.clone(), byok.clone()],
+            );
+            view.wallet = Some(sample_wallet.clone());
+            view.wallet_panel_open = true;
+            view.insufficient_quota = true;
+            view.wallet_frozen_notice = Some("frozen".into());
+            cx.notify();
+        });
+        window.render_frame(cx);
+        assert!(window.try_find("native-agent-wallet").is_none());
+        assert!(window.try_find("native-agent-quota-card").is_none());
+        assert!(window
+            .try_find("native-agent-wallet-frozen-notice")
+            .is_none());
+
+        // Switching back to CGC Cloud restores the wallet badge immediately.
+        view.update(cx, |view, cx| {
+            view.wallet_panel_open = false;
+            view.insufficient_quota = false;
+            view.wallet_frozen_notice = None;
+            set_probe_active_model(
+                view,
+                cgc_agent_store::CGC_CLOUD_PROVIDER_ID,
+                "CGC Cloud",
+                "deepseek-chat",
+                "DeepSeek Chat 官方版",
+                vec![managed.clone(), byok.clone()],
+            );
+            cx.notify();
+        });
+        window.render_frame(cx);
+        assert!(window.try_find("native-agent-wallet").is_some());
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn model_picker_renders_cgc_cloud_gateway_models_alongside_byok_with_display_names(
+    cx: &mut TestAppContext,
+) {
+    cx.update(gpui_kit::init);
+    let (handle, probe) = cx.update(|cx| {
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds {
+                    origin: Default::default(),
+                    size: size(px(520.0), px(680.0)),
+                })),
+                ..Default::default()
+            },
+            cx,
+            |window, cx| cx.new(|cx| NativeComposerProbe::new(window, cx)),
+        )
+        .unwrap()
+    });
+    let managed =
+        cgc_agent_store::cgc_cloud_provider_with_models(vec![cgc_agent_store::ModelPrefs {
+            display_name: Some("Claude Sonnet 4.5 (CGC)".into()),
+            ..cgc_agent_store::ModelPrefs::new("claude-sonnet-4-5")
+        }]);
+    let byok = cgc_agent_store::ProviderPrefs {
+        id: "deepseek".into(),
+        name: "DeepSeek".into(),
+        models: vec!["deepseek-chat".into()],
+        has_key: true,
+        enabled: true,
+        model_params: vec![cgc_agent_store::ModelPrefs::new("deepseek-chat")],
+        ..Default::default()
+    };
+
+    cx.update_window(handle, |_, window, cx| {
+        let view = probe.read(cx).view.clone();
+        view.update(cx, |view, cx| {
+            view.state.session.thread.capabilities =
+                cgc_agent_ui::conversation::ThreadCapabilities::native();
+            set_probe_active_model(
+                view,
+                "deepseek",
+                "DeepSeek",
+                "deepseek-chat",
+                "deepseek-chat",
+                vec![managed.clone(), byok.clone()],
+            );
+            cx.notify();
+        });
+        window.render_frame(cx);
+        assert!(window.try_find("native-model-trigger").is_some());
+        assert!(window.try_find_by_label("deepseek-chat").is_some());
+
+        view.update(cx, |view, cx| {
+            set_probe_active_model(
+                view,
+                cgc_agent_store::CGC_CLOUD_PROVIDER_ID,
+                "CGC Cloud",
+                "claude-sonnet-4-5",
+                "Claude Sonnet 4.5 (CGC)",
+                vec![managed, byok],
+            );
+            cx.notify();
+        });
+        window.render_frame(cx);
+        assert!(window
+            .try_find_by_label("Claude Sonnet 4.5 (CGC)")
+            .is_some());
+    })
+    .unwrap();
+}
 
 /// 提交工具成功后必须置位，RootView 才能重拉学习投影让卡片立即更新。
 #[test]

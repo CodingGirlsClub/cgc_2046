@@ -104,3 +104,5 @@ config :cgc_2046, :payments_providers, %{
   wechat: Cgc2046.Payments.Providers.DevFake,
   alipay: Cgc2046.Payments.Providers.DevFake
 }
+
+config :cgc_2046, :llm_gateway_allow_private_upstreams, true

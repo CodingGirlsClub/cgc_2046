@@ -48,6 +48,8 @@ fn default_true() -> bool {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelPrefs {
     pub id: String,
+    #[serde(default)]
+    pub display_name: Option<String>,
     pub context_window: u32,
     pub max_output_tokens: u32,
     pub supports_thinking: bool,
@@ -76,6 +78,7 @@ impl Default for ModelPrefs {
     fn default() -> Self {
         Self {
             id: String::new(),
+            display_name: None,
             context_window: default_context_window(),
             max_output_tokens: default_max_output_tokens(),
             supports_thinking: false,
@@ -277,10 +280,10 @@ pub fn provider_key_account(provider_id: &str) -> String {
     format!("native_agent_provider_api_key:{provider_id}")
 }
 
-/// 官方托管网关 provider id。登录态下默认使用；用户显式切到 BYOK 后不再覆盖。
+/// 官方托管网关 provider id。登录态下按后端下发目录动态组装；用户切到 BYOK 后仍保留在可选列表中。
 pub const CGC_CLOUD_PROVIDER_ID: &str = "cgc-cloud";
 
-pub fn cgc_cloud_provider() -> ProviderPrefs {
+pub fn cgc_cloud_provider_with_models(models: Vec<ModelPrefs>) -> ProviderPrefs {
     let mut provider = ProviderPrefs {
         id: CGC_CLOUD_PROVIDER_ID.to_string(),
         name: "CGC Cloud".to_string(),
@@ -289,7 +292,7 @@ pub fn cgc_cloud_provider() -> ProviderPrefs {
         responses_url: None,
         models_url: None,
         models: Vec::new(),
-        // 托管模式不需要用户 API key；凭据由登录态动态签发 terminal MCP token。
+        // 托管模式不需要用户 API key；凭据由当前第一方登录会话 Bearer 鉴权。
         has_key: true,
         model_params: Vec::new(),
         enabled: true,
@@ -299,31 +302,15 @@ pub fn cgc_cloud_provider() -> ProviderPrefs {
         models_fetched_at: 0,
     };
 
-    // 与后端 LlmGatewayController 的 llm_gateway_max_prompt_tokens (250_000) 及
-    // 各逻辑模型 max_tokens 上限保持对齐，避免客户端低估预算导致网关 413 拒绝。
-    for (id, supports_thinking, max_output_tokens) in [
-        ("cgc-default", true, 8_192),
-        ("cgc-reasoning", true, 32_768),
-        ("cgc-background", false, 4_096),
-    ] {
-        provider.upsert_model(ModelPrefs {
-            id: id.to_string(),
-            context_window: 250_000,
-            max_output_tokens,
-            supports_thinking,
-            enabled: true,
-            supports_tools: true,
-            supports_images: false,
-            reasoning_efforts: if supports_thinking {
-                vec!["low".into(), "high".into(), "max".into()]
-            } else {
-                Vec::new()
-            },
-            thinking_mode: ThinkingMode::Disabled,
-        });
+    for model in models {
+        provider.upsert_model(model);
     }
 
     provider
+}
+
+pub fn cgc_cloud_provider() -> ProviderPrefs {
+    cgc_cloud_provider_with_models(Vec::new())
 }
 
 /// 内置 provider 目录：第一次打开设置就能看到的默认配置（不写入用户文件）。
@@ -350,6 +337,7 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
     let mut deepseek = provider("deepseek", "DeepSeek", "https://api.deepseek.com");
     deepseek.upsert_model(ModelPrefs {
         id: "deepseek-flash".to_string(),
+        display_name: None,
         context_window: 1_000_000,
         max_output_tokens: 384_000,
         supports_thinking: true,
@@ -361,6 +349,7 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
     });
     deepseek.upsert_model(ModelPrefs {
         id: "deepseek-v4-pro".to_string(),
+        display_name: None,
         context_window: 1_000_000,
         max_output_tokens: 384_000,
         supports_thinking: true,
@@ -379,6 +368,7 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
     ] {
         moonshot.upsert_model(ModelPrefs {
             id: id.to_string(),
+            display_name: None,
             context_window: 1_048_576,
             max_output_tokens: output,
             supports_thinking: true,
@@ -393,6 +383,7 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
     let mut minimax = provider("minimax", "MiniMax", "https://api.minimax.io/v1");
     minimax.upsert_model(ModelPrefs {
         id: "MiniMax-M3.1-Flash".to_string(),
+        display_name: None,
         context_window: 1_000_000,
         max_output_tokens: 32_768,
         supports_thinking: true,
@@ -410,6 +401,7 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
     });
     minimax.upsert_model(ModelPrefs {
         id: "MiniMax-M3".to_string(),
+        display_name: None,
         context_window: 1_000_000,
         max_output_tokens: 32_768,
         supports_thinking: true,
@@ -423,6 +415,7 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
     let mut zhipu = provider("zhipu", "智谱", "https://open.bigmodel.cn/api/paas/v4");
     let glm53 = ModelPrefs {
         id: "glm-5.3".to_string(),
+        display_name: None,
         context_window: 1_000_000,
         max_output_tokens: 131_072,
         supports_thinking: true,
@@ -435,6 +428,7 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
     zhipu.upsert_model(glm53);
     zhipu.upsert_model(ModelPrefs {
         id: "glm-4.6".to_string(),
+        display_name: None,
         context_window: 200_000,
         max_output_tokens: 131_072,
         supports_thinking: true,
@@ -710,19 +704,8 @@ mod model_param_tests {
             vec!["cgc-cloud", "deepseek", "moonshot", "minimax", "zhipu"]
         );
         let managed = providers.iter().find(|p| p.id == "cgc-cloud").unwrap();
-        assert!(managed.models.contains(&"cgc-default".to_string()));
-        assert!(managed.models.contains(&"cgc-reasoning".to_string()));
-        assert!(managed.models.contains(&"cgc-background".to_string()));
-        for (model_id, expected_output) in [
-            ("cgc-default", 8_192),
-            ("cgc-reasoning", 32_768),
-            ("cgc-background", 4_096),
-        ] {
-            let cfg = managed.model_config(model_id);
-            assert_eq!(cfg.context_window, 250_000);
-            assert_eq!(cfg.max_output_tokens, expected_output);
-            assert!(cfg.context_window.saturating_sub(cfg.max_output_tokens) <= 250_000);
-        }
+        assert!(managed.models.is_empty());
+        assert!(managed.model_params.is_empty());
         assert!(providers.iter().all(|provider| provider.builtin));
         let deepseek = providers.iter().find(|p| p.id == "deepseek").unwrap();
         assert_eq!(
@@ -730,6 +713,25 @@ mod model_param_tests {
             1_000_000
         );
         assert!(deepseek.model_config("deepseek-v4-pro").supports_thinking);
+    }
+
+    #[test]
+    fn cgc_cloud_provider_with_models_populates_dynamic_models_and_display_name() {
+        let provider = cgc_cloud_provider_with_models(vec![ModelPrefs {
+            display_name: Some("DeepSeek Chat (CGC)".to_string()),
+            context_window: 128_000,
+            max_output_tokens: 8_192,
+            ..ModelPrefs::new("deepseek-chat")
+        }]);
+        assert_eq!(provider.id, CGC_CLOUD_PROVIDER_ID);
+        assert_eq!(provider.models, vec!["deepseek-chat"]);
+        let cfg = provider.model_config("deepseek-chat");
+        assert_eq!(cfg.display_name.as_deref(), Some("DeepSeek Chat (CGC)"));
+        assert_eq!(cfg.context_window, 128_000);
+
+        let serialized = serde_json::to_string(&cfg).expect("serialize");
+        let roundtrip: ModelPrefs = serde_json::from_str(&serialized).expect("deserialize");
+        assert_eq!(roundtrip.display_name, cfg.display_name);
     }
 
     #[test]
@@ -743,6 +745,7 @@ mod model_param_tests {
         assert_eq!(config.context_window, 64_000);
         provider.upsert_model(ModelPrefs {
             id: "m1".to_string(),
+            display_name: None,
             context_window: 200_000,
             max_output_tokens: 32_000,
             supports_thinking: true,
