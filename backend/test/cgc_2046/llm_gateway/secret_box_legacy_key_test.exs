@@ -2,6 +2,7 @@ defmodule Cgc2046.LlmGateway.SecretBoxLegacyKeyTest do
   # 修改全局 :llm_gateway_encryption_key 配置，必须串行执行，避免污染 async 测试。
   use Cgc2046.DataCase, async: false
 
+  import ExUnit.CaptureIO
   import ExUnit.CaptureLog
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
@@ -87,6 +88,17 @@ defmodule Cgc2046.LlmGateway.SecretBoxLegacyKeyTest do
 
     assert {:ok, %{reencrypted: 0, failed: 1}} = ProviderCatalog.reencrypt_api_keys()
     assert stored_ciphertext(api_key.id) == corrupted
+  end
+
+  test "release entry point reports counts for the production image" do
+    Application.put_env(:cgc_2046, :llm_gateway_encryption_key, @primary)
+
+    output =
+      capture_io(fn ->
+        assert :ok = Cgc2046.Release.reencrypt_llm_keys()
+      end)
+
+    assert output =~ "reencrypted 0 llm provider api key(s)"
   end
 
   defp seed_provider_key(plaintext) do

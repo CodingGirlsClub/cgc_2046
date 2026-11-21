@@ -258,7 +258,7 @@ defmodule Cgc2046.LlmGateway.CatalogQueries do
         "llm gateway provider api key is still encrypted with the fallback secret_key_base key " <>
           "(provider=#{row.provider_slug} key_id=#{row.key_id} " <>
           "fingerprint_prefix=#{fingerprint_prefix(row.key_fingerprint)}); " <>
-          "run mix cgc2046.reencrypt_llm_keys"
+          "run Cgc2046.Release.reencrypt_llm_keys/0 (see docs/运维/LLM网关上游Key管理.md)"
       )
     end
   end

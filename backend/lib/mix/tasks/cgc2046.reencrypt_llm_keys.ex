@@ -12,7 +12,13 @@ defmodule Mix.Tasks.Cgc2046.ReencryptLlmKeys do
 
   ## 用法
 
+  源码环境：
+
       mix cgc2046.reencrypt_llm_keys
+
+  生产 release（运行时镜像只含 `bin/cgc_2046`、没有 mix）：
+
+      bin/cgc_2046 eval "Cgc2046.Release.reencrypt_llm_keys"
   """
 
   use Mix.Task

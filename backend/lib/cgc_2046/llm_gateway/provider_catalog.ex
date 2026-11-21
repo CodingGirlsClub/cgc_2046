@@ -421,6 +421,12 @@ defmodule Cgc2046.LlmGateway.ProviderCatalog do
 
   ## 用法
 
+  生产 release（运行时镜像无 mix）：
+
+      bin/cgc_2046 eval "Cgc2046.Release.reencrypt_llm_keys"
+
+  源码环境：
+
       mix cgc2046.reencrypt_llm_keys
   """
   @spec reencrypt_api_keys() ::
