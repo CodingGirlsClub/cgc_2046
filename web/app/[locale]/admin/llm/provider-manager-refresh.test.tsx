@@ -344,4 +344,77 @@ describe("ProviderManager background refresh", () => {
 			),
 		).toBeInTheDocument();
 	});
+
+	it("并发异步删除多行模型时按稳定 ID 移除行而不误删后续行草稿", async () => {
+		const [baseProvider] = makeProvidersFixture();
+		const baseModel = baseProvider.models[0];
+		let currentModels = [
+			{ ...baseModel, id: "m-a", modelId: "model-a", upstreamModelId: "model-a", displayName: "Model A" },
+			{ ...baseModel, id: "m-b", modelId: "model-b", upstreamModelId: "model-b", displayName: "Model B" },
+			{ ...baseModel, id: "m-c", modelId: "model-c", upstreamModelId: "model-c", displayName: "Model C" },
+		];
+
+		queryMock.mockImplementation(async ({ query }: { query: unknown }) => {
+			if (query === ADMIN_LLM_PROVIDERS) {
+				return { data: { adminLlmProviders: [{ ...baseProvider, models: currentModels }] } };
+			}
+			if (query === ADMIN_LLM_PRICING_PRESETS) {
+				return { data: { adminLlmPricingPresets: SAMPLE_PRESETS } };
+			}
+			return { data: {} };
+		});
+
+		const pendingDeletes = new Map<string, () => void>();
+		mutateMock.mockImplementation(
+			({ mutation, variables }: { mutation: unknown; variables?: Record<string, unknown> }) => {
+				if (mutation === ADMIN_DELETE_LLM_PROVIDER_MODEL) {
+					const id = String(variables?.id ?? "");
+					return new Promise((resolve) => {
+						pendingDeletes.set(id, () => {
+							currentModels = currentModels.filter((item) => item.id !== id);
+							resolve({ data: { adminDeleteLlmProviderModel: true } });
+						});
+					});
+				}
+				return Promise.resolve({ data: {} });
+			},
+		);
+
+		render(<ProviderManager />);
+		const card = await screen.findByTestId("provider-card-deepseek");
+
+		const rowA = within(card).getByTestId("provider-model-row-model-a");
+		const rowB = within(card).getByTestId("provider-model-row-model-b");
+		const rowC = within(card).getByTestId("provider-model-row-model-c");
+
+		fireEvent.change(within(rowC).getByLabelText("展示名称"), {
+			target: { value: "Model C Edited" },
+		});
+
+		const deleteBtnA = within(rowA).getByRole("button", { name: "删除" });
+		const deleteBtnB = within(rowB).getByRole("button", { name: "删除" });
+		fireEvent.click(deleteBtnA);
+		fireEvent.click(deleteBtnB);
+
+		expect(deleteBtnA).toBeDisabled();
+		expect(deleteBtnB).toBeDisabled();
+		expect(within(card).getByRole("button", { name: "保存全部模型" })).toBeDisabled();
+
+		pendingDeletes.get("m-a")?.();
+		await waitFor(() => {
+			expect(within(card).queryByTestId("provider-model-row-model-a")).not.toBeInTheDocument();
+		});
+		expect(within(card).getByTestId("provider-model-row-model-b")).toBeInTheDocument();
+		expect(within(within(card).getByTestId("provider-model-row-model-b")).getByRole("button", { name: "删除" })).toBeDisabled();
+		expect(within(within(card).getByTestId("provider-model-row-model-c")).getByLabelText("展示名称")).toHaveValue("Model C Edited");
+
+		pendingDeletes.get("m-b")?.();
+		await waitFor(() => {
+			expect(within(card).queryByTestId("provider-model-row-model-b")).not.toBeInTheDocument();
+		});
+		const remainingC = within(card).getByTestId("provider-model-row-model-c");
+		expect(remainingC).toBeInTheDocument();
+		expect(within(remainingC).getByLabelText("展示名称")).toHaveValue("Model C Edited");
+		expect(within(card).getByRole("button", { name: "保存全部模型" })).not.toBeDisabled();
+	});
 });

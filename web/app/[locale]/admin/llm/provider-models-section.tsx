@@ -52,7 +52,7 @@ export default function ProviderModelsSection({
 	const [manualUpstreamId, setManualUpstreamId] = useState("");
 	const [manualDisplayName, setManualDisplayName] = useState("");
 	const [saving, setSaving] = useState(false);
-	const [deletingId, setDeletingId] = useState<string | null>(null);
+	const [deletingIds, setDeletingIds] = useState<Set<string>>(() => new Set());
 	const [error, setError] = useState<string | null>(null);
 	const [status, setStatus] = useState<string | null>(null);
 
@@ -131,33 +131,37 @@ export default function ProviderModelsSection({
 		setManualDisplayName("");
 	}
 
-	function updateDraft(index: number, patch: Partial<ModelDraft>) {
+	function updateDraft(modelId: string, patch: Partial<ModelDraft>) {
 		setDrafts((prev) =>
-			prev.map((item, idx) => (idx === index ? { ...item, ...patch } : item)),
+			prev.map((item) => (item.modelId === modelId ? { ...item, ...patch } : item)),
 		);
 	}
 
-	async function handleDeleteRow(index: number) {
-		const target = drafts[index];
-		if (!target) return;
+	async function handleDeleteRow(target: ModelDraft) {
+		const { modelId, savedId } = target;
 		setError(null);
 		setStatus(null);
-		if (!target.savedId) {
-			setDrafts((prev) => prev.filter((_, idx) => idx !== index));
+		if (!savedId) {
+			setDrafts((prev) => prev.filter((item) => item.modelId !== modelId));
 			return;
 		}
-		setDeletingId(target.savedId);
+		if (deletingIds.has(savedId)) return;
+		setDeletingIds((prev) => new Set(prev).add(savedId));
 		try {
 			await client.mutate({
 				mutation: ADMIN_DELETE_LLM_PROVIDER_MODEL,
-				variables: { id: target.savedId },
+				variables: { id: savedId },
 			});
-			setDrafts((prev) => prev.filter((_, idx) => idx !== index));
+			setDrafts((prev) => prev.filter((item) => item.savedId !== savedId));
 			await onChanged();
 		} catch (err) {
 			setError(errorMessage(err, t("deleteModelFailed")));
 		} finally {
-			setDeletingId(null);
+			setDeletingIds((prev) => {
+				const next = new Set(prev);
+				next.delete(savedId);
+				return next;
+			});
 		}
 	}
 
@@ -382,13 +386,13 @@ export default function ProviderModelsSection({
 				<p className="text-xs text-ink-3">{t("modelsEmpty")}</p>
 			) : (
 				<div className="grid gap-3">
-					{drafts.map((draft, index) => (
+					{drafts.map((draft) => (
 						<ModelDraftRow
 							key={draft.modelId}
 							draft={draft}
-							deleting={Boolean(draft.savedId && deletingId === draft.savedId)}
-							onUpdate={(patch) => updateDraft(index, patch)}
-							onDelete={() => void handleDeleteRow(index)}
+							deleting={Boolean(draft.savedId && deletingIds.has(draft.savedId))}
+							onUpdate={(patch) => updateDraft(draft.modelId, patch)}
+							onDelete={() => void handleDeleteRow(draft)}
 						/>
 					))}
 				</div>
@@ -408,7 +412,7 @@ export default function ProviderModelsSection({
 			<div className="flex justify-end">
 				<button
 					type="button"
-					disabled={saving || drafts.length === 0}
+					disabled={saving || deletingIds.size > 0 || drafts.length === 0}
 					onClick={() => void handleSaveAll()}
 					className="l-btn-primary text-xs"
 				>

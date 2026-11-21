@@ -118,6 +118,87 @@ defmodule Cgc2046.LlmGateway.RuntimeAndControllerTest do
       assert cleaned["max_tokens"] == 16_384
     end
 
+    test "OpenaiAdapter translates output limit to max_completion_tokens for OpenAI o-series models" do
+      o3_channel = %{
+        protocol: :openai_compatible,
+        base_url: "https://api.openai.com/v1",
+        chat_path: "/chat/completions",
+        api_key: "sk-openai-test",
+        upstream_model_id: "o3",
+        supports_thinking: true,
+        max_output_tokens: 32_768
+      }
+
+      req_default =
+        AffinityRouter.build_upstream_request(
+          %{
+            "model" => "o3",
+            "reasoning_effort" => "medium",
+            "temperature" => 0.7,
+            "top_p" => 0.9,
+            "messages" => [%{"role" => "user", "content" => "Plan"}]
+          },
+          o3_channel
+        )
+
+      assert req_default.body["max_completion_tokens"] == 4_096
+      refute Map.has_key?(req_default.body, "max_tokens")
+      refute Map.has_key?(req_default.body, "temperature")
+      refute Map.has_key?(req_default.body, "top_p")
+      assert req_default.body["reasoning_effort"] == "medium"
+
+      o4_channel = %{o3_channel | upstream_model_id: "o4-mini"}
+
+      req_capped =
+        AffinityRouter.build_upstream_request(
+          %{
+            "model" => "o4-mini",
+            "max_tokens" => 99_999,
+            "messages" => [%{"role" => "user", "content" => "Compute"}]
+          },
+          o4_channel
+        )
+
+      assert req_capped.body["max_completion_tokens"] == 32_768
+      refute Map.has_key?(req_capped.body, "max_tokens")
+
+      prefixed_channel = %{o3_channel | upstream_model_id: "openai/o3-mini"}
+
+      req_prefixed =
+        AffinityRouter.build_upstream_request(
+          %{
+            "model" => "openai/o3-mini",
+            "max_completion_tokens" => 12_000,
+            "max_tokens" => 1_000,
+            "messages" => [%{"role" => "user", "content" => "Solve"}]
+          },
+          prefixed_channel
+        )
+
+      assert req_prefixed.body["max_completion_tokens"] == 12_000
+      refute Map.has_key?(req_prefixed.body, "max_tokens")
+
+      gpt4o_channel = %{
+        o3_channel
+        | upstream_model_id: "gpt-4o",
+          supports_thinking: false,
+          max_output_tokens: 16_384
+      }
+
+      req_gpt4o =
+        AffinityRouter.build_upstream_request(
+          %{
+            "model" => "gpt-4o",
+            "max_completion_tokens" => 20_000,
+            "messages" => [%{"role" => "user", "content" => "Hi"}]
+          },
+          gpt4o_channel
+        )
+
+      assert req_gpt4o.body["max_tokens"] == 16_384
+      refute Map.has_key?(req_gpt4o.body, "max_completion_tokens")
+    end
+
     test "evicts expired session-affinity entries" do
       key = "session:expired-#{Ecto.UUID.generate()}"
       :ets.insert(:llm_session_affinity, {key, "ds_primary_1", System.system_time(:second) - 1})

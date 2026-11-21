@@ -11,6 +11,7 @@ defmodule Cgc2046.LlmGateway.Protocol.OpenaiAdapter do
     tools
     tool_choice
     max_tokens
+    max_completion_tokens
     temperature
     top_p
     presence_penalty
@@ -132,12 +133,13 @@ defmodule Cgc2046.LlmGateway.Protocol.OpenaiAdapter do
 
   defp sanitize_params(params, upstream_model, supports_thinking?, max_output_limit) do
     downcased = String.downcase(upstream_model)
+    openai_o_series? = openai_o_series_model?(downcased)
 
     strict_reasoner? =
       String.contains?(downcased, "reasoner") or
         String.contains?(downcased, "-r1") or
         String.contains?(downcased, "v4-pro") or
-        Regex.match?(~r/^o[134](?:-|$)/, downcased)
+        openai_o_series?
 
     params =
       if strict_reasoner? do
@@ -162,17 +164,37 @@ defmodule Cgc2046.LlmGateway.Protocol.OpenaiAdapter do
 
     default_tokens = min(@default_output_tokens, max_output_limit)
 
-    output_limit =
-      case Map.get(params, "max_tokens") do
-        max_tokens when is_integer(max_tokens) and max_tokens > 0 ->
-          min(max_tokens, max_output_limit)
-
-        _ ->
-          default_tokens
+    requested_limit =
+      if openai_o_series? do
+        positive_int(Map.get(params, "max_completion_tokens")) ||
+          positive_int(Map.get(params, "max_tokens"))
+      else
+        positive_int(Map.get(params, "max_tokens")) ||
+          positive_int(Map.get(params, "max_completion_tokens"))
       end
 
-    Map.put(params, "max_tokens", output_limit)
+    output_limit =
+      if requested_limit do
+        min(requested_limit, max_output_limit)
+      else
+        default_tokens
+      end
+
+    params = Map.drop(params, ["max_tokens", "max_completion_tokens"])
+
+    if openai_o_series? do
+      Map.put(params, "max_completion_tokens", output_limit)
+    else
+      Map.put(params, "max_tokens", output_limit)
+    end
   end
+
+  defp openai_o_series_model?(downcased) do
+    Regex.match?(~r/(?:^|\/)o[134](?:[-:]|$)/, downcased)
+  end
+
+  defp positive_int(val) when is_integer(val) and val > 0, do: val
+  defp positive_int(_), do: nil
 
   defp sse_error_payload?(err) when is_map(err) and map_size(err) > 0, do: true
   defp sse_error_payload?(err) when is_binary(err) and byte_size(err) > 0, do: true

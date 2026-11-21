@@ -133,13 +133,16 @@ defmodule Cgc2046.LlmGateway.TokenizerAndPricing do
     cap = hold_output_cap(channel)
 
     requested_output_tokens =
-      case Map.get(params, "max_tokens") do
-        max_tokens when is_integer(max_tokens) and max_tokens > 0 ->
-          max_tokens
-
-        _ ->
-          @default_hold_output_tokens
-      end
+      Enum.find_value(
+        ["max_tokens", "max_completion_tokens"],
+        @default_hold_output_tokens,
+        fn key ->
+          case Map.get(params, key) do
+            val when is_integer(val) and val > 0 -> val
+            _ -> nil
+          end
+        end
+      )
 
     hold_output_tokens = min(requested_output_tokens, cap)
 
