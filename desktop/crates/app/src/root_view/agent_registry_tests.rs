@@ -42,11 +42,13 @@ fn rows_with_runtime(
         .collect()
 }
 
-fn open_registry(
+fn open_registry_with(
     cx: &mut TestAppContext,
     language: Language,
     rows: Vec<DetectedAgent>,
+    configure: impl FnOnce(&mut RootView) + 'static,
 ) -> gpui_kit::AnyWindowHandle {
+    let mut configure = Some(configure);
     cx.update(gpui_kit::init);
     cx.update(|cx| {
         let (handle, _probe) = gpui_kit::open_window(
@@ -72,6 +74,9 @@ fn open_registry(
                         "/agents",
                     );
                     root.state.agent_registry_rows = rows;
+                    if let Some(configure) = configure.take() {
+                        configure(&mut root);
+                    }
                     root
                 });
                 cx.new(|_| AgentRegistryProbe { root })
@@ -80,6 +85,14 @@ fn open_registry(
         .expect("registry probe window");
         handle
     })
+}
+
+fn open_registry(
+    cx: &mut TestAppContext,
+    language: Language,
+    rows: Vec<DetectedAgent>,
+) -> gpui_kit::AnyWindowHandle {
+    open_registry_with(cx, language, rows, |_| {})
 }
 
 fn detected_desktop(desktop: &str, bundled: &str) -> RuntimeProbe {
@@ -387,4 +400,111 @@ fn install_waits_for_the_same_agent_uninstall(cx: &mut TestAppContext) {
             );
         });
     });
+}
+
+#[gpui_kit::test]
+fn dsh_install_and_uninstall_buttons_mutually_disable_each_other(cx: &mut TestAppContext) {
+    let rows = rows_with_runtime([(
+        "deepseek",
+        AgentStatus::Ready {
+            version: "0.4.41".to_string(),
+        },
+        bundled_only("0.2.1-rc.5"),
+    )]);
+    let handle = open_registry_with(cx, Language::Zh, rows.clone(), |root| {
+        root.state.agent_installing = Some("deepseek".into());
+    });
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(
+            window.find("agent-install-deepseek").disabled(),
+            Some(true),
+            "安装中必须禁用安装按钮"
+        );
+        assert_eq!(
+            window.find("agent-uninstall-deepseek").disabled(),
+            Some(true),
+            "安装中必须禁用卸载按钮"
+        );
+    })
+    .unwrap();
+
+    let handle = open_registry_with(cx, Language::Zh, rows, |root| {
+        root.state.agent_uninstalling = Some("deepseek".into());
+    });
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(
+            window.find("agent-install-deepseek").disabled(),
+            Some(true),
+            "卸载中必须禁用安装按钮"
+        );
+        assert_eq!(
+            window.find("agent-uninstall-deepseek").disabled(),
+            Some(true),
+            "卸载中必须禁用卸载按钮"
+        );
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn dsh_share_local_toggle_warns_about_multi_account_isolation_in_both_states(
+    cx: &mut TestAppContext,
+) {
+    use crate::i18n::{translate, Key};
+
+    let rows = rows_with_runtime([(
+        "deepseek",
+        AgentStatus::Ready {
+            version: "0.4.41".to_string(),
+        },
+        bundled_only("0.2.1-rc.5"),
+    )]);
+
+    for (language, shared) in [
+        (Language::Zh, false),
+        (Language::Zh, true),
+        (Language::En, false),
+        (Language::En, true),
+    ] {
+        let key = if shared {
+            Key::AgentRegistryDshShareLocalOn
+        } else {
+            Key::AgentRegistryDshShareLocalHint
+        };
+        let expected = translate(language, key);
+        match language {
+            Language::Zh => {
+                assert!(
+                    expected.contains("多账号")
+                        && expected.contains("多工作台")
+                        && expected.contains("不再隔离"),
+                    "中文提示缺少多账号/多工作台不隔离警示：{expected}"
+                );
+            }
+            Language::En => {
+                let lower = expected.to_lowercase();
+                assert!(
+                    lower.contains("accounts")
+                        && lower.contains("workspaces")
+                        && lower.contains("no longer isolated"),
+                    "英文提示缺少多账号/多工作台不隔离警示：{expected}"
+                );
+            }
+        }
+
+        let handle = open_registry_with(cx, language, rows.clone(), move |root| {
+            root.state.dsh_share_local_home = shared;
+        });
+        cx.update_window(handle, |_, window, cx| {
+            window.render_frame(cx);
+            let _ = window.find("agent-dsh-share-hint-deepseek");
+            assert!(
+                window.try_find_by_label(expected).is_some(),
+                "共享开关提示应带 status/aria_label 且匹配预期译文：{expected}"
+            );
+        })
+        .unwrap();
+    }
 }
