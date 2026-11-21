@@ -92,6 +92,10 @@ env:
     - DATABASE_URL
     - SECRET_KEY_BASE
     - TOKEN_SIGNING_SECRET
+    # LLM 上游 Provider API Key 的静态加密 master key（必填门禁）：与
+    # SECRET_KEY_BASE 分离，轮换后者不影响已加密 Key。缺失时 deploy 在
+    # workflow 的非空断言处直接红（容器不会静默回落到 secret_key_base）
+    - LLM_GATEWAY_ENCRYPTION_KEY
     - SENDCLOUD_API_USER
     - SENDCLOUD_API_KEY
     - SENDCLOUD_FROM

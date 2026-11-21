@@ -512,6 +512,9 @@ if config_env() == :prod do
       sandbox: System.get_env("ALIPAY_SANDBOX") == "true"
     ]
 
+  # 上游 Provider API Key 的静态加密 master key。deploy.yml 已把它登记为必填
+  # secret（缺省时 deploy 在 workflow 非空断言处红），这里保持可选以免配置
+  # 缺失直接炸掉整站 boot；未设置时 SecretBox 回落到 Endpoint secret_key_base。
   if llm_enc_key = System.get_env("LLM_GATEWAY_ENCRYPTION_KEY") do
     config :cgc_2046, :llm_gateway_encryption_key, llm_enc_key
   end
