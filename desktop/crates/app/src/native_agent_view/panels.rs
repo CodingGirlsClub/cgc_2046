@@ -329,6 +329,7 @@ impl NativeAgentView {
             })
         });
         let current_approval = self.metadata().approval_mode;
+        let sandbox_enforcing = cgc_agent_tools::SandboxKind::detect().is_enforcing();
         let approval_picker = {
             let modes = [ApprovalMode::Ask, ApprovalMode::Auto];
             let items: Vec<PickerItem> = modes
@@ -336,7 +337,8 @@ impl NativeAgentView {
                 .map(|mode| {
                     let label = match mode {
                         ApprovalMode::Ask => "Ask（逐次审批）",
-                        ApprovalMode::Auto => "Auto（自动允许）",
+                        ApprovalMode::Auto if sandbox_enforcing => "Auto（自动允许）",
+                        ApprovalMode::Auto => "Auto（无沙箱：终端仍逐条审批）",
                     };
                     PickerItem::new(format!("native-approval-{}", mode.label()), label)
                         .selected(*mode == current_approval)

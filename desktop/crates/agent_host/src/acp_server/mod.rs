@@ -177,6 +177,7 @@ pub struct NativeAcpServer {
     state: Arc<Mutex<ServerState>>,
     context_size: ContextSizeHandle,
     config: NativeAcpServerConfig,
+    sandbox_enforcing: bool,
 }
 
 #[derive(Default)]
@@ -204,11 +205,18 @@ impl NativeAcpServer {
             state: Arc::new(Mutex::new(ServerState::default())),
             context_size: Arc::new(AtomicU64::new(0)),
             config: NativeAcpServerConfig::default(),
+            sandbox_enforcing: cgc_agent_tools::SandboxKind::detect().is_enforcing(),
         }
     }
 
     pub fn with_config(mut self, config: NativeAcpServerConfig) -> Self {
         self.config = config;
+        self
+    }
+
+    /// 显式覆写本 server 是否按「OS 沙箱生效」暴露审批选项（测试可在跨平台 CI 固定行为）。
+    pub fn with_sandbox_enforcing(mut self, sandbox_enforcing: bool) -> Self {
+        self.sandbox_enforcing = sandbox_enforcing;
         self
     }
 
@@ -337,12 +345,14 @@ fn handle_prompt(
     let state = Arc::clone(&server.state);
     let session_for_spawn_error = request.session_id.clone();
     let connection = cx.clone();
+    let sandbox_enforcing = server.sandbox_enforcing;
     let spawned = cx.spawn(async move {
         let mut pump = EventPump::start(connection.clone(), session_id.clone(), context_size);
         let approver: Arc<dyn Approver> = Arc::new(permission::PermissionBridge {
             connection: connection.clone(),
             session_id: session_id.clone(),
             cancel: cancel.clone(),
+            sandbox_enforcing,
         });
         let turn = NativeTurn {
             session_id: session_key.clone(),

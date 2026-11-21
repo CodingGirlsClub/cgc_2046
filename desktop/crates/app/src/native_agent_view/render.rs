@@ -116,7 +116,9 @@ impl Render for NativeAgentView {
                     });
                 render_permission_card(PermissionCardSpec {
                     id: SharedString::from("native-agent-permission"),
-                    model: PermissionCardModel::from_request(&request),
+                    model: PermissionCardModel::from_request(&request).with_sandbox_enforcing(
+                        cgc_agent_tools::SandboxKind::detect().is_enforcing(),
+                    ),
                     hint: None,
                     style: crate::permission_ui::card_style(&palette),
                     on_select: Some(on_select),
