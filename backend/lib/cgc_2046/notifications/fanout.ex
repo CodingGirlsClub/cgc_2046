@@ -16,7 +16,7 @@ defmodule Cgc2046.Notifications.Fanout do
     `%{user_id => [identity]}`。**按工作台预取一次、逐条记录复用**是
     ApprovalReminderWorker 消 N+1 的形状，故 resolution 独立成段可缓存；
   - `identities/1`：单用户全部平台身份 → `[identity]`；
-  - `deliver/5`：把 resolution 结果（map 或 `{user_id, [identity]}`）逐
+  - `deliver/4`：把 resolution 结果（map 或 `{user_id, [identity]}`）逐
     （user_id × identity）入队 NotificationWorker，args 形状（`identity_uid` /
     `platform` / `template_key` / `data` 与 `job_meta` 合并）由本 module 唯一持有。
 
@@ -26,11 +26,12 @@ defmodule Cgc2046.Notifications.Fanout do
     `Role.manage_role?/1` 同源）——`@manage_roles` 变更时订阅方与 worker 自动跟随；
   - `{:roles, [...]}`：显式窄集（如赞助 Workspace 级仅 Owner，拍板 #4）。
 
-  ## unique 命名预设（Q9）
+  ## 去重与幂等（#847 PR-B）
 
-  - `:default`：NotificationWorker 7 天全 args unique——直插面只剩
-    flashback_wish_echo（#847 PR-B：其余 22 键已迁 Delivery.enqueue，幂等键
-    派生见 Notifications.DeliveryKey）；`unique` 显式传参仅为签名兼容。
+  - 已迁耐久投递的 22 个键经 `Notifications.Delivery.enqueue` 按
+    `Notifications.DeliveryKey` 派生幂等键去重；
+  - 唯一保留 Oban 直插的 `flashback_wish_echo` 直接依赖 `NotificationWorker`
+    模块级 7 天全 args unique（`states: :all`）。
   """
 
   require Ash.Query
@@ -94,9 +95,7 @@ defmodule Cgc2046.Notifications.Fanout do
     `{user_id, [identity]}`（两种形状归一，Q8）；
   - `template_key` / `data`：通知模板与模板数据（写入 job args）；
   - `job_meta`：与 `user_id` / `identity_uid` / `platform` / `template_key` /
-    `data` 合并为最终 args（幂等键等由调用方放入 `job_meta`）；
-  - `unique`：命名预设（见 moduledoc）；缺省 nil 时按 `template_key` 查
-    `NotificationWorker.type/1` 的 unique 预设（默认 `:default`）。
+    `data` 合并为最终 args（幂等键等由调用方放入 `job_meta`）。
 
   返回 `:ok`（成功、零身份跳过或 rescue 内化后）；telemetry status：
   `:ok` / `:skipped`（零身份，#406）/ `:error`。
@@ -105,16 +104,15 @@ defmodule Cgc2046.Notifications.Fanout do
           %{String.t() => [UserIdentity.t()]} | {String.t(), [UserIdentity.t()]},
           String.t(),
           map(),
-          map(),
-          :default | :reminder_7d | nil
+          map()
         ) :: :ok
-  def deliver(recipients, template_key, data, job_meta, unique \\ nil) do
-    _ = deliver_with_receipt(recipients, template_key, data, job_meta, unique)
+  def deliver(recipients, template_key, data, job_meta) do
+    _ = deliver_with_receipt(recipients, template_key, data, job_meta)
     :ok
   end
 
   @doc """
-  与 `deliver/5` 具有相同 recipients/job 形状，但明确返回入队回执。
+  与 `deliver/4` 具有相同 recipients/job 形状，但明确返回入队回执。
 
   count 语义按路径分（#902 更正）：直插路径（flashback_wish_echo）count
   是 Oban 本次新接受的任务数（args-unique 命中已存在任务不计，#834 回执
@@ -125,17 +123,15 @@ defmodule Cgc2046.Notifications.Fanout do
   或解析/入队异常返回 `{:error, :enqueue_failed}`。
 
   调用方若把业务标记与任务入队放在同一 Repo transaction，可据此决定是否
-  提交标记；传统调用方继续使用返回 `:ok` 的 `deliver/5`。
+  提交标记；传统调用方继续使用返回 `:ok` 的 `deliver/4`。
   """
   @spec deliver_with_receipt(
           %{String.t() => [UserIdentity.t()]} | {String.t(), [UserIdentity.t()]},
           String.t(),
           map(),
-          map(),
-          :default | :reminder_7d | nil
+          map()
         ) :: {:ok, non_neg_integer()} | {:error, :enqueue_failed}
-  def deliver_with_receipt(recipients, template_key, data, job_meta, unique \\ nil) do
-    unique = unique || :default
+  def deliver_with_receipt(recipients, template_key, data, job_meta) do
     recipients = normalize_recipients(recipients)
 
     total =
@@ -157,7 +153,7 @@ defmodule Cgc2046.Notifications.Fanout do
       emit(:skipped, template_key, nil, 0)
       {:ok, 0}
     else
-      case enqueue_notifications(recipients, template_key, data, job_meta, unique) do
+      case enqueue_notifications(recipients, template_key, data, job_meta) do
         {:ok, count} ->
           emit(:ok, template_key, nil, count)
           {:ok, count}
@@ -202,11 +198,11 @@ defmodule Cgc2046.Notifications.Fanout do
   defp manage_roles(:manage), do: Role.manage_roles()
   defp manage_roles({:roles, roles}), do: roles
 
-  defp enqueue_notifications(recipients, template_key, data, job_meta, unique) do
+  defp enqueue_notifications(recipients, template_key, data, job_meta) do
     if DeliveryKey.durable?(template_key) do
       durable_enqueue(recipients, template_key, data, job_meta)
     else
-      oban_enqueue(recipients, template_key, data, job_meta, unique)
+      oban_enqueue(recipients, template_key, data, job_meta)
     end
   end
 
@@ -228,12 +224,12 @@ defmodule Cgc2046.Notifications.Fanout do
   # flashback_wish_echo 专属直插路径（其余 22 键已迁耐久投递）：逐身份插
   # NotificationWorker job；deliver_with_receipt 的 count 回执依赖此路径的
   # 「本次新接受任务数」语义，见 #834。
-  defp oban_enqueue(recipients, template_key, data, job_meta, unique) do
+  defp oban_enqueue(recipients, template_key, data, job_meta) do
     Enum.reduce_while(recipients, {:ok, 0}, fn {user_id, identities}, {:ok, count} ->
       case Cgc2046.Repo.transaction(fn ->
              accepted =
                Enum.reduce(identities, 0, fn identity, acc ->
-                 case insert_notification(identity, user_id, template_key, data, job_meta, unique) do
+                 case insert_notification(identity, user_id, template_key, data, job_meta) do
                    {:ok, job} -> acc + if(job.conflict?, do: 0, else: 1)
                    {:error, reason} -> Cgc2046.Repo.rollback(reason)
                  end
@@ -252,7 +248,7 @@ defmodule Cgc2046.Notifications.Fanout do
 
   # args 携带 identity_uid：同用户同平台多身份不被 args-unique 折叠，
   # 发送侧按该身份精确投递（#3）。
-  defp insert_notification(identity, user_id, template_key, data, job_meta, _unique) do
+  defp insert_notification(identity, user_id, template_key, data, job_meta) do
     args =
       job_meta
       |> Map.merge(%{

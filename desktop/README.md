@@ -252,13 +252,10 @@ crates/
   events/       场次、报名、支付、核销码
   courses/      课程目录、学习页、正文渲染
   agent_chat/   学习搭子对话、agent 选择
-  platform/     端口 trait（api / session / agent / registry / update / telemetry）
-  platform-macos/   macOS 的 OS 适配器（通知/深链/单实例/托盘/keychain/进程）
-  platform-windows/ Windows 的 OS 适配器
-  platform-linux/   Linux 的 OS 适配器
+  platform/     端口 trait 与 OS 适配（api / session / agent / registry / update / telemetry，keychain/托盘/单实例/路径/进程窗口隐藏按 `#[cfg(target_os = ...)]` 条件编译隔离）
 ```
 
-`app → 各 domain crate → platform`，`platform-{macos,windows,linux} → platform`；禁止 `platform → platform-*`，
+`app → 各 domain crate → platform`；禁止 `platform` 反向依赖 domain 或 `app`，
 禁止 domain crate 之间互相依赖。加功能的默认落点是已有 domain crate 的 module；
 只有「独立依赖面 / 被两个以上 crate 复用 / 需要并行隔离或独立发布」之一才新建 crate。
 CI 在 1.13 建立后由依赖边界检查兜底。

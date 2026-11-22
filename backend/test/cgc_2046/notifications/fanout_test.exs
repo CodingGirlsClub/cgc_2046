@@ -119,7 +119,7 @@ defmodule Cgc2046.Notifications.FanoutTest do
     end
   end
 
-  describe "deliver/5" do
+  describe "deliver/4" do
     test "map 与 {user_id, [identity]} 两种 recipients 形状归一，逐身份落行（#847 耐久路径）" do
       user = Fixtures.register_user("fanout-deliver-shape")
       insert_identity(user.id, :wechat, "fanout-deliver-shape-wx")
@@ -216,7 +216,7 @@ defmodule Cgc2046.Notifications.FanoutTest do
     end
 
     # flashback_wish_echo（唯一保留直插）的 Oban unique 语义（#7）。
-    test "unique 预设：:default 含 discarded 阻塞重拍；:reminder_7d 释放 discarded 名额（#7）" do
+    test "Oban 直插 unique（flashback_wish_echo）：同 args 折叠且 discarded 仍阻塞重拍（#7）" do
       user = Fixtures.register_user("fanout-unique")
       insert_identity(user.id, :wechat, "fanout-unique-openid")
       identities = Fanout.identities(user.id)
@@ -230,7 +230,7 @@ defmodule Cgc2046.Notifications.FanoutTest do
 
       meta = %{"wish_id" => data["wish_id"], "endorsement_id" => "e1"}
 
-      # :default（payment_succeeded，未迁）—— 同 args 重入队折叠为既有 job
+      # flashback_wish_echo（唯一保留 Oban 直插）—— 同 args 重入队折叠为既有 job
       assert :ok = Fanout.deliver({user.id, identities}, "flashback_wish_echo", data, meta)
 
       assert [job] =
@@ -249,7 +249,7 @@ defmodule Cgc2046.Notifications.FanoutTest do
 
       assert same.id == job.id
 
-      # :default（NotificationWorker states: :all）—— discarded 仍阻塞，不插新行
+      # NotificationWorker（states: :all）—— discarded 仍阻塞，不插新行
       {:ok, _} =
         Ecto.Adapters.SQL.query(
           Cgc2046.Repo,
@@ -259,13 +259,10 @@ defmodule Cgc2046.Notifications.FanoutTest do
 
       assert :ok = Fanout.deliver({user.id, identities}, "flashback_wish_echo", data, meta)
       assert count_rows("flashback_wish_echo", user.id) == 1
-
-      # #847 批 3：approval_reminder 迁耐久路径后 @reminder_unique 无 Fanout 使用方，
-      # :reminder_7d 段随迁删除（收尾批次本测试整体移除）
     end
   end
 
-  describe "deliver_with_receipt/5" do
+  describe "deliver_with_receipt/4" do
     test "返回实际接受入队的通知任务数（#847 已迁键 count = 身份数，行为面落 Delivery 行）" do
       user = Fixtures.register_user("fanout-receipt")
       insert_identity(user.id, :wechat, "fanout-receipt-wx")

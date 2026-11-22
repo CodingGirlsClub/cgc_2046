@@ -10,8 +10,8 @@ name = "cgc-agent-demo"
 path = "src/main.rs"
 
 [dependencies]
-cgc-agent-provider = { path = "../agent_provider" }
-cgc-agent-core = { path = "../agent_core" }
-cgc-agent-tools = { path = "../agent_tools" }
+cgc-agent-provider.workspace = true
+cgc-agent-core.workspace = true
+cgc-agent-tools.workspace = true
 futures = "0.3"
 serde_json = "1"

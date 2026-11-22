@@ -10,7 +10,9 @@ use super::super::ScreenContext;
 use super::media;
 use super::notes as issue_notes;
 use crate::agent_call::{AgentCall, LearningTarget};
-use cgc_courses::content::{AgentActionSpec, AgentIntent, CourseIssue, CourseObjective};
+use cgc_courses::content::{
+    AgentActionIntent, AgentActionSpec, AgentIntent, CourseIssue, CourseObjective,
+};
 use gpui_kit::base::SelectableText;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::collapsible::Collapsible;
@@ -636,20 +638,21 @@ pub(in crate::root_view) fn render_issue_card(
             };
             let mut buttons = Vec::with_capacity(actions.len());
             for action in actions {
-                let call = AgentCall::from_action(&action, target.clone());
-                let prompt = agent_prompt(action.intent, language).to_string();
                 let label = action.label.clone();
                 let root = cx.entity().downgrade();
                 let id =
                     SharedString::from(format!("issue-agent-action-{objective_key}-{}", action.id));
                 let mut button = Button::new(id).label(label.clone());
-                if !action.primary {
-                    button = button.ghost();
-                }
-                buttons.push(
-                    button
-                        .small()
-                        .on_click(move |_, window, cx| {
+                match &action.intent {
+                    AgentActionIntent::Known(intent) => {
+                        let Some(call) = AgentCall::from_action(&action, target.clone()) else {
+                            continue;
+                        };
+                        let prompt = agent_prompt(*intent, language).to_string();
+                        if !action.primary {
+                            button = button.ghost();
+                        }
+                        button = button.small().on_click(move |_, window, cx| {
                             let _ = root.update(cx, |this, cx| {
                                 this.apply_agent_call(
                                     call.clone(),
@@ -659,9 +662,27 @@ pub(in crate::root_view) fn render_issue_card(
                                     cx,
                                 );
                             });
-                        })
-                        .into_any_element(),
-                );
+                        });
+                    }
+                    AgentActionIntent::Unknown(_) => {
+                        // 未知意图不抢主 CTA 样式，点击后退化为纯文本 prefill 并提示升级客户端。
+                        let prompt = fallback_agent_prompt(&label, language);
+                        let notice =
+                            translate(language, Key::CoursesLearningAgentActionFallbackStatus)
+                                .to_string();
+                        button = button.ghost().small().on_click(move |_, window, cx| {
+                            let _ = root.update(cx, |this, cx| {
+                                this.compose_plain_agent_prompt(
+                                    prompt.clone(),
+                                    notice.clone(),
+                                    window,
+                                    cx,
+                                );
+                            });
+                        });
+                    }
+                }
+                buttons.push(button.into_any_element());
             }
             card.push(
                 div()
@@ -899,9 +920,13 @@ fn default_agent_action(
     AgentActionSpec {
         id: id.to_string(),
         label: translate(language, label).to_string(),
-        intent,
+        intent: AgentActionIntent::Known(intent),
         primary,
     }
+}
+
+fn fallback_agent_prompt(label: &str, language: Language) -> String {
+    translate(language, Key::CoursesLearningAgentPromptFallback).replace("{label}", label)
 }
 
 fn agent_prompt(intent: AgentIntent, language: Language) -> &'static str {
