@@ -54,6 +54,7 @@ defmodule Cgc2046Web.Router do
   end
 
   pipeline :graphql do
+    plug(Cgc2046Web.Plugs.DesktopClientGatePlug)
     plug(Cgc2046Web.Plugs.AuthCookiePlug, :read)
     plug(:load_from_bearer)
     plug(Cgc2046Web.Plugs.AuthTokenContextPlug)
@@ -76,6 +77,7 @@ defmodule Cgc2046Web.Router do
   # McpProtocolCompatPlug 必须在鉴权之前：OpenClacky ≤1.5.6 client 硬编码的旧版
   # protocol header 会在 anubis 协商前 400，先 shim 掉（见该模块 @moduledoc）。
   pipeline :mcp do
+    plug(Cgc2046Web.Plugs.DesktopClientGatePlug, exempt_token_delete: true)
     plug(Cgc2046Web.Plugs.McpProtocolCompatPlug)
     plug(Cgc2046Web.Plugs.McpAuthPlug)
   end
@@ -102,6 +104,7 @@ defmodule Cgc2046Web.Router do
   # 第一方桌面端使用登录会话 Bearer（SignedInSession JWT），与 /mcp 的
   # terminal/learning_host token 物理隔离；不把 MCP token 的权限带进算力消费。
   pipeline :llm_gateway do
+    plug(Cgc2046Web.Plugs.DesktopClientGatePlug, desktop_only: true)
     plug(:load_from_bearer)
     plug(Cgc2046Web.Plugs.LlmGatewayAuthPlug)
     plug(:load_actor)
@@ -124,6 +127,13 @@ defmodule Cgc2046Web.Router do
     pipe_through(:webhooks)
 
     post("/:provider", PaymentWebhookController, :handle)
+  end
+
+  # 桌面端版本检查（ADR-0027）：免鉴权、零 DB、豁免 DesktopClientGatePlug
+  scope "/api/desktop", Cgc2046Web do
+    pipe_through(:api)
+
+    get("/version", DesktopVersionController, :show)
   end
 
   scope "/api", Cgc2046Web do

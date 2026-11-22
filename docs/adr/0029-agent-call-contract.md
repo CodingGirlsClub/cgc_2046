@@ -5,7 +5,7 @@ date: 2026-11-10
 
 # ADR-0029：学习场景的 Agent 调用契约——AgentActionSpec / AgentCall / LearningTarget
 
-> 日期：2026-11-10 ｜ 状态：**已接受（Accepted；命名与分层由产品确认，实现待 A1）**
+> 日期：2026-11-10 ｜ 状态：**已接受（Accepted）**
 > 关联：#1260、ADR-0024（桌面技术栈）、ADR-0025 / ADR-0028（桌面 agent 双轨）、
 > 讨论记录：<https://chatgpt.com/share/6af2bea4-d1b8-83e9-8bbb-118a3b5f559b>
 
@@ -70,8 +70,9 @@ review
 
 - `explain` / `summarize` 主要服务 material selection，不在 objective 内容里强制配置。
 - `copy` 是本地 UI 动作，不是 `AgentIntent`，不进入 `AgentCall`。
-- 未知 intent 在内容保存时拒绝；运行时遇到旧数据的未知值，退化为纯文本 compose，
-  不执行任何工具。
+- 未知 intent 在内容保存时拒绝；运行时遇到未升级客户端不识别的非空未知值，解析保留为
+  `AgentActionIntent::Unknown(String)`、CTA 按钮降级为非主样式，点击后双轨均强制退化为纯文本
+  compose（不生成 `<agent_call>`、不注入执行指令、不触发 `AutoSend`），并在界面提示用户升级客户端。
 
 ### 3. LearningTarget
 
@@ -272,6 +273,8 @@ criterion id；`evidence` 引用真实证据（命令输出/路径:行/终端记
 - `backend/lib/cgc_2046/mcp/playbooks.ex`
 - `backend/lib/cgc_2046/mcp/tools/save_course_content.ex`
 - `desktop/crates/courses/src/content.rs`
+- `desktop/crates/app/src/agent_call.rs`
+- `desktop/crates/app/src/root_view/agent_call_dispatch.rs`
 - `desktop/crates/app/src/page_context.rs`
 - `desktop/crates/app/src/conversation_session.rs`
 - `desktop/crates/app/src/native_runtime.rs`

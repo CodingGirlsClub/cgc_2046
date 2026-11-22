@@ -79,6 +79,9 @@ impl RootView {
                     ) {
                         this.refresh_projection_after_learning_mutation(cx);
                     }
+                    if let Some(notice) = cgc_platform::api::upgrade_notice() {
+                        this.apply_upgrade_notice(notice);
+                    }
                     // header 的标题/生成态读的是 view 快照；子实体重绘不会带父级。
                     cx.notify();
                 },

@@ -50,7 +50,7 @@ Zed 的实践提供了直接参照：native agent 是进程内 Rust 实现，与
    - 海外 BYO：OpenAI / Anthropic / Google / OpenRouter；
    - 本地：Ollama / LM Studio；
    - 自定义：任意 OpenAI-compatible endpoint（含用户自己的中转站；CGC 不转售、不承担上游供给）。
-   凭据：API key 存 keychain 且与 `api_url` 绑定；**CGC 网关用登录会话 token**，照 Zed Cloud 的鉴权模式：服务端签发短时 LLM token（Bearer），响应带 `expired/outdated` 信号或 401 时刷新并只重试一次；402 映射为「订阅/额度不足」，429 映射为限流，403 映射为重新登录。**v1 不做 ChatGPT / Claude 订阅 OAuth**；key 不进 settings 与日志，登出清理。
+   凭据：API key 存 keychain 且与 `api_url` 绑定；**CGC 网关直接复用第一方登录会话 token（`SignedInSession` 签发的 7 天 `platform=desktop` JWT，2026-11-22 修订）**：由于 `/v1/*` 网关与 GraphQL 同属 Phoenix 单体（由 `LlmGatewayAuthPlug` 校验 `platform=desktop` claim），**正式放弃 Zed Cloud 的短时 LLM token 交换与 `expired/outdated` 401 自动刷新重试**；网关返回 401 时提示重新登录，402 映射为「额度余额不足」（弹出充值卡），403 映射为「额度账户冻结」，429 映射为并发/限流，426 由前置 `DesktopClientGatePlug` 触发客户端强升/止损覆盖层。**v1 不做 ChatGPT / Claude 订阅 OAuth**；key 不进 settings 与日志，登出清理。
    模型目录：客户端内置可版本化 JSON（context / tools / vision / thinking / 价格可选）+ 远程增量覆盖 + 用户可手填自定义模型。用量：本地 `TokenUsage` 展示；网关模式服务端计量配额。
 5. **工具与权限（2026-11-22 修订）**：v1 工具为读文件、写 / 编辑、搜索、列目录、终端命令、课程与学习工具（经 MCP）、可选 web 搜索。审批沿用现有 permission 事件与卡片，危险命令内置规则（同时覆盖 Unix 与 Windows 破坏性命令）。**OS 级沙箱在 macOS（Seatbelt）与 Linux（bwrap）落地**，与终端工具同批交付；**放弃 P1 Windows WSL 沙箱**（对普通学员安装门槛过高）——**Windows 及无 `bwrap` 的 Linux 统一降级为「无沙箱逐条强审批 + 显式风险提示」**：审批卡隐藏「本会话允许 / 允许前缀」仅保留「允许一次 / 拒绝」、禁止 `ApprovalMode::Auto` 与 `toolPermissions` 自动放行 `run_command`，并在卡片上醒目提示命令可访问网络及工作区外文件。参考 Zed 的实现路径但只取 approach（Zed 为 GPL-3.0-or-later，代码复用需人裁）。
 6. **平台工具经 MCP 获取（2026-10-25 修订）**：MCP 是**客户端资产**——客户端持有唯一的 MCP

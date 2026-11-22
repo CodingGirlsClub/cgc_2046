@@ -92,8 +92,43 @@ pub struct CourseObjective {
 pub struct AgentActionSpec {
     pub id: String,
     pub label: String,
-    pub intent: AgentIntent,
+    pub intent: AgentActionIntent,
     pub primary: bool,
+}
+
+/// 内容 CTA 上声明的意图：保留非空未知值，便于老客户端按 ADR-0029 退化为纯文本 compose。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AgentActionIntent {
+    Known(AgentIntent),
+    Unknown(String),
+}
+
+impl AgentActionIntent {
+    /// 解析非空字符串；命中 10 词表返回 `Known`，非空未知值保留为 `Unknown`。
+    pub fn parse(value: &str) -> Option<Self> {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        Some(match AgentIntent::parse(trimmed) {
+            Some(intent) => Self::Known(intent),
+            None => Self::Unknown(trimmed.to_string()),
+        })
+    }
+
+    pub fn known(&self) -> Option<AgentIntent> {
+        match self {
+            Self::Known(intent) => Some(*intent),
+            Self::Unknown(_) => None,
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Known(intent) => intent.as_str(),
+            Self::Unknown(raw) => raw.as_str(),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -345,7 +380,7 @@ fn parse_agent_action(value: &Value) -> Option<AgentActionSpec> {
     if label.trim().is_empty() {
         return None;
     }
-    let intent = AgentIntent::parse(value.get("intent")?.as_str()?)?;
+    let intent = AgentActionIntent::parse(value.get("intent")?.as_str()?)?;
     Some(AgentActionSpec {
         id,
         label,
@@ -716,13 +751,13 @@ mod tests {
                 AgentActionSpec {
                     id: "a-run".into(),
                     label: "运行示例".into(),
-                    intent: AgentIntent::Run,
+                    intent: AgentActionIntent::Known(AgentIntent::Run),
                     primary: true,
                 },
                 AgentActionSpec {
                     id: "a-hint".into(),
                     label: "给我提示".into(),
-                    intent: AgentIntent::Hint,
+                    intent: AgentActionIntent::Known(AgentIntent::Hint),
                     primary: false,
                 },
             ]
@@ -804,20 +839,37 @@ mod tests {
     }
 
     #[test]
-    fn parse_course_content_drops_invalid_agent_actions() {
+    fn parse_course_content_drops_invalid_agent_actions_and_keeps_unknown_intent() {
         let raw = r#"{"issues":[{"objectives":[{"id":"obj-1","agent_actions":[
             {"id":"a-ok","label":"回答","intent":"answer"},
             {"id":"","label":"缺 id","intent":"answer"},
-            {"id":"a-unknown","label":"未知","intent":"unknown"},
+            {"id":"a-no-label","label":"  ","intent":"answer"},
+            {"id":"a-unknown","label":"模拟面试","intent":"mock_interview","primary":true},
+            {"id":"a-blank","label":"空白","intent":"   "},
             {"id":"a-null","label":"缺 intent"}
         ]}]}]}"#;
         let document = parse_course_content(raw);
         let actions = &document.issues[0].objectives[0].agent_actions;
 
-        assert_eq!(actions.len(), 1);
+        assert_eq!(actions.len(), 2);
         assert_eq!(actions[0].id, "a-ok");
-        assert_eq!(actions[0].intent, AgentIntent::Answer);
+        assert_eq!(
+            actions[0].intent,
+            AgentActionIntent::Known(AgentIntent::Answer)
+        );
+        assert_eq!(actions[0].intent.known(), Some(AgentIntent::Answer));
+        assert_eq!(actions[0].intent.as_str(), "answer");
         assert!(!actions[0].primary);
+
+        assert_eq!(actions[1].id, "a-unknown");
+        assert_eq!(actions[1].label, "模拟面试");
+        assert_eq!(
+            actions[1].intent,
+            AgentActionIntent::Unknown("mock_interview".to_string())
+        );
+        assert_eq!(actions[1].intent.known(), None);
+        assert_eq!(actions[1].intent.as_str(), "mock_interview");
+        assert!(actions[1].primary);
     }
 
     #[test]

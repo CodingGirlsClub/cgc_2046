@@ -143,6 +143,7 @@ impl From<ApiError> for NotesError {
                 _ => Self::Server(code),
             },
             ApiError::Graphql { message, .. } => Self::Server(message),
+            ApiError::UpgradeRequired(notice) => Self::Server(notice.message),
             ApiError::Transport(reason) => Self::Transport(reason),
             ApiError::Timeout(reason) => Self::Transport(reason),
         }

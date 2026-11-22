@@ -323,8 +323,7 @@ defmodule Cgc2046.Notifications.ServiceTest do
                  "enrollment_id" => enrollment_id,
                  "approval_deadline" => DateTime.to_iso8601(deadline)
                },
-               %{"enrollment_id" => enrollment_id},
-               :reminder_7d
+               %{"enrollment_id" => enrollment_id}
              )
 
     # #847 批 3：approval_reminder 已迁耐久路径，行为面 = Delivery 行

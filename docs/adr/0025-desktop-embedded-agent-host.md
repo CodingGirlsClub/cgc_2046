@@ -1,14 +1,15 @@
 ---
-status: accepted
+status: superseded
+superseded_by: ADR-0028
 date: 2026-10-19
 ---
 
 # ADR-0025：桌面客户端内化本机 Host（Rust + ACP）
 
-> **Superseded（2026-10-26）：Web 端学习搭子与 cgc-host 已移除，本 ADR 仅作历史记录（桌面客户端内化 Host 的决策仍被 ADR-0028 承接）。**
+> **Superseded（2026-10-26）：Web 端学习搭子与 `cgc-host` 已移除；桌面客户端内化 ACP Host 的架构已演进并被 ADR-0028（内置 Native Agent + 外部 ACP Agent 双轨模型）承接。**
 
-> 日期：2026-10-19 ｜ 状态：**已接受（Accepted）** ｜ 决策者：用户（product owner）
-> 关联：ADR-0022、ADR-0023、架构脊柱 `_bmad-output/initiative-desktop/architecture-desktop/architecture-desktop.md`（AD-3、AD-4、AD-5、AD-8）
+> 日期：2026-10-19 ｜ 状态：**已取代（Superseded，2026-10-26；桌面内化 ACP Host 架构由 ADR-0028 双轨模型承接）** ｜ 决策者：用户（product owner）
+> 关联：ADR-0022、ADR-0023、ADR-0028、架构脊柱 `_bmad-output/initiative-desktop/architecture-desktop/architecture-desktop.md`（AD-3、AD-4、AD-5、AD-8；本地规划产物，`.git/info/exclude` 忽略）
 
 ## 背景（Context）
 
@@ -37,9 +38,18 @@ ADR-0022 让课程学习页经 CGC 本机 Host（`cgc-host/`，Bun + TypeScript�
 - **代价/风险**：安全敏感逻辑（凭证、进程回收、超时、审批）在 Rust 重写，需以 ADR-0022 的测试矩阵回归；`cgc-host/**` 属人工合并，两条路径可能产生行为漂移（由共享不变量与回归清单约束）；桌面端的威胁模型需要单独评审（本地进程、提权、日志）。
 - **回滚**：删除内化 Host 功能、回到浏览器 `cgc-host` 路径；不影响后端与 web。
 
+## 现状补记（2026-11-22）
+
+1. **内置 ACP 适配器清单（决策 1）**：`desktop/crates/platform/resources/registry.json` 现内置 **4** 项外部 ACP Agent——`omp`、`codex`（`2.2.2`）、`claude_code`（`0.94.0`）、`deepseek`（`0.4.41`，见 ADR-0031）。
+2. **安装校验机制（决策 1）**：SHA-256 checksum 校验（`desktop/crates/platform/src/registry/checksum.rs`）用于托管 Node.js 24 运行时归档（`desktop/crates/platform/src/agent/node_runtime.rs`）；npm 适配器包依赖 `registry.sig`（Ed25519 签名校验 `registry.json`）、`npm install --save-exact` 与安装后 `package.json` 版本号核对（`desktop/crates/platform/src/registry/install.rs`）。
+3. **会话持久化、全局 Agent 面板与超时预算（决策 3 / 4）**：经 ADR-0028 与 Stage 3.5a 演进，桌面端已引入本地 SQLite 持久化（`desktop/crates/agent_store/`：Native 线程存 `threads.db`，外部 ACP 聊天记录存 `conversations.db`）；所有外部 ACP Agent 统一注入 `cgc-2046-learning`（`desktop/crates/platform/src/mcp/inject.rs`）；UI 收敛为全局 Agent Panel 并共享统一工作目录 `~/cgc2046_workspace/assistant/<userId>`（`desktop/crates/app/src/agent_scope.rs`）；`session/prompt` 采用基于活跃流式输出的空闲超时预算（`desktop/crates/platform/src/acp/connection/turn.rs`）。
+4. **历史路径说明（决策 6 / 参考）**：`cgc-host/` 及 `cgc-host/protocol.json` 已于 2026-10-26 删除；`_bmad-output/*` 为本地规划产物（`.git/info/exclude` 忽略，不入库）。
+
 ## 参考
 
-- 架构脊柱：`_bmad-output/initiative-desktop/architecture-desktop/architecture-desktop.md`
+- 架构脊柱：`_bmad-output/initiative-desktop/architecture-desktop/architecture-desktop.md`（本地规划产物，`.git/info/exclude` 忽略）
 - `docs/adr/0022-course-page-local-agent-host.md`
 - `docs/adr/0023-multiple-local-agents.md`
-- `cgc-host/protocol.json`
+- `docs/adr/0028-desktop-native-agent-dual-track.md`
+- 现存源码：`desktop/crates/platform/src/acp/connection.rs`、`desktop/crates/platform/src/mcp/credential.rs`、`desktop/crates/platform/src/mcp/inject.rs`、`desktop/crates/agent_store/src/lib.rs`、`desktop/crates/app/src/agent_scope.rs`
+- `cgc-host/protocol.json`（已于 2026-10-26 删除，仅作历史引用）

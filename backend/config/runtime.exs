@@ -546,3 +546,18 @@ if config_env() == :dev do
       ]
   end
 end
+
+# 桌面客户端版本门控、轻量版本检查与止损开关（ADR-0027）：prod 与 dev 均可经环境变量热控，
+# 全空时默认不拦截；test 环境保持未设置以免受宿主机环境变量污染。
+# runtime.exs 在 release boot 早期以 start_clean.boot 执行，不调用应用模块，
+# 规范化/解析逻辑统一收敛在 DesktopClientGatePlug 与 DesktopRelease 中。
+if config_env() != :test do
+  config :cgc_2046, :desktop_client_gate,
+    kill_switch: System.get_env("DESKTOP_KILL_SWITCH"),
+    kill_switch_message: System.get_env("DESKTOP_KILL_SWITCH_MESSAGE"),
+    min_supported_version: System.get_env("DESKTOP_MIN_SUPPORTED_VERSION"),
+    blocked_versions: System.get_env("DESKTOP_BLOCKED_VERSIONS"),
+    latest_version: System.get_env("DESKTOP_LATEST_VERSION"),
+    download_url: System.get_env("DESKTOP_DOWNLOAD_URL"),
+    release_notes: System.get_env("DESKTOP_RELEASE_NOTES")
+end
