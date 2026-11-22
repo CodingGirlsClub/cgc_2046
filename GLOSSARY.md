@@ -112,7 +112,7 @@
 
 - **定义**：全局标记（`is_platform_admin`，非租户角色），可多人；负责创建 Workspace 并指定 Owner。
 - **不变量**：系统必须维持 ≥1 名平台管理员；降级最后一名管理员被拒绝（不变量由 `User :demote_platform_admin` action 守卫）。
-- **架构位置**：User 上的布尔标记，跨租户生效。**判定唯一真源 = `Cgc2046.Accounts.Policies.PlatformAdmin`**（2026-08-12 named-check 收敛）：Ash check（`match?/3`）+ 纯谓词 `platform_admin?/1` 两个 surface，policy 字面量与 plug/live/graphql ad-hoc 判定全部收口。**双面契约**：policy 面放行跨租户治理读（含成员列表，load-bearing，实 bug `7f925b7`）；能力面（Rbac abilities / myAbilities）不给非成员管理员管理类 ability（#66 P2）——两面刻意不同答，契约成文于该 module moduledoc。**MCP 治理面（role-agent-journeys-v2 S2，R12–R16）**：`admin_` 前缀十工具（读 4 + 确认流写 6）经显式 `membership: :platform_admin` 门控族开放（Wrapper 委托上述唯一真源判定，fail-closed，无工作台作用域）；member-only 门「无 admin 豁免」规则不变——非成员平台管理员调 member 工具仍 Forbidden。治理读面只暴露操作元数据：`admin_list_audit_logs` 三源投影结构性不读 params/metadata 列（不靠查询后裁剪）。
+- **架构位置**：User 上的布尔标记，跨租户生效。**判定唯一真源 = `Cgc2046.Accounts.Policies.PlatformAdmin`**（2026-08-12 named-check 收敛）：Ash check（`match?/3`）+ 纯谓词 `platform_admin?/1` 两个 surface，policy 字面量与 plug/live/graphql ad-hoc 判定全部收口。**双面契约**：policy 面放行跨租户治理读（含成员列表，load-bearing，实 bug `7f925b7`）；能力面（Rbac abilities / myAbilities）不给非成员管理员管理类 ability（#66 P2）——两面刻意不同答，契约成文于该 module moduledoc。**MCP 治理面（role-agent-journeys-v2 S2，R12–R16）**：共 28 个工具经显式 `membership: :platform_admin` 门控族开放（Wrapper 委托上述唯一真源判定，fail-closed；其中 26 个跨租户全局工具同时声明 `workspace_id: :optional`，2 个定向租户治理工具 `admin_reassign_workspace_owner` / `unforfeit_order` 省略该键按默认规则必填 `workspace_id`）；member-only 门「无 admin 豁免」规则不变——非成员平台管理员调 member 工具仍 Forbidden。治理读面只暴露操作元数据：`admin_list_audit_logs` 三源投影经 `Ash.Query.select/2` 在 SQL 层结构性不读 `params` / `summary` / `metadata` 列（不靠查询后裁剪）。
 
 ### 连接 token（MCP 连接令牌 / Connection Token）
 
@@ -138,7 +138,7 @@
 
 ### workspace_id 作用域（Workspace Scope）
 
-- **定义**：无状态的租户作用域。**除豁免族外，所有 MCP 工具必填 `workspace_id`**：`meta: %{workspace_id: :optional}` 声明的工具（confirm_operation / cancel_operation / list_my_workspaces 等 actor 锚定族）、`meta: %{membership: :public}` 的公开浏览工具（list_public_offerings / get_public_offering——跨工作区公开白名单口径，workspace_id 传入也不收窄，KTD3），以及 `meta: %{membership: :platform_admin}` 的平台治理工具（admin_ 前缀族——跨租户治理面无工作台作用域，role-agent-journeys-v2 S2）。其余工具每次调用据此鉴权 + 审计；服务端不存"当前工作区"会话状态（D12）。
+- **定义**：无状态的租户作用域。**除豁免族外，所有 MCP 工具必填 `workspace_id`**：`meta: %{workspace_id: :optional}` 声明的工具（confirm_operation / cancel_operation / list_my_workspaces 等 actor 锚定族）、`meta: %{membership: :public}` 的公开浏览工具（list_public_offerings / get_public_offering——跨工作区公开白名单口径，workspace_id 传入也不收窄，KTD3），以及 `meta: %{membership: :platform_admin}` 的平台治理工具（其中 26 个跨租户全局治理工具同时声明 `workspace_id: :optional`；定向租户治理工具 `admin_reassign_workspace_owner` / `unforfeit_order` 仅声明 `membership: :platform_admin`，按默认规则仍必填 `workspace_id`，role-agent-journeys-v2 S2）。其余工具每次调用据此鉴权 + 审计；服务端不存"当前工作区"会话状态（D12）。
 - **meta 载体纪律**：`meta:` 仅存门控事实（workspace_id 必填性 / membership 豁免）——Anubis 会把非 nil meta 序列化进 tools/list 的 `_meta` 对 MCP 客户端可见，塞其他用途的键等于向客户端泄漏非门控信息（架构深化 C 遗留约定）；可见性分层的 `scopes:` 不进 tools/list 序列化，不受此限，也不要塞进 `meta:`。
 - **架构位置**：决定性事实——OpenClacky 的 MCP client 是 server 级全局长连接（`@clients = {name => Client}`，进程级共享），服务端存会话状态会跨会话串。因此 scope 必须无状态、每调用判定。
 
