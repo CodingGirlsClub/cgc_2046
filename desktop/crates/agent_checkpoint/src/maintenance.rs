@@ -211,8 +211,18 @@ impl CheckpointManager {
 
         let remaining_refs = total_before.saturating_sub(pruned.len());
         self.delete_refs_locked(&pruned)?;
-        self.run_gc_locked(gc_mode)?;
-        let stats_after = self.object_store_stats_locked()?;
+        let wrap_post_prune = |error: CheckpointError| {
+            if pruned.is_empty() {
+                error
+            } else {
+                CheckpointError::GcAfterPrune {
+                    pruned: pruned.clone(),
+                    source: Box::new(error),
+                }
+            }
+        };
+        self.run_gc_locked(gc_mode).map_err(&wrap_post_prune)?;
+        let stats_after = self.object_store_stats_locked().map_err(&wrap_post_prune)?;
         Ok(ReclaimReport {
             pruned,
             remaining_refs,

@@ -82,7 +82,7 @@ impl Owner {
                 checkpoints.retain(|(existing, _)| *existing != ordinal);
                 checkpoints.push((ordinal, report.checkpoint));
                 checkpoints.sort_by_key(|(ordinal, _)| *ordinal);
-                self.apply_pruned_refs(&report.pruned);
+                self.apply_pruned_refs(&report.pruned, false);
                 self.checkpoint_budget_exceeded = false;
                 self.checkpoint_budget_notice_reported = false;
                 self.checkpoint_unrecoverable_notice_reported = false;
@@ -109,7 +109,7 @@ impl Owner {
         }
     }
 
-    pub(super) fn apply_pruned_refs(&mut self, pruned: &[PrunedRef]) {
+    pub(super) fn apply_pruned_refs(&mut self, pruned: &[PrunedRef], same_repo: bool) {
         if pruned.is_empty() {
             return;
         }
@@ -126,6 +126,10 @@ impl Owner {
                 Arc::make_mut(&mut self.checkpoints)
                     .retain(|(ordinal, _)| *ordinal != target_ordinal);
             }
+        }
+        if same_repo {
+            self.refresh_changes();
+            self.publish(RuntimeChange::Checkpoint);
         }
     }
 
@@ -246,42 +250,39 @@ impl Owner {
             self.last_checkpoint_gc_at = Some(std::time::Instant::now());
         }
         match outcome {
-            CheckpointGcOutcome::Auto { result } => {
-                if same_repo {
-                    if let Err(error) = result {
-                        log::warn!(target: "native", "background checkpoint gc failed: {error}");
-                    }
-                }
+            CheckpointGcOutcome::Auto { result: Err(error) } if same_repo => {
+                log::warn!(target: "native", "background checkpoint gc failed: {error}");
             }
-            CheckpointGcOutcome::Reclaim { result } => match result {
-                Ok(reclaim) => {
-                    // SQLite 会话库跨 scope 共享且按 thread_id 唯一定位：即便 GC 期间切了 scope，
-                    // 也必须把已删除的 Git ref 在 SQLite 中标为 invalid，避免切回旧工作区后暴露悬空恢复入口。
-                    self.apply_pruned_refs(&reclaim.pruned);
-                    if same_repo {
-                        if reclaim.within_budget {
-                            self.checkpoint_budget_exceeded = false;
-                            self.checkpoint_budget_notice_reported = false;
-                            self.checkpoint_unrecoverable_notice_reported = false;
-                        } else {
-                            self.checkpoint_budget_exceeded = true;
-                            if !self.checkpoint_unrecoverable_notice_reported {
-                                self.checkpoint_unrecoverable_notice_reported = true;
-                                self.notice(format!(
-                                    "检查点对象库清理后仍超过容量上限（{} / {}），已暂停新检查点；不会删除你的 Git 分支或提交。",
-                                    format_bytes(reclaim.stats_after.total_bytes()),
-                                    format_bytes(reclaim.limit_bytes),
-                                ));
-                            }
+            CheckpointGcOutcome::Auto { .. } => {}
+            CheckpointGcOutcome::Reclaim {
+                result: Ok(reclaim),
+            } => {
+                // SQLite 会话库跨 scope 共享：即便 GC 期间切了 scope 也必须标记已删 ref 为 invalid。
+                self.apply_pruned_refs(&reclaim.pruned, same_repo);
+                if same_repo {
+                    if reclaim.within_budget {
+                        self.checkpoint_budget_exceeded = false;
+                        self.checkpoint_budget_notice_reported = false;
+                        self.checkpoint_unrecoverable_notice_reported = false;
+                    } else {
+                        self.checkpoint_budget_exceeded = true;
+                        if !self.checkpoint_unrecoverable_notice_reported {
+                            self.checkpoint_unrecoverable_notice_reported = true;
+                            self.notice(format!(
+                                "检查点对象库清理后仍超过容量上限（{} / {}），已暂停新检查点；不会删除你的 Git 分支或提交。",
+                                format_bytes(reclaim.stats_after.total_bytes()),
+                                format_bytes(reclaim.limit_bytes),
+                            ));
                         }
                     }
                 }
-                Err(error) => {
-                    if same_repo {
-                        log::warn!(target: "native", "background checkpoint reclaim failed: {error}");
-                    }
+            }
+            CheckpointGcOutcome::Reclaim { result: Err(error) } => {
+                self.apply_pruned_refs(error.pruned_refs(), same_repo);
+                if same_repo {
+                    log::warn!(target: "native", "background checkpoint reclaim failed: {error}");
                 }
-            },
+            }
         }
         self.maybe_start_checkpoint_gc();
     }
@@ -461,22 +462,23 @@ impl Owner {
             .is_some_and(|manager| manager.repo() == repo);
         let mapped = match result {
             Ok(report) => {
-                self.apply_pruned_refs(&report.pruned);
+                self.apply_pruned_refs(&report.pruned, false);
                 if same_repo {
                     self.last_checkpoint_gc_at = Some(std::time::Instant::now());
+                    self.checkpoint_budget_exceeded = !report.within_budget;
                     if report.within_budget {
-                        self.checkpoint_budget_exceeded = false;
                         self.checkpoint_budget_notice_reported = false;
                         self.checkpoint_unrecoverable_notice_reported = false;
-                    } else {
-                        self.checkpoint_budget_exceeded = true;
                     }
                     self.refresh_changes();
                     self.publish(RuntimeChange::Checkpoint);
                 }
                 Ok(report)
             }
-            Err(error) => Err(NativeRuntimeError::Checkpoint(error.to_string())),
+            Err(error) => {
+                self.apply_pruned_refs(error.pruned_refs(), same_repo);
+                Err(NativeRuntimeError::Checkpoint(error.to_string()))
+            }
         };
         let _ = reply.send(mapped);
         self.maybe_start_checkpoint_gc();

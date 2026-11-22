@@ -640,8 +640,11 @@ fn concurrent_gc_and_snapshots_do_not_collide_on_git_locks() {
     let manager = CheckpointManager::initialize(&workspace).expect("init");
     std::fs::write(workspace.join("work.txt"), "start").unwrap();
 
-    let writer = manager.clone();
-    let gc_runner = manager.clone();
+    // 模拟 scope 切走再切回：两个独立 `CheckpointManager::open` 实例指向同一仓库，
+    // 必须共享进程内同一把 `git_lock`，否则后台 GC 删除 `cgc-checkpoint.index` 会与前台
+    // `populate_index -> write-tree` 并发交错，产生空树快照或锁冲突。
+    let writer = CheckpointManager::open(&workspace).expect("open writer");
+    let gc_runner = CheckpointManager::open(&workspace).expect("open gc_runner");
 
     let t1 = std::thread::spawn(move || {
         for seq in 1..=10 {
@@ -652,7 +655,7 @@ fn concurrent_gc_and_snapshots_do_not_collide_on_git_locks() {
         }
     });
     let t2 = std::thread::spawn(move || {
-        for _ in 0..5 {
+        for _ in 0..8 {
             gc_runner
                 .run_gc(GcMode::Auto)
                 .expect("concurrent gc must succeed");
@@ -662,7 +665,16 @@ fn concurrent_gc_and_snapshots_do_not_collide_on_git_locks() {
 
     t1.join().expect("writer thread");
     t2.join().expect("gc thread");
-    assert_eq!(manager.list("thread-concurrent").unwrap().len(), 10);
+    let checkpoints = manager.list("thread-concurrent").unwrap();
+    assert_eq!(checkpoints.len(), 10);
+    for cp in &checkpoints {
+        assert_eq!(
+            tree_files(&workspace, &cp.sha),
+            vec!["work.txt"],
+            "checkpoint seq={} must not have an empty tree",
+            cp.seq
+        );
+    }
     let _ = std::fs::remove_dir_all(workspace);
 }
 
@@ -797,5 +809,72 @@ fn file_growing_past_size_limit_when_staged_differs_from_head_is_force_removed_f
         3 * 1024 * 1024,
         "working tree file must remain untouched"
     );
+    let _ = std::fs::remove_dir_all(workspace);
+}
+
+#[test]
+fn reclaim_preserves_pruned_refs_on_error_when_subsequent_gc_fails() {
+    let workspace = temp_workspace("gc-fail-after-prune");
+    let manager = CheckpointManager::initialize(&workspace).expect("init");
+    std::fs::write(workspace.join("a.txt"), "v1\n").unwrap();
+    manager.snapshot("thread-old", 1).expect("old 1");
+    std::fs::write(workspace.join("a.txt"), "v2\n").unwrap();
+    manager.snapshot("thread-current", 1).expect("cur 1");
+    std::fs::write(workspace.join("a.txt"), "v3\n").unwrap();
+    manager.snapshot("thread-current", 2).expect("cur 2");
+
+    // 注入非法 `gc.reflogExpire` 让 `git gc` 在 `delete_refs_locked` 已经删除旧 ref 后报错失败。
+    assert!(run_git(
+        &workspace,
+        &["config", "gc.reflogExpire", "not-a-valid-date"]
+    )
+    .status
+    .success());
+
+    let err = manager
+        .purge_history_checkpoints(Some("thread-current"), 1)
+        .expect_err("git gc with invalid reflogExpire must fail");
+    let mut pruned: Vec<(String, u64)> = err
+        .pruned_refs()
+        .iter()
+        .map(|item| (item.thread_id.clone(), item.seq))
+        .collect();
+    pruned.sort();
+    assert_eq!(
+        pruned,
+        vec![
+            ("thread-current".to_string(), 1),
+            ("thread-old".to_string(), 1),
+        ],
+        "error must carry the refs that were already deleted before git gc failed"
+    );
+    assert!(manager.list("thread-old").unwrap().is_empty());
+    assert_eq!(manager.list("thread-current").unwrap().len(), 1);
+    let _ = std::fs::remove_dir_all(workspace);
+}
+
+#[cfg(unix)]
+#[test]
+fn non_utf8_filename_is_included_in_snapshot_and_restored() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt as _;
+
+    let workspace = temp_workspace("non-utf8-path");
+    let manager = CheckpointManager::initialize(&workspace).expect("init");
+    let non_utf8_name = OsStr::from_bytes(b"raw-\xff-note.txt");
+    let non_utf8_path = workspace.join(non_utf8_name);
+    if std::fs::write(&non_utf8_path, b"v1-bytes\n").is_err() {
+        // APFS 等严格强制 UTF-8 文件名的文件系统不支持创建任意非 UTF-8 文件名；跳过文件级创建。
+        // 但仍可直接验证 `index.rs` 的字节路径编码/解码与 `Path` 转换不丢失 `0xff` 字节。
+        let _ = std::fs::remove_dir_all(workspace);
+        return;
+    }
+
+    let cp1 = manager.snapshot("thread-bytes", 1).expect("snapshot 1");
+    std::fs::write(&non_utf8_path, b"v2-bytes\n").unwrap();
+    let _cp2 = manager.snapshot("thread-bytes", 2).expect("snapshot 2");
+
+    manager.restore(&cp1).expect("restore cp1");
+    assert_eq!(std::fs::read(&non_utf8_path).unwrap(), b"v1-bytes\n");
     let _ = std::fs::remove_dir_all(workspace);
 }

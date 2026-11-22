@@ -1365,3 +1365,59 @@ fn manual_cleanup_and_reclaim_invalidate_sqlite_records_even_after_scope_switch(
     let _ = std::fs::remove_dir_all(root_a);
     let _ = std::fs::remove_dir_all(root_b);
 }
+
+#[test]
+fn manual_cleanup_and_reclaim_sync_sqlite_even_when_git_gc_fails_after_deleting_refs() {
+    use futures::StreamExt as _;
+
+    let root = std::env::temp_dir().join(format!("cgc-rt-gc-fail-sync-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+
+    let manager = CheckpointManager::initialize(&root).unwrap();
+    let mut owner = configured_owner(&root);
+    owner.store = Some(SessionStore::open_in_memory().unwrap());
+    owner.freeze();
+    owner.checkpoint_manager = Some(manager);
+
+    let thread_id = owner.frozen.id.clone();
+    std::fs::write(root.join("a.txt"), "v1").unwrap();
+    owner.capture_checkpoint(&thread_id, 1);
+    std::fs::write(root.join("a.txt"), "v2").unwrap();
+    owner.capture_checkpoint(&thread_id, 2);
+
+    // 注入非法 `gc.reflogExpire`，让 `purge_history_checkpoints` 在删除 ordinal=1 的 Git ref 后于 `git gc` 阶段报错。
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&root)
+        .args(["config", "gc.reflogExpire", "not-a-valid-date"])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+
+    let (purge_tx, purge_rx) = oneshot::channel();
+    owner.command(Command::PurgeCheckpointHistory(purge_tx));
+    let job = block_on(owner.jobs.next()).expect("manual cleanup job");
+    owner.completed(job);
+
+    let err = block_on(purge_rx)
+        .unwrap()
+        .expect_err("purge must report git gc failure");
+    assert!(matches!(err, NativeRuntimeError::Checkpoint(_)));
+
+    // 尽管 `git gc` 报错，已从 Git 中删除的 ordinal=1 仍必须在内存和 SQLite 中同步标为 invalid。
+    let remaining_in_mem: Vec<usize> = owner.checkpoints.iter().map(|(seq, _)| *seq).collect();
+    assert_eq!(remaining_in_mem, vec![2]);
+
+    let records = owner
+        .store
+        .as_ref()
+        .unwrap()
+        .list_checkpoints(&thread_id)
+        .unwrap();
+    assert_eq!(records.len(), 2);
+    assert_eq!(records[0].state, "invalid");
+    assert_eq!(records[1].state, "active");
+
+    let _ = std::fs::remove_dir_all(root);
+}

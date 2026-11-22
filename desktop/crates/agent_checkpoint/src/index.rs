@@ -29,7 +29,7 @@ impl CheckpointManager {
             "--",
             ".",
         ])?;
-        let newly_ignored: HashSet<String> = if cached.is_empty() {
+        let newly_ignored: HashSet<Vec<u8>> = if cached.is_empty() {
             HashSet::new()
         } else {
             self.list_index_paths_z(&[
@@ -100,7 +100,7 @@ impl CheckpointManager {
         Ok(())
     }
 
-    fn read_cached_paths(&self) -> Result<Vec<String>, CheckpointError> {
+    fn read_cached_paths(&self) -> Result<Vec<Vec<u8>>, CheckpointError> {
         if !self.index_path.exists() {
             let read_tree = self.git_with_index(&self.index_path, ["read-tree", "--empty"])?;
             if !read_tree.status.success() {
@@ -110,7 +110,7 @@ impl CheckpointManager {
         self.list_index_paths_z(&["ls-files", "--cached", "-z", "--", "."])
     }
 
-    fn list_index_paths_z(&self, args: &[&str]) -> Result<Vec<String>, CheckpointError> {
+    fn list_index_paths_z(&self, args: &[&str]) -> Result<Vec<Vec<u8>>, CheckpointError> {
         let output = self.git_with_index_stdin(&self.index_path, args, &[])?;
         if !output.status.success() {
             return Err(CheckpointError::Git(stderr(&output)));
@@ -118,11 +118,14 @@ impl CheckpointManager {
         Ok(parse_nul_paths(&output.stdout))
     }
 
-    fn should_stage_worktree_path(&self, path: &str) -> bool {
-        if should_skip(path) {
+    fn should_stage_worktree_path(&self, raw_path: &[u8]) -> bool {
+        let Some(rel_path) = bytes_to_rel_path(raw_path) else {
+            return false;
+        };
+        if should_skip(rel_path) {
             return false;
         }
-        let full_path = self.repo.join(path);
+        let full_path = self.repo.join(rel_path);
         match std::fs::symlink_metadata(&full_path) {
             Ok(metadata) => !metadata.is_dir() && metadata.len() <= MAX_FILE_BYTES,
             Err(_) => false,
@@ -130,24 +133,35 @@ impl CheckpointManager {
     }
 }
 
-fn parse_nul_paths(bytes: &[u8]) -> Vec<String> {
+fn parse_nul_paths(bytes: &[u8]) -> Vec<Vec<u8>> {
     bytes
         .split(|&byte| byte == 0)
         .filter(|slice| !slice.is_empty())
-        .map(|slice| String::from_utf8_lossy(slice).into_owned())
+        .map(|slice| slice.to_vec())
         .collect()
 }
 
-fn encode_nul_paths(paths: &[String]) -> Vec<u8> {
+fn encode_nul_paths(paths: &[Vec<u8>]) -> Vec<u8> {
     let mut out = Vec::new();
     for path in paths {
-        out.extend_from_slice(path.as_bytes());
+        out.extend_from_slice(path);
         out.push(0);
     }
     out
 }
 
-fn should_skip(path: &str) -> bool {
+#[cfg(unix)]
+fn bytes_to_rel_path(bytes: &[u8]) -> Option<&Path> {
+    use std::os::unix::ffi::OsStrExt as _;
+    Some(Path::new(std::ffi::OsStr::from_bytes(bytes)))
+}
+
+#[cfg(not(unix))]
+fn bytes_to_rel_path(bytes: &[u8]) -> Option<&Path> {
+    std::str::from_utf8(bytes).ok().map(Path::new)
+}
+
+fn should_skip(path: &Path) -> bool {
     const SKIP_DIRS: &[&str] = &[
         "node_modules",
         "target",
@@ -161,7 +175,7 @@ fn should_skip(path: &str) -> bool {
         "zip", "gz", "tgz", "7z", "rar", "png", "jpg", "jpeg", "gif", "webp", "pdf", "mp4", "mov",
         "mp3", "wav", "woff", "woff2", "ttf", "otf", "dylib", "so", "dll", "exe",
     ];
-    if Path::new(path).components().any(|component| {
+    if path.components().any(|component| {
         matches!(
             component,
             Component::Normal(segment)
@@ -172,10 +186,34 @@ fn should_skip(path: &str) -> bool {
     }) {
         return true;
     }
-    let extension = Path::new(path)
+    let extension = path
         .extension()
-        .map(|extension| extension.to_string_lossy().to_ascii_lowercase());
+        .and_then(|extension| extension.to_str())
+        .map(|extension| extension.to_ascii_lowercase());
     extension
         .as_deref()
         .is_some_and(|extension| BINARY_EXTENSIONS.contains(&extension))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_and_encode_nul_paths_preserve_raw_non_utf8_bytes() {
+        let raw = b"valid.txt\0dir/bad-\xff-name.txt\0";
+        let parsed = parse_nul_paths(raw);
+        assert_eq!(
+            parsed,
+            vec![b"valid.txt".to_vec(), b"dir/bad-\xff-name.txt".to_vec()]
+        );
+        assert_eq!(encode_nul_paths(&parsed), raw);
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt as _;
+            let path = bytes_to_rel_path(&parsed[1]).expect("unix raw bytes path");
+            assert_eq!(path.as_os_str().as_bytes(), b"dir/bad-\xff-name.txt");
+            assert!(!should_skip(path));
+        }
+    }
 }

@@ -1,8 +1,25 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
 
 use crate::git_cli::{git_command, resolve_git_dir, stderr};
-use crate::maintenance::SnapshotReport;
+use crate::maintenance::{PrunedRef, SnapshotReport};
+
+fn repo_git_lock(git_dir: &Path) -> Arc<Mutex<()>> {
+    static LOCKS: OnceLock<Mutex<HashMap<PathBuf, Weak<Mutex<()>>>>> = OnceLock::new();
+    let key = std::fs::canonicalize(git_dir).unwrap_or_else(|_| git_dir.to_path_buf());
+    let mut map = LOCKS
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    map.retain(|_, weak| weak.strong_count() > 0);
+    if let Some(existing) = map.get(&key).and_then(Weak::upgrade) {
+        return existing;
+    }
+    let lock = Arc::new(Mutex::new(()));
+    map.insert(key, Arc::downgrade(&lock));
+    lock
+}
 
 /// 单文件超过该大小不进快照。
 pub const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
@@ -29,6 +46,22 @@ pub enum CheckpointError {
     InvalidPath(String),
     #[error("checkpoint object store exceeds budget ({used_bytes} bytes > {limit_bytes} bytes)")]
     BudgetExceeded { used_bytes: u64, limit_bytes: u64 },
+    #[error("{source}")]
+    GcAfterPrune {
+        pruned: Vec<PrunedRef>,
+        #[source]
+        source: Box<CheckpointError>,
+    },
+}
+
+impl CheckpointError {
+    /// 当 ref 裁剪已经落盘但后续 `git gc` 或统计步骤失败时，返回已删除的 ref 列表以便调用方同步元数据。
+    pub fn pruned_refs(&self) -> &[PrunedRef] {
+        match self {
+            Self::GcAfterPrune { pruned, .. } => pruned,
+            _ => &[],
+        }
+    }
 }
 
 /// 一个 checkpoint 的元数据（内容在 Git 对象里）。
@@ -78,6 +111,7 @@ impl CheckpointManager {
             return Err(CheckpointError::NotRepo(repo.display().to_string()));
         }
         let git_dir = resolve_git_dir(&repo)?;
+        let git_lock = repo_git_lock(&git_dir);
         let index_path = git_dir.join("cgc-checkpoint.index");
         Ok(Self {
             repo,
@@ -86,7 +120,7 @@ impl CheckpointManager {
             max_refs: DEFAULT_MAX_REFS,
             max_total_refs: DEFAULT_MAX_TOTAL_REFS,
             max_object_bytes: DEFAULT_MAX_OBJECT_BYTES,
-            git_lock: Arc::new(Mutex::new(())),
+            git_lock,
         })
     }
 
