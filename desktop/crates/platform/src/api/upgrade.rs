@@ -5,8 +5,7 @@ use std::sync::RwLock;
 use serde_json::Value;
 use url::Url;
 
-pub const DEFAULT_DOWNLOAD_URL: &str =
-    "https://github.com/CodingGirlsClub/cgc_2046/releases/latest";
+pub const DEFAULT_DOWNLOAD_URL: &str = "https://github.com/CodingGirlsClub/cgc_2046/releases";
 
 const DEFAULT_UPGRADE_MESSAGE: &str = "当前桌面客户端版本过旧，请升级至最新版本后继续使用。";
 

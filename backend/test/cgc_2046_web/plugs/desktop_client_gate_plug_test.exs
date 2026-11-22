@@ -67,7 +67,7 @@ defmodule Cgc2046Web.Plugs.DesktopClientGatePlugTest do
              kill_switch_message: nil,
              min_supported_version: nil,
              blocked_versions: [],
-             download_url: "https://github.com/CodingGirlsClub/cgc_2046/releases/latest"
+             download_url: "https://github.com/CodingGirlsClub/cgc_2046/releases"
            ]
   end
 
@@ -85,7 +85,7 @@ defmodule Cgc2046Web.Plugs.DesktopClientGatePlugTest do
     assert cfg[:kill_switch_message] == "临时维护中"
     assert cfg[:min_supported_version] == "0.1.0-dev.20261125"
     assert cfg[:blocked_versions] == ["0.1.0-dev.20261120", "0.2.1"]
-    assert cfg[:download_url] == "https://github.com/CodingGirlsClub/cgc_2046/releases/latest"
+    assert cfg[:download_url] == "https://github.com/CodingGirlsClub/cgc_2046/releases"
 
     cfg_one = DesktopClientGatePlug.parse_env(%{"DESKTOP_KILL_SWITCH" => "1"})
     assert cfg_one[:kill_switch] == true
@@ -198,7 +198,7 @@ defmodule Cgc2046Web.Plugs.DesktopClientGatePlugTest do
                "code" => "desktop_client_disabled",
                "message" => "服务端紧急维护，请稍后重试",
                "min_version" => "9.9.9",
-               "download_url" => "https://github.com/CodingGirlsClub/cgc_2046/releases/latest"
+               "download_url" => "https://github.com/CodingGirlsClub/cgc_2046/releases"
              }
            } = Jason.decode!(conn.resp_body)
   end

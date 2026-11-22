@@ -18,7 +18,7 @@ defmodule Cgc2046Web.Plugs.DesktopClientGatePlug do
 
   require Logger
 
-  @default_download_url "https://github.com/CodingGirlsClub/cgc_2046/releases/latest"
+  @default_download_url "https://github.com/CodingGirlsClub/cgc_2046/releases"
   @telemetry_event [:cgc_2046, :desktop_gate, :rejected]
 
   @impl true
