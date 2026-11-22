@@ -293,6 +293,13 @@ impl CheckpointManager {
     /// 再 `git diff --cached <sha>` 对比；不碰用户自己的 index。
     pub fn diff(&self, checkpoint: &Checkpoint) -> Result<String, CheckpointError> {
         let _guard = self.lock_git()?;
+        let stats = self.object_store_stats_locked()?;
+        if stats.total_bytes() > self.max_object_bytes {
+            return Err(CheckpointError::BudgetExceeded {
+                used_bytes: stats.total_bytes(),
+                limit_bytes: self.max_object_bytes,
+            });
+        }
         self.populate_index()?;
         let output = self.git_with_index(
             &self.index_path,
@@ -311,6 +318,13 @@ impl CheckpointManager {
         checkpoint: &Checkpoint,
     ) -> Result<Vec<FileChange>, CheckpointError> {
         let _guard = self.lock_git()?;
+        let stats = self.object_store_stats_locked()?;
+        if stats.total_bytes() > self.max_object_bytes {
+            return Err(CheckpointError::BudgetExceeded {
+                used_bytes: stats.total_bytes(),
+                limit_bytes: self.max_object_bytes,
+            });
+        }
         self.populate_index()?;
         let output = self.git_with_index(
             &self.index_path,

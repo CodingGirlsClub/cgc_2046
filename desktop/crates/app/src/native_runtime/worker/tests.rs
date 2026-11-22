@@ -1177,6 +1177,32 @@ fn checkpoint_budget_circuit_breaker_dedups_notices_and_recovers_after_backgroun
         2,
         "expected exactly 1 budget notice + 1 unrecoverable notice, got: {post_notices:?}"
     );
+
+    // 即使仍保留有当前会话的检查点，熔断激活期间调用 `refresh_changes()` 也不能把新修改的文件写入对象库或额外刷屏报错。
+    let breaker_file = root.join("breaker-untracked.txt");
+    std::fs::write(
+        &breaker_file,
+        "unique-circuit-breaker-refresh-changes-content-must-not-be-hashed\n",
+    )
+    .unwrap();
+    let oid_out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&root)
+        .args(["hash-object", breaker_file.to_str().unwrap()])
+        .output()
+        .unwrap();
+    let breaker_oid = String::from_utf8_lossy(&oid_out.stdout).trim().to_string();
+    owner.refresh_changes();
+    let cat_out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&root)
+        .args(["cat-file", "-e", &breaker_oid])
+        .output()
+        .unwrap();
+    assert!(
+        !cat_out.status.success(),
+        "refresh_changes must not hash new blobs into git objects while circuit breaker is active"
+    );
     let _ = std::fs::remove_dir_all(root);
 }
 

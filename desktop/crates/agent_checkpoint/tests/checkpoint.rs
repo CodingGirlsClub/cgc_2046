@@ -597,6 +597,32 @@ fn budget_exceeded_blocks_snapshot_and_reclaim_recovers_within_budget() {
         .expect_err("over budget must return BudgetExceeded");
     assert!(matches!(err, CheckpointError::BudgetExceeded { .. }));
 
+    let old_cp = manager
+        .list("thread-old")
+        .unwrap()
+        .pop()
+        .expect("old checkpoint exists");
+    let new_untracked = workspace.join("should-not-be-hashed-over-budget.txt");
+    std::fs::write(
+        &new_untracked,
+        "unique-over-budget-content-that-must-not-enter-git-object-store\n",
+    )
+    .unwrap();
+    let new_untracked_oid = compute_blob_oid(&workspace, &new_untracked);
+    assert!(matches!(
+        manager.changed_files(&old_cp),
+        Err(CheckpointError::BudgetExceeded { .. })
+    ));
+    assert!(matches!(
+        manager.diff(&old_cp),
+        Err(CheckpointError::BudgetExceeded { .. })
+    ));
+    assert!(
+        !object_exists_in_store(manager.git_dir(), &new_untracked_oid),
+        "changed_files/diff must not stage or hash new blobs when over budget"
+    );
+    std::fs::remove_file(&new_untracked).unwrap();
+
     let reclaim = manager
         .reclaim_for_budget("thread-new", 1)
         .expect("reclaim");
