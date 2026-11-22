@@ -22,12 +22,12 @@
 
 ## 决定（Decision）
 
-1. **单一时间线读者体验**：只保留一个仓库根 `CHANGELOG.md`，不放 per-端文件。
+1. **单一时间线读者体验**：只保留一个仓库根 `CHANGELOG.md`，不放 per-端文件。（**2026-11-22 补记**：根目录 `CHANGELOG.md` 是跨端统一发布时间线的唯一真相源；仓库内同时保留两份端侧细节日志并存——`openclacky-ext/cgc-2046/CHANGELOG.md` 打入 `dist/cgc-2046.zip` 扩展包并由 `openclacky-ext/cgc-2046/bin/check-version-bump` 强制校验版本节，`miniprogram/CHANGELOG.md` 记录小程序客户端侧细粒度变更并在其头部声明面向用户的发布里程碑以根 `CHANGELOG.md` 为准。）
 2. **日期段只记 server 面**：`## [YYYY-MM-DD]` 由 develop→main merge 触发，覆盖 web+backend；条目可带行内端标签（`[微信]` 等）提示落点。
 3. **客户端/扩展按各自发布动作另立节点**：`## [微信 vX.Y.Z]` / `## [小红书 vX.Y.Z]` / `## [抖音 vX.Y.Z]` / `## [扩展 vX.Y.Z]` / `## [Desktop vX.Y.Z]`，与日期段平行混排；触发分别是过审 / 过审 / 过审 / zip 上线 / `desktop-v*` tag 发布。
 4. **组合发布纪律显式化**：后端 API 收紧 × 客户端未过审的组合，在对应节点下写 `> ⚠️` 灰注。
 5. **commit scope 平台化与双层门禁检测**：新提交从笼统的 `miniprogram` 过渡为 `mp-wechat` / `mp-xhs` / `mp-dy` / `desktop`；`scripts/changelog-draft.rb` 原样输出保留清单中的 commit subject（由收口工序按 scope 手工补 `[微信]`/`[小红书]`/`[扩展]`/`[Desktop]` 前缀），并通过「真实 3 个版本文件（`miniprogram/package.json`、`openclacky-ext/cgc-2046/ext.yml`、`desktop/Cargo.toml`）+ 客户端目录前缀（`desktop/`、`miniprogram/`、`openclacky-ext/`）+ 区间内 `desktop-v*` tag」双层检测输出门禁提示与 server 面变更判定，防止纯客户端改动误入 server 日期段；同时检查 `desktop/Cargo.lock` 等人工合并范围与 `deps-image` 四项编译输入（`backend/mix.lock`、`backend/Dockerfile.deps`、`backend/config/config.exs`、`backend/config/prod.exs`），由 `scripts/test/changelog_draft_test.rb` 守卫路径真实性。
-6. **账本先行、抽象滞后**：平台抽象层（通用小程序包、统一发版脚本）**不现在做**，等第一个第二平台立项时由真实需求决定缝在哪（届时另立 ADR）。
+6. **账本先行、抽象滞后**：平台抽象层（通用小程序包、统一发版脚本）**不现在做**，等第一个第二平台立项时由真实需求决定缝在哪（届时另立 ADR）。（**2026-11-22 补记**：小红书小程序已上线，根 `CHANGELOG.md` 已收录 `[小红书 v0.3.0+]` 节点；仓内已落地 `miniprogram/src/platform/index.ts` 与 `miniprogram/src/platform/flashback-card.ts` 轻量平台适配薄层及 `miniprogram/project.xhs.json`、`miniprogram/project.tt.json`，未单独拆分重量级分包 ADR。）
 
 ## 后果（Consequences）
 

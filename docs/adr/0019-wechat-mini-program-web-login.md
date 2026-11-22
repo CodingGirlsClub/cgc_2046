@@ -15,8 +15,22 @@ Web 发起短期请求，小程序只负责认证与显式批准，原浏览器�
 
 后端和小程序能力必须先上线，小程序正式确认页与真实手机链路通过验收后才能切换 Web 入口。旧网站 OAuth API/回调仍是已上线契约，不在本次删除，也不作为新流程失败后的自动短信 fallback。退回 Web 版本不会迁移用户数据，但会恢复旧入口的短信依赖。
 
-实现与验收范围见[方案](../plans/2026-09-30-1206-feat-wechat-mini-web-login-plan.md)。
+实现与验收范围见[方案](../plans/2026-09-30-1206-feat-wechat-mini-web-login-plan.md)（历史计划，已归档于 git 历史）。
 
 ## R3：普通 Web 入口收敛
 
-普通 Web 登录与注册统一为微信快捷入口，已有账号保留手机号／邮箱＋密码登录；`/register` 同语言重定向并保留 next。移除普通短信登录、短信注册 UI，不恢复邮箱注册；无微信新用户不能通过此 Web 主流程注册。旧 OAuth 会话与后端 API、设置手机号换绑和闪念间短信用途继续保持线上契约。实施与验收边界见 [R3 方案](../plans/2026-09-30-web-unified-auth-r3.md)，依赖 R2，发布门不变。
+普通 Web 登录与注册统一为微信快捷入口，已有账号保留手机号／邮箱＋密码登录；`/register` 同语言重定向并保留 next。移除普通短信登录、短信注册 UI，不恢复邮箱注册；无微信新用户不能通过此 Web 主流程注册。旧 OAuth 会话与后端 API、设置手机号换绑和闪念间短信用途继续保持线上契约。实施与验收边界见 [R3 方案](../plans/2026-09-30-web-unified-auth-r3.md)（历史计划，已归档于 git 历史），依赖 R2，发布门不变。
+
+## 2026-11-22 补记（桌面客户端扫码登录扩展）
+
+同一套 `WechatMiniWebLoginRequest` 资源与小程序确认流已扩展服务桌面客户端扫码登录（见 `backend/lib/cgc_2046/accounts/wechat_mini_web_login.ex` 与 `backend/lib/cgc_2046_web/graphql_schema/auth/mini_web_login.ex` 的 `*_for_desktop` 动作/变更）：桌面端发起、轮询与完成端点通过响应体直接返回 `proof` 与 `platform=desktop` 的 Bearer JWT，无需浏览器 Origin / HttpOnly Cookie 校验。
+
+## 参考
+
+- `backend/lib/cgc_2046/accounts/wechat_mini_web_login.ex`
+- `backend/lib/cgc_2046/integrations/wechat/web_login_launch.ex`
+- `backend/lib/cgc_2046_web/plugs/mini_web_login_plug.ex`
+- `backend/lib/cgc_2046_web/plugs/auth_cookie_plug.ex`
+- `backend/lib/cgc_2046_web/graphql_schema/auth/mini_web_login.ex`
+- `web/app/[locale]/(auth)/auth-shell.tsx`
+- `web/app/[locale]/(auth)/register/page.tsx`
