@@ -43,6 +43,7 @@ impl From<ApiError> for PaymentError {
             ApiError::Transport(reason) => PaymentError::Transport(reason),
             ApiError::Timeout(reason) => PaymentError::Transport(format!("timeout: {reason}")),
             ApiError::Unauthorized => PaymentError::Unauthorized,
+            ApiError::UpgradeRequired(notice) => PaymentError::Server(notice.message),
             ApiError::Graphql { code, message } => match code {
                 Some(code) => PaymentError::Domain { code, message },
                 None => PaymentError::Server(message),

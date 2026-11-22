@@ -117,6 +117,7 @@ impl From<ApiError> for CoursesError {
             ApiError::Transport(reason) => CoursesError::Transport(reason),
             ApiError::Timeout(reason) => CoursesError::Transport(format!("timeout: {reason}")),
             ApiError::Unauthorized => CoursesError::Unauthorized,
+            ApiError::UpgradeRequired(notice) => CoursesError::Server(notice.message),
             ApiError::Graphql { message, .. } => CoursesError::Server(message),
         }
     }

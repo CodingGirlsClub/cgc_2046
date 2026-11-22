@@ -150,6 +150,26 @@ impl NativeAgentView {
         }
     }
 
+    #[cfg(all(test, cgc_ui_tests))]
+    pub(crate) fn composer_focus_handle(&self, cx: &App) -> FocusHandle {
+        self.input.read(cx).focus_handle(cx)
+    }
+
+    #[cfg(all(test, cgc_ui_tests))]
+    pub(crate) fn composer_value(&self, cx: &App) -> String {
+        self.input.read(cx).value().to_string()
+    }
+
+    #[cfg(all(test, cgc_ui_tests))]
+    pub(crate) fn queued_submission_count(&self) -> usize {
+        self.state.session.queue.len()
+    }
+
+    #[cfg(all(test, cgc_ui_tests))]
+    pub(crate) fn send_for_test(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.send(window, cx);
+    }
+
     /// 在 Kit 插入文本前接收图片；不改输入内容、选区或撤销历史。
     fn paste_images(&mut self, item: &ClipboardItem, cx: &mut Context<Self>) -> bool {
         if let Some(image) = item.entries.iter().find_map(|entry| match entry {

@@ -381,7 +381,8 @@ pub(super) fn initialize_with_keychain(
 fn managed_provider(model: &Model, base_url: &str) -> Arc<dyn Provider> {
     let config =
         OpenAiCompatibleConfig::new(base_url.to_string(), String::new(), vec![model.clone()])
-            .with_token_source(super::gateway::token_source());
+            .with_token_source(super::gateway::token_source())
+            .with_extra_headers(cgc_platform::runtime::client_headers());
     Arc::new(OpenAiCompatibleProvider::new(config))
 }
 

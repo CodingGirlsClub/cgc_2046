@@ -412,6 +412,8 @@ pub struct ShellState {
     pub(in crate::root_view) store_writer: Option<cgc_agent_store::StoreWriter>,
     pub(in crate::root_view) review_event_keys: std::collections::HashSet<String>,
     pub(in crate::root_view) selected_event: Option<String>,
+    pub(in crate::root_view) upgrade_notice: Option<cgc_platform::api::UpgradeNotice>,
+    pub(in crate::root_view) upgrade_overlay_focus: Option<FocusHandle>,
 }
 
 impl ShellState {
@@ -637,6 +639,8 @@ impl ShellState {
             revoking: false,
             settings_error: None,
             selected_event: None,
+            upgrade_notice: None,
+            upgrade_overlay_focus: None,
         }
     }
 }

@@ -25,6 +25,7 @@ pub struct McpTool {
 pub enum McpClientError {
     Unauthorized,
     Forbidden,
+    UpgradeRequired(String),
     Timeout,
     Transport(String),
     Protocol(String),
@@ -36,6 +37,7 @@ impl fmt::Display for McpClientError {
         match self {
             Self::Unauthorized => write!(formatter, "MCP 认证失败（401）"),
             Self::Forbidden => write!(formatter, "MCP 无权限（403）"),
+            Self::UpgradeRequired(message) => write!(formatter, "{message}"),
             Self::Timeout => write!(formatter, "MCP 请求超时"),
             Self::Transport(message) => write!(formatter, "MCP 传输失败：{message}"),
             Self::Protocol(message) => write!(formatter, "MCP 协议错误：{message}"),
@@ -74,6 +76,7 @@ impl McpHttpClient {
     pub fn with_timeout(endpoint: impl Into<String>, timeout: Duration) -> Self {
         let config = ureq::Agent::config_builder()
             .timeout_global(Some(timeout))
+            .http_status_as_error(false)
             .build();
         Self {
             endpoint: endpoint.into(),
@@ -162,6 +165,9 @@ impl McpHttpClient {
             .post(&self.endpoint)
             .header("content-type", "application/json")
             .header("accept", "application/json, text/event-stream");
+        for (name, value) in crate::runtime::client_headers() {
+            request = request.header(&name, &value);
+        }
         if let Some(token) = &self.token {
             request = request.header("authorization", format!("Bearer {token}"));
         }
@@ -175,6 +181,15 @@ impl McpHttpClient {
         }
         if status == 403 {
             return Err(McpClientError::Forbidden);
+        }
+        if status == 426 {
+            let text = response.body_mut().read_to_string().unwrap_or_default();
+            let notice = crate::api::parse_upgrade_notice(&text);
+            crate::api::record_upgrade_notice(notice.clone());
+            return Err(McpClientError::UpgradeRequired(notice.message));
+        }
+        if !(200..300).contains(&status) {
+            return Err(McpClientError::Transport(format!("http status: {status}")));
         }
         if method == "initialize" {
             if let Some(session_id) = header_value(&response, "mcp-session-id") {
@@ -399,10 +414,37 @@ mod tests {
                 || first.to_ascii_lowercase().contains("bearer lease-token")
         );
         assert!(first.contains("text/event-stream"));
+        let lower_first = first.to_ascii_lowercase();
+        assert!(lower_first.contains("x-cgc-client: desktop"));
+        assert!(lower_first.contains("x-cgc-client-version:"));
+        assert!(lower_first.contains("x-cgc-client-platform:"));
         let second = requests.recv().expect("second request");
         assert!(second
             .to_ascii_lowercase()
             .contains("mcp-session-id: sess-1"));
+    }
+
+    #[test]
+    fn upgrade_required_426_records_latch_and_non_2xx_returns_transport() {
+        let _guard = crate::api::upgrade::LATCH_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        crate::api::clear_upgrade_notice();
+        let (endpoint, _requests) = spawn_mock(vec![response(
+            426,
+            r#"{"error":{"code":"desktop_client_disabled","message":"停服维护"}}"#,
+        )]);
+        let mut client = McpHttpClient::new(endpoint).with_bearer_token("lease-token");
+        let err = client.initialize("c", "1").unwrap_err();
+        assert_eq!(err, McpClientError::UpgradeRequired("停服维护".into()));
+        let latched = crate::api::upgrade_notice().expect("latch set");
+        assert!(latched.is_kill_switch());
+        crate::api::clear_upgrade_notice();
+
+        let (endpoint, _requests) = spawn_mock(vec![response(500, "internal error")]);
+        let mut client = McpHttpClient::new(endpoint).with_bearer_token("lease-token");
+        let err = client.initialize("c", "1").unwrap_err();
+        assert_eq!(err, McpClientError::Transport("http status: 500".into()));
     }
 
     #[test]

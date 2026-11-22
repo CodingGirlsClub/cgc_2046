@@ -93,6 +93,7 @@ fn map_api_error(error: ApiError) -> McpError {
         ApiError::Transport(reason) => McpError::Transport(reason),
         ApiError::Timeout(reason) => McpError::Transport(format!("timeout: {reason}")),
         ApiError::Unauthorized => McpError::Unauthorized,
+        ApiError::UpgradeRequired(notice) => McpError::Server(notice.message),
         ApiError::Graphql { message, .. } => McpError::Server(message),
     }
 }
@@ -154,26 +155,35 @@ impl LearningHostApi for HttpLearningHostApi {
         let config = ureq::Agent::config_builder()
             .timeout_global(Some(self.client.timeout()))
             .max_redirects(0)
+            .http_status_as_error(false)
             .build();
         let agent: ureq::Agent = config.into();
-        let mut response = agent
+        let mut request = agent
             .get(format!("{endpoint}/token"))
-            .header("authorization", format!("Bearer {token}"))
-            .call()
-            .map_err(|error| match error {
-                ureq::Error::StatusCode(401) => McpError::Unauthorized,
-                ureq::Error::StatusCode(status) => {
-                    McpError::Server(format!("Credential verification returned HTTP {status}"))
-                }
-                ureq::Error::Timeout(_) => {
-                    McpError::Transport("Credential verification timed out".into())
-                }
-                _ => McpError::Transport("Credential verification failed".into()),
-            })?;
-        if response.status().as_u16() != 200 {
-            return Err(McpError::Server(
-                "Credential verification did not succeed".into(),
-            ));
+            .header("authorization", format!("Bearer {token}"));
+        for (name, value) in crate::runtime::client_headers() {
+            request = request.header(&name, &value);
+        }
+        let mut response = request.call().map_err(|error| match error {
+            ureq::Error::Timeout(_) => {
+                McpError::Transport("Credential verification timed out".into())
+            }
+            _ => McpError::Transport("Credential verification failed".into()),
+        })?;
+        let status = response.status().as_u16();
+        if status == 401 {
+            return Err(McpError::Unauthorized);
+        }
+        if status == 426 {
+            let text = response.body_mut().read_to_string().unwrap_or_default();
+            let notice = crate::api::parse_upgrade_notice(&text);
+            crate::api::record_upgrade_notice(notice.clone());
+            return Err(McpError::Server(notice.message));
+        }
+        if status != 200 {
+            return Err(McpError::Server(format!(
+                "Credential verification returned HTTP {status}"
+            )));
         }
         let payload = response
             .body_mut()
@@ -598,8 +608,16 @@ mod http_tests {
     }
 
     fn spawn_mock(status: u16, body: &'static str) -> String {
+        spawn_mock_with_capture(status, body).0
+    }
+
+    fn spawn_mock_with_capture(
+        status: u16,
+        body: &'static str,
+    ) -> (String, std::sync::mpsc::Receiver<String>) {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
         let addr = listener.local_addr().expect("addr");
+        let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().expect("accept");
             let mut request = Vec::new();
@@ -631,13 +649,14 @@ mod http_tests {
                 }
                 request.extend_from_slice(&buffer[..read]);
             }
+            let _ = tx.send(String::from_utf8_lossy(&request).to_string());
             let response = format!(
                 "HTTP/1.1 {status} OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                 body.len()
             );
             stream.write_all(response.as_bytes()).expect("write");
         });
-        format!("http://{addr}/api/graphql")
+        (format!("http://{addr}/api/graphql"), rx)
     }
 
     #[test]
@@ -712,5 +731,30 @@ mod http_tests {
             .expect("revoked")
             .iter()
             .any(|id| id == "token-1"));
+    }
+
+    #[test]
+    fn http_identity_sends_client_headers_and_426_does_not_map_to_unauthorized() {
+        let _guard = crate::api::upgrade::LATCH_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        crate::api::clear_upgrade_notice();
+        let (endpoint, captured) = spawn_mock_with_capture(
+            426,
+            r#"{"error":{"code":"client_upgrade_required","message":"需要更新版本"}}"#,
+        );
+        let api = HttpLearningHostApi::new(GraphqlClient::new(endpoint));
+        let error = api.identity("cgch_test").unwrap_err();
+        assert!(
+            !error.is_unauthorized(),
+            "426 on /mcp/token must never purge local lease as Unauthorized"
+        );
+        assert!(matches!(error, McpError::Server(ref msg) if msg == "需要更新版本"));
+        let req = captured.recv().expect("request").to_ascii_lowercase();
+        assert!(req.contains("x-cgc-client: desktop"));
+        assert!(req.contains("x-cgc-client-version:"));
+        assert!(req.contains("x-cgc-client-platform:"));
+        assert!(crate::api::upgrade_notice().is_some());
+        crate::api::clear_upgrade_notice();
     }
 }
