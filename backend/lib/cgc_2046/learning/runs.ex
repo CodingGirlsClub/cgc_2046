@@ -7,17 +7,18 @@ defmodule Cgc2046.Learning.Runs do
   证据流，掌握态由 `Mastery` 纯投影派生，下一动作由 `NextAction` 纯函数
   推荐。本模块是这些纯函数与 Ash 读面之间的粘合层。
 
-  - **instance key**：`instance_key/2` = `"learning_<enrollment_id>_<revision_id>"`
-    （revision 缺失兜底 `"none"`）——一个报名对一个课程版本 = 一个 learning
-    run。`LearningInstantiator`（enrollment.completed 异步路径）与
-    `start_learning_run` 工具（学员主动路径）共用同一 key，R36 幂等在两
-    路径间成立。
-  - **revision 绑定走 input_snapshot**（ADR-0011 L6 权威）：run 创建期把
-    `course_revision_id` 固化进 `input_snapshot`（enrollment 锚同款先例），
-    generic 引擎表零域列零 opt；`revision_of/1` 是该域事实的唯一读取面。
-  - **启动幂等（R36）**：`start/3` 先按 key 查**任意状态** run，命中即返回
-    `{:ok, run, :existing}`（终态也返回——完成后重学新版会换 key；同版重进
-    是 resume 语义，§B#11）。
+  - **instance key 与去重真源（issue #505 D8）**：`instance_key/2` =
+    `"learning_<user_id>_<revision_id>"`（缺失兜底 `"none"`），仅为可读标签；
+    去重真源 = `resumable_run/3`（按 `subject_user_id × subject_course_revision_id`
+    预查）+ `workflow_runs` 部分唯一索引，使课程报名与活动挂载双通道汇入同一 run；
+  - **revision 与域锚点列**：`workflow_runs` 持显式域列（`subject_user_id` /
+    `subject_course_id` / `subject_enrollment_id` / `subject_course_revision_id`），
+    `revision_of/1` 优先读 `subject_course_revision_id`，仅对存量历史行回退
+    `input_snapshot["course_revision_id"]`；
+  - **启动与续学（R36 / D8）**：`start/3` 经 `resumable_run/3` 命中
+    `pending/running/waiting/succeeded` 时返回 `{:ok, run, :existing}`
+    （同版重进 = resume，不重置已完成学业）；`failed/cancelled/expired` 返回空以
+    允许重开新 run，课程发布新版后亦可开启新版 run。
   - **完成判定（R39/AE10）**：`complete_when_mastered/1` = running ∧ 绑定
     revision ∧ 必修集非空且全 ever_mastered → `:complete`。submit 工具在
     attempt 落库后即时调用（**非同事务** §B#12——completion 失败不回滚账本；

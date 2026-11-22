@@ -11,9 +11,9 @@ defmodule Cgc2046.Miniprogram.ShareSchemeService do
 
   ## 到期 clamp（D-1；时间源修正 = plan owner 2026-08-18 应答选 A）
 
-  Event/Course 均无 endsAt 字段（plan current-state 前提修正），统一以
-  `registration_deadline`（两 kind 同形的唯一结束语义字段，
-  EventLifecycleWorker 到点自动 close）为 clamp 代理：
+  尽管 Event 与 Course 均已支持可选 `ends_at`，分享 scheme 仍统一以报名关闭锚点
+  `registration_deadline`（两 kind 同形且与 `EventLifecycleWorker` 自动 close 锚点
+  一致）加 7 天缓冲做 clamp：
 
       expires_at = min(registration_deadline + 7d, now + 30d)
       registration_deadline 为 nil → now + 30d
