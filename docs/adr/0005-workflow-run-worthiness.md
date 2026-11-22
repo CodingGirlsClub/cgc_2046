@@ -23,9 +23,9 @@
    - 超出实体 policy 的分步授权（StepAuthorization 粒度）。
 2. **判负条件（全部满足 → 实体自序贯）：** 单 context 状态机、DB 已强制全部并发不变量、after_transaction 信号可达全部订阅方。任一不满足 → 引擎化。
 3. **报名为先例：** 报名 workflow 采用实体自序贯，定稿 DAG 退稿（见报名详细设计文档状态行）；补发 `enrollment.submitted/completed` 信号，审批入口仍是网站后台审批页（#3 不变）。
-4. **审批两段式保留：** 赞助/邀请无自序贯实体且含两个顺序人工信号，继续引擎化并走两段式（F1 死锁规避）。本决策退稿的是报名 DAG，不是两段式模式。（注：后续赞助与讲者邀请均演进为实体自序贯，详见文末「回写记录」与「2026-11-22 增补」。）
+4. **审批两段式保留：** 赞助/邀请无自序贯实体且含两个顺序人工信号，继续引擎化并走两段式（F1 死锁规避）。本决策退稿的是报名 DAG，不是两段式模式。（**2026-11-22 现状勘误**：生产中 `SpeakerInvitation` 与 `VolunteerApplication` 均为实体状态机主控 + `WorkflowRun` 承载线性人工门控镜像——无 `jido_checkpoints` 闭包休眠，靠 `WorkflowDefinition.node_def` + `SignalLog` 推导门控进度；`Sponsorship` 维持实体自序贯，不创建 `WorkflowRun`；`Learning` 与 `CoursePreparation` 为协议驱动 `WorkflowRun`，走 `:start` 且不经过 `Engine`，详见文末「回写记录」与「2026-11-22 现状勘误」。）
 5. **「实体自序贯」收入总纲 §6 模式库**，与「审批两段式」「SignalMatch 门控」并列，作为第三种正式模式（引擎化 / 引擎化+两段式 / 实体自序贯）。
-6. **config-not-code 的旗舰证明移到赞助：** 赞助资源与 DAG 都需新建，是「业务 workflow = 数据」论点的更好证明场景；报名不为此付仪式成本。（注：v1 赞助最终亦采纳实体自序贯，详见文末「回写记录」。）
+6. **config-not-code 的旗舰证明移到赞助：** 赞助资源与 DAG 都需新建，是「业务 workflow = 数据」论点的更好证明场景；报名不为此付仪式成本。（**2026-11-22 现状勘误**：v1 `Sponsorship` 维持实体自序贯、不创建 `WorkflowRun`；生产中 `SpeakerInvitation` 与 `VolunteerApplication` 采用实体状态机主控 + `WorkflowRun` 线性人工门控镜像，`Learning` 与 `CoursePreparation` 为协议驱动 `WorkflowRun`（走 `:start`，不经过 `Engine`），不存在 `Runic.Workflow` 自动 DAG，详见文末「回写记录」与「2026-11-22 现状勘误」。）
 
 ### 拒绝的替代
 
@@ -41,14 +41,17 @@
   - 报名放弃统一 journal/StepAuthorization 可观测性；`Enrollment.status` + SignalLog + 审批审计字段承担审计。
   - 判据的证成理由若写宽会边缘化引擎，写窄会回到一切上引擎——措辞以本文件为准，修订走新 ADR。
   - 判据在赞助设计上首次接受检验；赞助形态评估结论应回写总纲 §6 条目作为第二个先例。**回写记录（2026-10-05 勘误补记）**：v1 赞助采纳实体自序贯，不创建 WorkflowRun——`sponsorship.ex:227` 注释 「workflow_run_id 保留列与关系供二期引擎化（v1 实体自序贯不创建 run）」；DRY 信号经 `SignalEmitter` 事务内 outbox 入队（`sponsorship.ex:249+`）。该先例在 GLOSSARY.md §8「Sponsorship（赞助，两级）」（词条行 521）与 ADR-0009 PR④（赞助独立 context）中既有，总纲 §6 不再单列。
-  - **2026-11-22 增补（讲者邀请与赞助现状）**：
-    - `Cgc2046.Events.SpeakerInvitation`（`backend/lib/cgc_2046/events/speaker_invitation.ex`）同样已改为实体状态机自定序（`ApprovalClaim` CAS + `SignalEmitter` 同事务 outbox），`WorkflowRun` 仅保留 `invite_speaker → confirm_attendance` 2 步全 `:manual` 审计镜像（`backend/lib/cgc_2046/workflows/speaker_invitation_instantiator.ex`）；
-    - v1 `Cgc2046.Sponsorship.Sponsorship`（`backend/lib/cgc_2046/sponsorship/sponsorship.ex`）采用纯实体驱动，不创建 `WorkflowRun`。
+  - **2026-11-22 现状勘误**：
+    - `SpeakerInvitation`（`backend/lib/cgc_2046/events/speaker_invitation.ex`）与 `VolunteerApplication`（`backend/lib/cgc_2046/recruitment/volunteer_application.ex`）在生产中均为实体状态机主控（`ApprovalClaim` CAS / 实体状态流转 + `SignalEmitter` 同事务 outbox），由 `WorkflowRun` 承载线性人工门控镜像（`backend/lib/cgc_2046/workflows/speaker_invitation_instantiator.ex` 与 `backend/lib/cgc_2046/recruitment/application_workflow_instantiator.ex`）：无 `jido_checkpoints` 闭包休眠，靠 `WorkflowDefinition.node_def` + `SignalLog` 推导门控进度；
+    - `Sponsorship`（`backend/lib/cgc_2046/sponsorship/sponsorship.ex`）维持实体自序贯，v1 不创建 `WorkflowRun`；
+    - `Learning` 与 `CoursePreparation` 为协议驱动 `WorkflowRun`（实例化即走 `:start` 进入 `running`，不经过 `Cgc2046.Workflows.Engine`）。
 
 ## 参考
 
 - `backend/lib/cgc_2046/admission/enrollment.ex`
 - `backend/lib/cgc_2046/sponsorship/sponsorship.ex`
 - `backend/lib/cgc_2046/events/speaker_invitation.ex`
+- `backend/lib/cgc_2046/recruitment/volunteer_application.ex`
 - `backend/lib/cgc_2046/workflows/speaker_invitation_instantiator.ex`
+- `backend/lib/cgc_2046/recruitment/application_workflow_instantiator.ex`
 - `backend/lib/cgc_2046/workflows/signal_emitter.ex`

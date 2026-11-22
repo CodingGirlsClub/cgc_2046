@@ -76,8 +76,8 @@
 
 ### Workspace（工作区，全局资源）
 
-- **定义**：**组织单元**（如"北京 CGC 分会"），也是租户单元。UUID 主键 + 全局唯一 slug（展示用），带加入策略 `join_policy`（open | request | invite_only）、可空的门面文案 `description`（公开展示；MCP `update_workspace_description` 维护，创建申请可带初值并在 approve 时透传，#1226）、赞助配置（`sponsorship_enabled` / `sponsorship_tiers` / `sponsorship_deadline`）与工作台算力池余额 `credit_pool_mc`（`backend/lib/cgc_2046/accounts/workspace.ex`）。由平台管理员创建（申请审批 + 主动创建两级，D-A3）并指定 Owner，普通用户不可自助创建。**一个 Workspace = 一个 Jido partition**（D-A5）。`:create` after_action 同事务 seed 五角色（`Role.role_descriptions/0` 单源）+ **三份协议定义**（curriculum / learning / course_preparation，published——#348：新租户教研链与学习 run 即刻可用；形状单源对齐 seeds.exs §3，任一失败整体回滚不留半 seeded workspace）。
-- **架构位置**：全局资源；所有租户资源以 `workspace_id` 列过滤（Ash attribute 多租户策略）；WorkflowRun 等 workflow 实体归属其 partition。
+- **定义**：**组织单元**（如"北京 CGC 分会"），也是租户单元。UUID 主键 + 全局唯一 slug（展示用），带加入策略 `join_policy`（open | request | invite_only）、可空的门面文案 `description`（公开展示；MCP `update_workspace_description` 维护，创建申请可带初值并在 approve 时透传，#1226）、赞助配置（`sponsorship_enabled` / `sponsorship_tiers` / `sponsorship_deadline`）与工作台算力池余额 `credit_pool_mc`（`backend/lib/cgc_2046/accounts/workspace.ex`）。由平台管理员创建（申请审批 + 主动创建两级，D-A3）并指定 Owner，普通用户不可自助创建。**一个 Workspace 对应一个租户分区（`partition_id` = `workspace_id`，D-A5；原 Jido Persist checkpoint 已退役）**。`:create` after_action 同事务 seed 五角色（`Role.role_descriptions/0` 单源）+ **三份协议定义**（curriculum / learning / course_preparation，published——#348：新租户教研链与学习 run 即刻可用；形状单源对齐 seeds.exs §3，任一失败整体回滚不留半 seeded workspace）。
+- **架构位置**：全局资源；所有租户资源以 `workspace_id` 列过滤（Ash attribute 多租户策略）；WorkflowRun 仅保留 `partition_id`（= `workspace_id`）作为租户隔离字段。
 
 ### join_policy（加入策略）
 
@@ -182,58 +182,56 @@
 
 ### partition（租户分区）
 
-- **定义**：Jido 的多租户隔离单元。**一个 Workspace = 一个 partition**（D-A5）：registry identity / persistence / lineage / telemetry 全部按 partition 隔离；WorkflowRun 归属其 partition。
-- **架构位置**：workflow 引擎侧的租户边界，与 `workspace_id`（Ash attribute 多租户）对应。
+- **定义**：workflow 租户隔离字段。**一个 Workspace = 一个租户分区（`partition_id` = `workspace_id`，D-A5）**：`partition_id` 仅保留在 `WorkflowRun` 作为租户隔离字段，不再用于 `Jido.Persist` checkpoint（原 Jido 运行时 registry identity / persistence / lineage / telemetry 隔离已于 2026-11-22 随 `jido` 退役）。
+- **架构位置**：workflow 引擎侧的租户隔离字段，与 `workspace_id`（Ash attribute 多租户）对齐。
 
-### Thread journal（线程日志审计）
+### Thread journal（线程日志审计，已退役）
 
-- **定义**：Jido Storage 的 append-only 日志（审计/事件日志）+ Checkpoint（状态快照，断点恢复）+ Introspection（`provenance_chain` 溯源链 / `execution_summary`）。原规划作为审计 context 数据源（D-A5）。
-- **架构位置**：`Cgc2046.Workflows.JidoStoragePostgres`（`backend/lib/cgc_2046/workflows/jido_storage_postgres.ex`）虽实现了 `load_thread`/`append_thread` 回调（指向 `jido_thread_entries` 表），但生产运行期仅使用 `jido_checkpoints`（`hibernate`/`thaw`），不读写 `jido_thread_entries`；实际业务与工作流审计由 `Cgc2046.Workflows.SignalLog`、`Cgc2046.Workflows.PlatformAudit`（`WorkflowRun` 脱敏元数据读面）与 `Accounts.AdminActionLog` / `Mcp.ToolCallLog` 承担。
+> **已退役（2026-11-22）：`JidoStoragePostgres` 与数据库表 `jido_thread_entries` / `jido_thread_meta` / `jido_checkpoints` 已移除，本条仅作历史记录。**
+
+- **定义**：原规划基于 Jido Storage 的 append-only 日志 + Checkpoint 状态快照 + Introspection 溯源链，作为引擎侧审计数据源（D-A5）。
+- **架构位置**：现已全面退役；**引擎侧信号审计真源为 `Cgc2046.Workflows.SignalLog`（`signal_logs` 表）**，**MCP 审计真源为 `Cgc2046.Mcp.ToolCallLog`**，并辅以 `Cgc2046.Workflows.PlatformAudit`（`WorkflowRun` 脱敏元数据读面）与 `Accounts.AdminActionLog`。
 
 ---
 
 ## 4. Workflow 执行模型
 
-> workflow-first（D-A1）：**WorkflowDefinition（蓝图）+ WorkflowRun（执行实例）为核心模型**，引擎选型 Jido（Elixir）生态；构建不做可视化 UI，经 OpenClacky 的构建器 Agent/Skill 产出 DSL 后部署。
+> workflow-first（D-A1）：**WorkflowDefinition（蓝图）+ WorkflowRun（执行实例）为核心模型**，执行层已收敛为纯数据线性人工门控引擎（`Cgc2046.Workflows.Engine`），全站异步领域信号总线保留 `Jido.Signal.Bus`（`jido_signal`）；构建不做可视化 UI，以声明式蓝图定义后部署。
 
 ### WorkflowDefinition（工作流蓝图）
 
-- **定义**：Runic.Workflow DAG + 元数据（id/name/type/version/输入 schema/节点定义）。教研 workflow 定义一次，被 Event/Course **实例化复用**；带版本管理，改定义不影响已开始 run（D-A1/D-A2）。
+- **定义**：声明式线性人工门控蓝图（`node_def["steps"]`，仅 `:manual` 步骤）+ 版本快照（id/name/type/version/输入 schema/节点定义）。教研与业务 workflow 定义一次，被 Event/Course/Recruitment 等**实例化复用**；带版本管理，改定义不影响已开始 run（D-A1/D-A2）。
 - **架构位置**：租户资源（`backend/lib/cgc_2046/workflows/workflow_definition.ex`）；设计者与写/发布/归档权限均为 **Owner / Admin**（`WorkspaceActorIsOwnerOrAdmin` policy，平台管理员跨租户放行；Tutor 与普通成员仅可读，无定义写权限）。
 
 ### WorkflowRun（工作流执行实例）
 
-- **定义**：一个运行中的 DAG 实例。状态机 `pending → running → waiting(人等信号) → succeeded/failed/cancelled/expired`（`expired` 由 `ApprovalExpiryWorker` 等超时路径触发）；持输入快照、产物（facts）、signal 日志；**归属 partition**（D-A1/D-A5）。带 4 个显式学习域锚点列（`subject_user_id` / `subject_course_id` / `subject_enrollment_id` / `subject_course_revision_id`，#505）用于部分唯一索引与直查。**创建归因（#1128 D2）**：`created_reason`（`course_created` 首周期信号 / `first_cycle_recovery` 首周期信号未处理时读取补建 / `next_cycle` 发布后次周期懒开）、`created_by_actor_id`（次周期/补建触发人；信号路径无 actor，为 nil）、`previous_run_id`（上一周期；首周期 nil；审计链接，刻意不建 FK）。
-- **架构位置**：执行实例；人工步骤到达时 `waiting` 挂起（hibernate 落 checkpoint，信号到达 thaw 恢复），不拆多段（human-in-the-loop 为主）。
+- **定义**：一个运行中的工作流执行实例（人工门控与 MCP 产物 `facts` 容器，或协议驱动实例）。状态机保持 `pending → running → waiting(人等信号) → succeeded/failed/cancelled/expired`（`expired` 由 `ApprovalExpiryWorker` 等超时路径触发）；持输入快照、产物（`facts`）、signal 日志；**`partition_id`（= `workspace_id`）作为租户隔离字段**（D-A1/D-A5）。带 4 个显式学习域锚点列（`subject_user_id` / `subject_course_id` / `subject_enrollment_id` / `subject_course_revision_id`，#505）用于部分唯一索引与直查。**创建归因（#1128 D2）**：`created_reason`（`course_created` 首周期信号 / `first_cycle_recovery` 首周期信号未处理时读取补建 / `next_cycle` 发布后次周期懒开）、`created_by_actor_id`（次周期/补建触发人；信号路径无 actor，为 nil）、`previous_run_id`（上一周期；首周期 nil；审计链接，刻意不建 FK）。
+- **架构位置**：执行实例；人工步骤到达时进入 `waiting` 状态，**依赖 `WorkflowDefinition.node_def` + `SignalLog`（`signal_logs` 表）纯数据推导门控进度，零闭包序列化**（不再使用 `jido_checkpoints` 进行 `hibernate`/`thaw`），不拆多段（human-in-the-loop 为主）；`Learning` 与 `CoursePreparation` 等协议驱动实例直接走 `:start`，不经过 `Cgc2046.Workflows.Engine`。
 
-### Step（步骤，四分类）
+### Step（步骤，仅 `:manual` 人工步骤）
 
-- **定义**：Workflow 的最小授权单元（`backend/lib/cgc_2046/workflows/step.ex`），通过 `Cgc2046.Workflows.StepRole`（`STEP_ROLE` 关联表）声明可执行角色集合（R2 已移除 `Step.agent_id` 与 `Step.role_id`）；按节点类型（`kind`）分四类：
-  1. **自动步骤**（`:action`，Jido Action，纯函数 + 副作用）
-  2. **人工步骤**（`:manual`，等待外部人工提交或审批信号）
-  3. **门控/分支**（`:condition`）
-  4. **子 workflow**（`:sub_workflow`，嵌套 DAG）
-- **架构位置**：租户资源；顺序解锁（Step 1 完成才能执行 Step 2）；授权语义由 `Cgc2046.Workflows.StepAuthorization` 统一判定。
+- **定义**：Workflow 的最小授权单元（`backend/lib/cgc_2046/workflows/step.ex`），通过 `Cgc2046.Workflows.StepRole`（`STEP_ROLE` 关联表）声明可执行角色集合（R2 已移除 `Step.agent_id` 与 `Step.role_id`）。当前**仅保留 `:manual` 人工步骤**（等待外部人工提交或审批信号）；原四分类中的 `:auto`（自动步骤）、`:gate`（门控/分支）与 `:sub_workflow`（嵌套子工作流）已于 **2026-11-22 退役**。
+- **架构位置**：租户资源；保留 `STEP_ROLE` 授权与顺序解锁语义（Step 1 完成才能执行 Step 2）；授权语义由 `Cgc2046.Workflows.StepAuthorization` 统一判定。
 
 ### Jido 生态（Jido Ecosystem）
 
-- **定义**：workflow 引擎底层选型（Elixir，D-A1）。核心五件套：**Action**（纯函数步骤）/ **Signal**（CloudEvents 消息）/ **Directive**（副作用指令 Emit/SpawnAgent/Schedule）/ **Strategy**（执行策略）/ **Agent**（运行时容器 AgentServer）。
-- **架构位置**：引擎层；加 **jido_runic**（DAG 桥）组成平台当前 workflow 底座（`ash_jido` 仅在 `mix.exs` 声明，全库暂未启用）。
+- **定义**：原规划作为 workflow 引擎底层选型（Action / Signal / Directive / Strategy / Agent，D-A1）；**2026-11-22 已收敛为仅使用 `jido_signal`（`{:jido_signal, "~> 2.2"}`，即 `Jido.Signal` + `Jido.Signal.Bus`）承担全站异步事件总线**（2 成异步路径）。
+- **架构位置**：异步事件总线层（`Cgc2046.Workflows.JidoAdapter` 仅保留 `Jido.Signal.Bus` 的 `publish`/`subscribe` 与测试态 `drain_forwarders` 能力）；`jido` 核心运行期、`Jido.Persist`、`jido_runic`、`ash_jido` 与 `StepHandlerRegistry` 已全部退役移除。
 
 ### Signal / CloudEvents（信号）
 
 - **定义**：跨 context 通信的消息信封，`type` 字段路由到 action，`source/subject/data` 标准化。**workflow 与业务 context 解耦的纽带**：workflow 发 Signal → 业务 context 订阅后更新自己的 aggregate；业务反向只发信号、不调引擎。
 - **架构位置**：D-A1/D-A6。**同步写走 Action（强一致，8）**，**衍生副作用走 Signal 异步最终一致（2）**——如 `enrollment.completed` → 赞助权益更新、通知志愿者、触发学习 workflow。
 
-### ash_jido（Ash 桥，声明未启用）
+### ash_jido（已退役，2026-11-22）
 
-- **定义**：原计划用于编译期把 Ash Resource 的 action 生成 Jido Action 模块（context 需 domain/actor/tenant）的**业务实体 ↔ workflow 步骤的桥**（D-A1）。
-- **架构位置**：**现状未落地（2026-11-22 核实）**：`backend/mix.exs` 虽声明 `{:ash_jido, "~> 1.0"}`，但全库零引用、生产 workflow 均为 manual-only 或协议驱动（无生产 `Jido.Action` 自动步骤）；该死依赖待下次变更 `backend/mix.lock` 时一并清理。
+- **定义**：原计划用于编译期把 Ash Resource 的 action 生成 Jido Action 模块的桥接库（D-A1）。
+- **架构位置**：**已退役（2026-11-22）**：全库无生产 `Jido.Action` 自动步骤，已从 `backend/mix.exs` 及数据库/依赖中彻底移除。
 
-### Runic DAG（jido_runic）
+### Runic DAG（jido_runic，已退役，2026-11-22）
 
-- **定义**：数据流 DAG 引擎——Step 是 `input → output` 函数，Fact 是数据流单元，lazy 并发求值（分支/并行/扇出）；`react_until_satisfied/2` 执行；`Cgc2046.Workflows.JidoAdapter`（`backend/lib/cgc_2046/workflows/jido_adapter.ex`）使用 `Runic.Workflow.Condition` + `Step` + `Join` + `merge` 构建 `:manual` 信号门控与多前驱汇合（原规划中的 `SignalMatch` / `SignalFact` 未在适配器中使用）。依赖版本：`jido_runic ~> 1.0`，底层 `runic ~> 0.1.0-alpha`（`0.1.0-alpha.8`，见 `backend/mix.exs`），v1 锁版本 + 适配层隔离（D-A1）。
-- **架构位置**：WorkflowDefinition 的底层执行载体。
+- **定义**：原基于 `jido_runic` / `Runic.Workflow`（`0.1.0-alpha`）的数据流 DAG 编排方案（曾由 `JidoAdapter` 结合 `jido_checkpoints` 承载 `hibernate`/`thaw` 门控与求值）。
+- **架构位置**：**已退役（2026-11-22）**：`jido_runic`、`runic`、`jido` 及持久化表（`jido_checkpoints` / `jido_thread_entries` / `jido_thread_meta`）已从 `backend/mix.exs` 与数据库移除；生产中不存在 `:auto` / `:gate` / `:sub_workflow` 自动 DAG，线性人工门控改由 `Cgc2046.Workflows.Engine` 基于 `WorkflowDefinition.node_def` + `SignalLog` 纯数据驱动。
 
 ### 任务指令模式（Task-Instruction Pattern）
 
@@ -684,7 +682,7 @@
 | `cgc-2046` vs `cgc2046-<ws>-<skill>` | `cgc-2046` 是扩展 id / MCP 条目名；`cgc2046-<ws>-<skill>` 是已废弃的本地同步技能命名前缀（未实现） |
 | 确认流 vs 直接执行 | 高风险管理工具必须 pending → `confirm_operation` 才落库（two-tool 模式）；低风险写工具（`save_*` 草稿保存族、备课流转 `submit_prep_*` 与学员报名/学习进度记录工具）直接执行 |
 | PriceTier vs SponsorshipTier | PriceTier 是真实收款定价（收款即发生）；SponsorshipTier 是赞助意向档位（v1 仅登记不收款，amount_suggestion） |
-| WorkflowDefinition vs WorkflowRun | 蓝图（Runic.Workflow DAG + 版本）vs 执行实例（pending→running→waiting→succeeded/failed/cancelled/expired，归属 partition） |
+| WorkflowDefinition vs WorkflowRun | 声明式线性人工门控蓝图（`node_def["steps"]`，仅 `:manual` 步骤 + 版本快照）vs 执行实例（`pending → running → waiting → succeeded/failed/cancelled/expired`，`partition_id` = `workspace_id` 租户隔离，靠 `node_def` + `SignalLog` 推导门控进度） |
 | 同步写 vs 异步 Signal | 业务核心状态主写入口走同步 Ash Action（强一致，8）；衍生副作用/通知走 Signal 异步最终一致（2） |
 | Offering vs 课程设置 | Offering = 供给物（Event/Course 上位词，发布语言读端口）；course offerings 标准译法 = 开设的课程清单，非「课程设置」 |
 | Research vs Curriculum | 教研 context 英文定名 Curriculum（ADR-0009）；research_* 代码命名随重构 PR③ 退役 |
