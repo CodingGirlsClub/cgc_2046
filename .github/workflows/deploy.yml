@@ -258,6 +258,23 @@ jobs:
           # 「本步红」实际靠 kamal 侧 missing secret 兜底、报错不指名键）
           [ -z "$missing" ] || { echo "::error::missing GitHub secrets/vars:$missing"; exit 1; }
           echo "secrets 非空校验通过（64 项）"
+          # 桌面端可选运维开关：允许 GitHub vars 留空，仍写进 .kamal/secrets 供 Kamal 解析 env.secret
+          for v in \
+            DESKTOP_KILL_SWITCH DESKTOP_KILL_SWITCH_MESSAGE \
+            DESKTOP_MIN_SUPPORTED_VERSION DESKTOP_BLOCKED_VERSIONS \
+            DESKTOP_LATEST_VERSION DESKTOP_DOWNLOAD_URL \
+            DESKTOP_RELEASE_NOTES; do
+            val="${!v}"
+            if [ -z "$val" ]; then
+              printf '%s=\n' "$v" >> .kamal/secrets
+            else
+              val="${val//$'\r'/}"
+              val="${val//$'\n'/ }"
+              val="${val//\\/\\\\}"
+              val="${val//\"/\\\"}"
+              printf '%s="%s"\n' "$v" "$val" >> .kamal/secrets
+            fi
+          done
         env:
           TCR_PASSWORD: ${{ secrets.TCR_PASSWORD }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -332,6 +349,13 @@ jobs:
           XHS_MP_APPID: ${{ vars.XHS_MP_APPID }}
           XHS_MP_SECRET: ${{ secrets.XHS_MP_SECRET }}
           WECHAT_WEB_SECRET: ${{ secrets.WECHAT_WEB_SECRET }}
+          DESKTOP_KILL_SWITCH: ${{ vars.DESKTOP_KILL_SWITCH }}
+          DESKTOP_KILL_SWITCH_MESSAGE: ${{ vars.DESKTOP_KILL_SWITCH_MESSAGE }}
+          DESKTOP_MIN_SUPPORTED_VERSION: ${{ vars.DESKTOP_MIN_SUPPORTED_VERSION }}
+          DESKTOP_BLOCKED_VERSIONS: ${{ vars.DESKTOP_BLOCKED_VERSIONS }}
+          DESKTOP_LATEST_VERSION: ${{ vars.DESKTOP_LATEST_VERSION }}
+          DESKTOP_DOWNLOAD_URL: ${{ vars.DESKTOP_DOWNLOAD_URL }}
+          DESKTOP_RELEASE_NOTES: ${{ vars.DESKTOP_RELEASE_NOTES }}
       - name: Deploy backend
         working-directory: backend
         env:

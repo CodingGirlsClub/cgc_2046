@@ -187,6 +187,23 @@ pub(crate) fn classify_turn_error(
     }
 }
 
+/// 当 CGC Cloud 托管网关返回 HTTP 426 时记录进程级 `UpgradeNotice` Latch；
+/// BYOK provider 返回 426 不触碰平台升级 Latch。
+pub(crate) fn record_managed_upgrade_notice(error: &AgentError, managed_provider: bool) {
+    if !managed_provider {
+        return;
+    }
+    if let AgentError::Provider(cgc_agent_provider::ProviderError::Api {
+        status: Some(426),
+        message,
+        ..
+    }) = error
+    {
+        let notice = cgc_platform::api::upgrade::parse_upgrade_notice(message);
+        cgc_platform::api::upgrade::record_upgrade_notice(notice);
+    }
+}
+
 pub enum NativeRuntimeEvent {
     Snapshot {
         change: RuntimeChange,
@@ -653,5 +670,23 @@ mod model_setup_tests {
             classify_turn_error(&AgentError::RuntimeBusy, true),
             NativeTurnErrorKind::Other
         );
+    }
+
+    #[test]
+    fn managed_426_records_upgrade_notice_while_byok_426_does_not() {
+        cgc_platform::api::upgrade::clear_upgrade_notice();
+        let err = AgentError::Provider(ProviderError::api(426, "桌面端维护中"));
+
+        super::record_managed_upgrade_notice(&err, false);
+        assert_eq!(cgc_platform::api::upgrade::upgrade_notice(), None);
+
+        super::record_managed_upgrade_notice(&err, true);
+        assert_eq!(
+            cgc_platform::api::upgrade::upgrade_notice()
+                .as_ref()
+                .map(|n| n.message.as_str()),
+            Some("桌面端维护中")
+        );
+        cgc_platform::api::upgrade::clear_upgrade_notice();
     }
 }

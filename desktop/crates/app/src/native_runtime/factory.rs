@@ -378,11 +378,20 @@ pub(super) fn initialize_with_keychain(
     ))
 }
 
+pub(super) fn managed_provider_config(model: &Model, base_url: &str) -> OpenAiCompatibleConfig {
+    let headers = cgc_platform::runtime::client_headers()
+        .into_iter()
+        .map(|(name, value)| (name.to_string(), value.to_string()))
+        .collect();
+    OpenAiCompatibleConfig::new(base_url.to_string(), String::new(), vec![model.clone()])
+        .with_token_source(super::gateway::token_source())
+        .with_extra_headers(headers)
+}
+
 fn managed_provider(model: &Model, base_url: &str) -> Arc<dyn Provider> {
-    let config =
-        OpenAiCompatibleConfig::new(base_url.to_string(), String::new(), vec![model.clone()])
-            .with_token_source(super::gateway::token_source());
-    Arc::new(OpenAiCompatibleProvider::new(config))
+    Arc::new(OpenAiCompatibleProvider::new(managed_provider_config(
+        model, base_url,
+    )))
 }
 
 fn provider(

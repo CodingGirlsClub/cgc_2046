@@ -74,6 +74,7 @@ impl McpHttpClient {
     pub fn with_timeout(endpoint: impl Into<String>, timeout: Duration) -> Self {
         let config = ureq::Agent::config_builder()
             .timeout_global(Some(timeout))
+            .http_status_as_error(false)
             .build();
         Self {
             endpoint: endpoint.into(),
@@ -162,6 +163,9 @@ impl McpHttpClient {
             .post(&self.endpoint)
             .header("content-type", "application/json")
             .header("accept", "application/json, text/event-stream");
+        for (name, value) in crate::runtime::client_headers() {
+            request = request.header(name, value);
+        }
         if let Some(token) = &self.token {
             request = request.header("authorization", format!("Bearer {token}"));
         }
@@ -175,6 +179,15 @@ impl McpHttpClient {
         }
         if status == 403 {
             return Err(McpClientError::Forbidden);
+        }
+        if status == 426 {
+            let raw = response.body_mut().read_to_string().unwrap_or_default();
+            let notice = crate::api::upgrade::parse_upgrade_notice(&raw);
+            crate::api::upgrade::record_upgrade_notice(notice.clone());
+            return Err(McpClientError::Protocol(notice.message));
+        }
+        if !(200..300).contains(&status) {
+            return Err(McpClientError::Transport(format!("http status {status}")));
         }
         if method == "initialize" {
             if let Some(session_id) = header_value(&response, "mcp-session-id") {
@@ -503,5 +516,33 @@ mod tests {
         let error = client.initialize("c", "1").unwrap_err();
         assert!(!format!("{error}").contains("top-secret"));
         assert!(!format!("{error:?}").contains("top-secret"));
+    }
+
+    #[test]
+    fn sends_desktop_headers_and_records_latch_on_426() {
+        let _guard = crate::api::upgrade::LATCH_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        crate::api::upgrade::clear_upgrade_notice();
+
+        let (endpoint, requests) = spawn_mock(vec![response(
+            426,
+            r#"{"error":{"code":"client_upgrade_required","message":"MCP 需升级客户端","min_version":"0.2.0"}}"#,
+        )]);
+        let mut client = McpHttpClient::new(endpoint).with_bearer_token("secret-token");
+        let error = client.initialize("c", "1").unwrap_err();
+        assert_ne!(error, McpClientError::Unauthorized);
+        let raw_req = requests.recv().expect("request").to_ascii_lowercase();
+        assert!(raw_req.contains("x-cgc-client: desktop"));
+        assert!(raw_req.contains("x-cgc-client-version:"));
+        assert!(raw_req.contains("x-cgc-client-platform:"));
+        assert_eq!(
+            crate::api::upgrade::upgrade_notice()
+                .as_ref()
+                .map(|n| n.message.as_str()),
+            Some("MCP 需升级客户端")
+        );
+
+        crate::api::upgrade::clear_upgrade_notice();
     }
 }

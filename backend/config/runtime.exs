@@ -546,3 +546,17 @@ if config_env() == :dev do
       ]
   end
 end
+
+# 桌面端版本检查、最低兼容版本与紧急止损开关（ADR-0027）：
+# test 环境由用例按需覆盖 Application env，不读取宿主进程 env；
+# dev / prod 直接注入原始环境变量，由 DesktopRelease.config/0 统一规范化。
+if config_env() != :test do
+  config :cgc_2046, :desktop_release,
+    kill_switch: System.get_env("DESKTOP_KILL_SWITCH"),
+    kill_switch_message: System.get_env("DESKTOP_KILL_SWITCH_MESSAGE"),
+    min_supported_version: System.get_env("DESKTOP_MIN_SUPPORTED_VERSION"),
+    blocked_versions: System.get_env("DESKTOP_BLOCKED_VERSIONS"),
+    latest_version: System.get_env("DESKTOP_LATEST_VERSION"),
+    download_url: System.get_env("DESKTOP_DOWNLOAD_URL"),
+    release_notes: System.get_env("DESKTOP_RELEASE_NOTES")
+end

@@ -133,6 +133,7 @@ impl From<ApiError> for NotesError {
     fn from(error: ApiError) -> Self {
         match error {
             ApiError::Unauthorized => Self::Unauthorized,
+            ApiError::UpgradeRequired(notice) => Self::Server(notice.message),
             ApiError::Graphql {
                 code: Some(code), ..
             } => match code.as_str() {

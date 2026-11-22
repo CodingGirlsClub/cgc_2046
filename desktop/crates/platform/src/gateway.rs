@@ -141,6 +141,10 @@ impl From<ApiError> for GatewayError {
     fn from(error: ApiError) -> Self {
         match error {
             ApiError::Unauthorized => Self::Unauthenticated,
+            ApiError::UpgradeRequired(notice) => Self::Graphql {
+                code: Some(notice.code),
+                message: notice.message,
+            },
             ApiError::Transport(reason) | ApiError::Timeout(reason) => Self::Transport(reason),
             ApiError::Graphql { code, message } => Self::Graphql { code, message },
         }

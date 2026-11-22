@@ -35,11 +35,14 @@ pub fn build_mcp_server(
     lease: &LearningHostLease,
     endpoint: &str,
 ) -> McpServer {
-    let server =
-        McpServerHttp::new(entry.mcp_server_name.clone(), endpoint).headers(vec![HttpHeader::new(
-            "Authorization",
-            format!("Bearer {}", lease.token),
-        )]);
+    let mut headers = vec![HttpHeader::new(
+        "Authorization",
+        format!("Bearer {}", lease.token),
+    )];
+    for (name, value) in crate::runtime::client_headers() {
+        headers.push(HttpHeader::new(name, value));
+    }
+    let server = McpServerHttp::new(entry.mcp_server_name.clone(), endpoint).headers(headers);
     McpServer::Http(server)
 }
 
@@ -122,9 +125,15 @@ mod tests {
         };
         assert_eq!(http.name, "cgc-2046-learning");
         assert_eq!(http.url, "https://cgc.example.com/mcp");
-        assert_eq!(http.headers.len(), 1);
+        assert_eq!(http.headers.len(), 4);
         assert_eq!(http.headers[0].name, "Authorization");
         assert_eq!(http.headers[0].value, "Bearer cgch_test_token");
+        assert_eq!(http.headers[1].name, "x-cgc-client");
+        assert_eq!(http.headers[1].value, "desktop");
+        assert_eq!(http.headers[2].name, "x-cgc-client-version");
+        assert_eq!(http.headers[2].value, crate::runtime::client_version());
+        assert_eq!(http.headers[3].name, "x-cgc-client-platform");
+        assert_eq!(http.headers[3].value, crate::runtime::client_platform());
     }
 
     #[test]

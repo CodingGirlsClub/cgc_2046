@@ -192,7 +192,16 @@ impl HttpAuthApi {
     }
 
     fn post(&self, token: Option<&str>, query: &str, variables: Value) -> Result<Value, AuthError> {
-        let mut request = ureq::post(&self.endpoint).header("content-type", "application/json");
+        let config = ureq::Agent::config_builder()
+            .http_status_as_error(false)
+            .build();
+        let agent: ureq::Agent = config.into();
+        let mut request = agent
+            .post(&self.endpoint)
+            .header("content-type", "application/json");
+        for (name, value) in crate::runtime::client_headers() {
+            request = request.header(name, value);
+        }
         if let Some(token) = token {
             request = request.header("authorization", format!("Bearer {token}"));
         }
@@ -201,6 +210,19 @@ impl HttpAuthApi {
         let mut response = request
             .send_json(&body)
             .map_err(|err| AuthError::Transport(err.to_string()))?;
+        let status = response.status().as_u16();
+        if status == 426 {
+            let raw = response.body_mut().read_to_string().unwrap_or_default();
+            let notice = crate::api::upgrade::parse_upgrade_notice(&raw);
+            crate::api::upgrade::record_upgrade_notice(notice.clone());
+            return Err(AuthError::Domain {
+                code: notice.code,
+                message: notice.message,
+            });
+        }
+        if !(200..300).contains(&status) {
+            return Err(AuthError::Transport(format!("http status {status}")));
+        }
         response
             .body_mut()
             .read_json::<Value>()
@@ -830,5 +852,37 @@ mod tests {
         assert!(
             matches!(error, AuthError::Domain { ref code, .. } if code == "mini_web_login_expired")
         );
+    }
+
+    #[test]
+    fn http_auth_sends_desktop_headers_and_426_records_latch_without_invalidating_session() {
+        let _guard = crate::api::upgrade::LATCH_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        crate::api::upgrade::clear_upgrade_notice();
+
+        let (endpoint, received) = spawn_mock_server(
+            426,
+            r#"{"error":{"code":"client_upgrade_required","message":"请升级后登录","min_version":"0.2.0"}}"#,
+        );
+        let api = HttpAuthApi::new(endpoint);
+        let err = api
+            .validate("persisted-jwt")
+            .expect_err("426 must not return Ok(false)");
+        assert!(
+            matches!(err, AuthError::Domain { ref code, .. } if code == "client_upgrade_required")
+        );
+        let raw_req = received.recv().expect("request").to_ascii_lowercase();
+        assert!(raw_req.contains("x-cgc-client: desktop"));
+        assert!(raw_req.contains("x-cgc-client-version:"));
+        assert!(raw_req.contains("x-cgc-client-platform:"));
+        assert_eq!(
+            crate::api::upgrade::upgrade_notice()
+                .as_ref()
+                .map(|n| n.message.as_str()),
+            Some("请升级后登录")
+        );
+
+        crate::api::upgrade::clear_upgrade_notice();
     }
 }

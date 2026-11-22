@@ -26,5 +26,6 @@ mod tests {
         assert_eq!(about_line(), format!("{VERSION} ({COMMIT})"));
         assert!(artifact_stem().starts_with("cgc2046-"));
         assert!(artifact_stem().contains(COMMIT));
+        assert_eq!(VERSION, cgc_platform::runtime::client_version());
     }
 }

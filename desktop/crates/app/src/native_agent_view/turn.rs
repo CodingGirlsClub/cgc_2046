@@ -96,6 +96,9 @@ impl NativeAgentView {
                 format!("错误：{message}")
             };
         }
+        if cgc_platform::api::upgrade::upgrade_notice().is_some() {
+            cx.emit(NativeAgentViewEvent::TitleChanged);
+        }
         cx.notify();
     }
 

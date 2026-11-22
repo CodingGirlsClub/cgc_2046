@@ -412,6 +412,8 @@ pub struct ShellState {
     pub(in crate::root_view) store_writer: Option<cgc_agent_store::StoreWriter>,
     pub(in crate::root_view) review_event_keys: std::collections::HashSet<String>,
     pub(in crate::root_view) selected_event: Option<String>,
+    pub(in crate::root_view) update_check_started: bool,
+    pub(in crate::root_view) update_banner: Option<super::update_banner::UpdateBannerState>,
 }
 
 impl ShellState {
@@ -637,6 +639,8 @@ impl ShellState {
             revoking: false,
             settings_error: None,
             selected_event: None,
+            update_check_started: false,
+            update_banner: None,
         }
     }
 }

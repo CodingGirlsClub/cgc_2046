@@ -19,10 +19,14 @@ Zed 已把 ACP 扩展在 v1.5.0 弃用，改为 ACP Registry（2026-01-28 上线
 
 ## 决策（Decision）
 
-1. **v1 只走注册表路线，不做 WASM / QuickJS 扩展框架。** 内置清单上架 OMP、Codex（`codex-acp` 2.2.2）、Claude Code（`claude-agent-acp` 0.93.0）三条；后两者的发行信息与版本可对齐 ACP Registry 的 npx 分发形态。
-2. **内置签名清单**：客户端随包发布 `registry.json`，只上架审过的 OMP / Codex 与必要的 MCP server；条目声明发行方式、固定版本、checksum、启动参数。
-3. **消费官方 registry**：P1 起对接 ACP Registry（`https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json`）与官方 MCP Registry 做发现；安装仍走本地校验与白名单，不自动安装第三方条目。
-4. **信任模型**：固定版本 + checksum + 清单签名 + 用户确认；官方 registry 只作发现层（实测 MCP registry 元数据不含 checksum 与签名），版本固定与 checksum 校验由内置签名清单承担；agent 自身登录与模型额度归用户（BYO），客户端只展示登录状态。
+1. **v1 只走注册表路线，不做 WASM / QuickJS 扩展框架。** 内置清单（`desktop/crates/platform/resources/registry.json`）当前上架 4 条第一方审过的外部 ACP agent：OMP、Codex（`@agentclientprotocol/codex-acp` `2.2.2`）、Claude Code（`@agentclientprotocol/claude-agent-acp` `0.94.0`）、DeepSeek Harness（`@openma/deepseek-harness-acp` `0.4.41`）。
+2. **内置签名清单**：客户端随包发布 `registry.json` 与 Ed25519 签名 `registry.sig`，二进制内嵌验证公钥 `BUILTIN_PUBLIC_KEY`（开发期使用 dev key，正式对外发版 GA 前轮换为 CI Secret `CGC_REGISTRY_PRIVATE_KEY` 对应的生产密钥，见 #1324）。
+3. **官方 ACP / MCP Registry 发现层延后（2026-11-22 修订）**：由于 v1 仅开放内置签名清单中的 4 个 agent、且不开放第三方或用户自定义 MCP server（ADR-0028 决策 6），早期未接线的官方 registry 发现模块（`registry/discovery.rs`）已按 YAGNI 移除；待后续真正开放第三方 agent / 自定义 MCP 安装入口时再按需引入。
+4. **信任模型（2026-11-22 与实现对齐）**：
+   - **清单层**：Ed25519 签名校验覆盖 `registry.json` 原始字节，篡改或版本漂移 fail-closed；
+   - **受管运行时层**：客户端受管 Node.js 24 LTS（`agent/node_runtime.rs`）下载官方归档后强制执行内置 SHA-256（`registry/checksum.rs`）校验，不匹配的归档绝不解压执行；
+   - **npm 适配器层**：npx 分发的适配器由已验签的 `registry.json` 锁定精确包名与版本号，经受管 Node 24 从 HTTPS npm registry 安装并在安装后核验已安装 `package.json` 版本号（不为 npm 包额外维护独立 tarball checksum）；
+   - **凭据归属**：agent 自身登录与模型额度归用户（BYO），客户端只展示登录状态或从本机钥匙串按需注入子进程环境。
 5. **扩展框架延后**：只有出现「app 内第三方插件」的真实需求（课程小组件、主题、本地工具面板）且生态存在供给时再评估 WASM 运行时。
 
 ## 否决的替代

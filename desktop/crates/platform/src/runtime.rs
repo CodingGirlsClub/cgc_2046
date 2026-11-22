@@ -35,6 +35,34 @@ const BUILD_DEFAULT_ENV: Option<&str> = option_env!("CGC_DEFAULT_ENV");
 /// 发布构建注入的默认 GraphQL 端点；未注入 = `None`，回退 [`LOCAL_API_URL`]。
 const BUILD_DEFAULT_API_URL: Option<&str> = option_env!("CGC_DEFAULT_API_URL");
 
+/// 第一方桌面端出口请求头名称（ADR-0027）。
+pub const CLIENT_HEADER_NAME: &str = "x-cgc-client";
+/// 第一方桌面端出口请求头固定值。
+pub const CLIENT_HEADER_VALUE: &str = "desktop";
+/// 桌面客户端版本号请求头名称。
+pub const CLIENT_VERSION_HEADER: &str = "x-cgc-client-version";
+/// 桌面客户端运行平台请求头名称（`<os>-<arch>`）。
+pub const CLIENT_PLATFORM_HEADER: &str = "x-cgc-client-platform";
+
+/// 编译期注入的桌面客户端 SemVer 版本号（单一真源取 `CGC_BUILD_VERSION`）。
+pub fn client_version() -> &'static str {
+    env!("CGC_BUILD_VERSION")
+}
+
+/// 当前构建的桌面客户端平台标识（如 `macos-aarch64` / `windows-x86_64` / `linux-x86_64`）。
+pub fn client_platform() -> &'static str {
+    env!("CGC_CLIENT_PLATFORM")
+}
+
+/// 构造第一方出口请求必须附带的 3 个桌面客户端识别头。
+pub fn client_headers() -> [(&'static str, &'static str); 3] {
+    [
+        (CLIENT_HEADER_NAME, CLIENT_HEADER_VALUE),
+        (CLIENT_VERSION_HEADER, client_version()),
+        (CLIENT_PLATFORM_HEADER, client_platform()),
+    ]
+}
+
 /// 用户设置文件的 `api.url`（启动时注入一次，之后只读）。
 static SETTINGS_API_URL: RwLock<Option<String>> = RwLock::new(None);
 
@@ -331,5 +359,19 @@ mod tests {
         assert_eq!(settings_api_url(), None);
         set_settings_api_url(None);
         assert_eq!(settings_api_url(), None);
+    }
+
+    #[test]
+    fn client_headers_carry_desktop_version_and_platform() {
+        assert!(!client_version().trim().is_empty());
+        assert!(client_platform().contains('-'));
+        assert_eq!(
+            client_headers(),
+            [
+                ("x-cgc-client", "desktop"),
+                ("x-cgc-client-version", client_version()),
+                ("x-cgc-client-platform", client_platform()),
+            ]
+        );
     }
 }

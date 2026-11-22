@@ -93,6 +93,7 @@ fn map_api_error(error: ApiError) -> McpError {
         ApiError::Transport(reason) => McpError::Transport(reason),
         ApiError::Timeout(reason) => McpError::Transport(format!("timeout: {reason}")),
         ApiError::Unauthorized => McpError::Unauthorized,
+        ApiError::UpgradeRequired(notice) => McpError::Server(notice.message),
         ApiError::Graphql { message, .. } => McpError::Server(message),
     }
 }
@@ -154,26 +155,35 @@ impl LearningHostApi for HttpLearningHostApi {
         let config = ureq::Agent::config_builder()
             .timeout_global(Some(self.client.timeout()))
             .max_redirects(0)
+            .http_status_as_error(false)
             .build();
         let agent: ureq::Agent = config.into();
-        let mut response = agent
+        let mut request = agent
             .get(format!("{endpoint}/token"))
-            .header("authorization", format!("Bearer {token}"))
-            .call()
-            .map_err(|error| match error {
-                ureq::Error::StatusCode(401) => McpError::Unauthorized,
-                ureq::Error::StatusCode(status) => {
-                    McpError::Server(format!("Credential verification returned HTTP {status}"))
-                }
-                ureq::Error::Timeout(_) => {
-                    McpError::Transport("Credential verification timed out".into())
-                }
-                _ => McpError::Transport("Credential verification failed".into()),
-            })?;
-        if response.status().as_u16() != 200 {
-            return Err(McpError::Server(
-                "Credential verification did not succeed".into(),
-            ));
+            .header("authorization", format!("Bearer {token}"));
+        for (name, value) in crate::runtime::client_headers() {
+            request = request.header(name, value);
+        }
+        let mut response = request.call().map_err(|error| match error {
+            ureq::Error::Timeout(_) => {
+                McpError::Transport("Credential verification timed out".into())
+            }
+            _ => McpError::Transport("Credential verification failed".into()),
+        })?;
+        let status = response.status().as_u16();
+        if status == 401 {
+            return Err(McpError::Unauthorized);
+        }
+        if status == 426 {
+            let raw = response.body_mut().read_to_string().unwrap_or_default();
+            let notice = crate::api::upgrade::parse_upgrade_notice(&raw);
+            crate::api::upgrade::record_upgrade_notice(notice.clone());
+            return Err(McpError::Server(notice.message));
+        }
+        if status != 200 {
+            return Err(McpError::Server(format!(
+                "Credential verification returned HTTP {status}"
+            )));
         }
         let payload = response
             .body_mut()

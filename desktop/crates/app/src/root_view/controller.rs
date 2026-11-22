@@ -438,6 +438,9 @@ impl RootView {
     }
 
     fn notification_token(&self) -> Option<String> {
+        if cgc_platform::api::upgrade::upgrade_notice().is_some() {
+            return None;
+        }
         self.session
             .signed_in()
             .map(|signed_in| signed_in.token.clone())
@@ -452,6 +455,10 @@ impl RootView {
         let items = match result {
             Ok(items) => items,
             Err(error) => {
+                if matches!(error, cgc_platform::api::ApiError::UpgradeRequired(_)) {
+                    cx.notify();
+                    return;
+                }
                 if !matches!(error, cgc_platform::api::ApiError::Unauthorized) {
                     log::warn!(target: "notifications", "通知列表拉取失败：{error:?}");
                 }
@@ -940,6 +947,8 @@ impl RootView {
             let result = task.await;
             if let Ok(false) = result {
                 let _ = this.update(cx, |this, cx| this.force_sign_out(cx));
+            } else if result.is_err() && cgc_platform::api::upgrade::upgrade_notice().is_some() {
+                let _ = this.update(cx, |_, cx| cx.notify());
             }
         })
         .detach();
