@@ -471,7 +471,7 @@ fn reject(command: Command, error: NativeRuntimeError) {
         Command::InspectCheckpointStorage(reply) => {
             let _ = reply.send(Err(error));
         }
-        Command::PurgeCheckpointHistory(reply) => {
+        Command::PurgeCheckpointHistory { reply, .. } => {
             let _ = reply.send(Err(error));
         }
         Command::Connect(reply) => {

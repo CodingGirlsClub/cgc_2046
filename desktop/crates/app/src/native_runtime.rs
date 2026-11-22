@@ -238,6 +238,7 @@ pub enum NativeRuntimeError {
     StaleConnection,
     Closed,
     MissingThread,
+    WorkspaceChanged,
     Configuration(String),
     Storage(String),
     Checkpoint(String),
@@ -250,11 +251,18 @@ impl std::fmt::Display for NativeRuntimeError {
             Self::StaleConnection => f.write_str("连接已被新的会话替换"),
             Self::Closed => f.write_str("native runtime 已关闭"),
             Self::MissingThread => f.write_str("会话不存在"),
+            Self::WorkspaceChanged => f.write_str("当前工作区已切换，已取消清理并刷新，请重新确认"),
             Self::Configuration(message) => write!(f, "模型配置不可用：{message}"),
             Self::Storage(message) => write!(f, "会话存储失败：{message}"),
             Self::Checkpoint(message) => write!(f, "检查点操作失败：{message}"),
         }
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct WorkspaceCheckpointStorage {
+    pub repo: PathBuf,
+    pub summary: CheckpointStorageSummary,
 }
 
 pub struct PreparedNativeTurn {
@@ -312,8 +320,11 @@ enum Command {
         reply: Reply<Arc<NativeRuntimeSnapshot>>,
     },
     Checkpoint(CheckpointAction, Reply<Arc<NativeRuntimeSnapshot>>),
-    InspectCheckpointStorage(Reply<Option<CheckpointStorageSummary>>),
-    PurgeCheckpointHistory(Reply<ReclaimReport>),
+    InspectCheckpointStorage(Reply<Option<WorkspaceCheckpointStorage>>),
+    PurgeCheckpointHistory {
+        expected_repo: PathBuf,
+        reply: Reply<ReclaimReport>,
+    },
     SelectModel {
         provider: String,
         model: String,
@@ -522,15 +533,19 @@ impl NativeRuntimeHandle {
     }
     pub(crate) fn inspect_checkpoint_storage(
         &self,
-    ) -> impl Future<Output = Result<Option<CheckpointStorageSummary>, NativeRuntimeError>>
+    ) -> impl Future<Output = Result<Option<WorkspaceCheckpointStorage>, NativeRuntimeError>>
            + Send
            + 'static {
         self.request(Command::InspectCheckpointStorage)
     }
     pub(crate) fn purge_checkpoint_history(
         &self,
+        expected_repo: PathBuf,
     ) -> impl Future<Output = Result<ReclaimReport, NativeRuntimeError>> + Send + 'static {
-        self.request(Command::PurgeCheckpointHistory)
+        self.request(move |reply| Command::PurgeCheckpointHistory {
+            expected_repo,
+            reply,
+        })
     }
     pub fn select_model(
         &self,

@@ -1274,17 +1274,21 @@ fn manual_checkpoint_cleanup_purges_history_syncs_sqlite_clears_budget_and_rejec
 
     let (inspect_tx, inspect_rx) = oneshot::channel();
     owner.command(Command::InspectCheckpointStorage(inspect_tx));
-    let summary = block_on(inspect_rx)
+    let storage = block_on(inspect_rx)
         .unwrap()
         .unwrap()
         .expect("storage summary");
-    assert_eq!(summary.total_refs, 5);
-    assert!(summary.stats.total_bytes() > 250 * 1024);
+    assert_eq!(storage.repo, root);
+    assert_eq!(storage.summary.total_refs, 5);
+    assert!(storage.summary.stats.total_bytes() > 250 * 1024);
 
     // 运行中（active 或 checkpoint_gc_running）拒绝手动清理。
     owner.checkpoint_gc_running = true;
     let (busy_tx, busy_rx) = oneshot::channel();
-    owner.command(Command::PurgeCheckpointHistory(busy_tx));
+    owner.command(Command::PurgeCheckpointHistory {
+        expected_repo: root.clone(),
+        reply: busy_tx,
+    });
     assert_eq!(
         block_on(busy_rx).unwrap().unwrap_err(),
         NativeRuntimeError::Busy
@@ -1293,7 +1297,10 @@ fn manual_checkpoint_cleanup_purges_history_syncs_sqlite_clears_budget_and_rejec
 
     // 空闲态执行手动清理。
     let (purge_tx, purge_rx) = oneshot::channel();
-    owner.command(Command::PurgeCheckpointHistory(purge_tx));
+    owner.command(Command::PurgeCheckpointHistory {
+        expected_repo: root.clone(),
+        reply: purge_tx,
+    });
     assert!(owner.checkpoint_gc_running);
     let job = block_on(owner.jobs.next()).expect("manual cleanup job");
     owner.completed(job);
@@ -1357,7 +1364,10 @@ fn manual_cleanup_and_reclaim_invalidate_sqlite_records_even_after_scope_switch(
 
     // 在 scope-a 发起手动清理，在后台任务完成前切换到 scope-b。
     let (purge_tx, purge_rx) = oneshot::channel();
-    owner.command(Command::PurgeCheckpointHistory(purge_tx));
+    owner.command(Command::PurgeCheckpointHistory {
+        expected_repo: root_a.clone(),
+        reply: purge_tx,
+    });
     assert!(owner.checkpoint_gc_running);
 
     let (sw_b_tx, sw_b_rx) = oneshot::channel();
@@ -1422,7 +1432,10 @@ fn manual_cleanup_and_reclaim_sync_sqlite_even_when_git_gc_fails_after_deleting_
     assert!(out.status.success());
 
     let (purge_tx, purge_rx) = oneshot::channel();
-    owner.command(Command::PurgeCheckpointHistory(purge_tx));
+    owner.command(Command::PurgeCheckpointHistory {
+        expected_repo: root.clone(),
+        reply: purge_tx,
+    });
     let job = block_on(owner.jobs.next()).expect("manual cleanup job");
     owner.completed(job);
 
@@ -1446,4 +1459,95 @@ fn manual_cleanup_and_reclaim_sync_sqlite_even_when_git_gc_fails_after_deleting_
     assert_eq!(records[1].state, "active");
 
     let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn manual_cleanup_rejects_stale_expected_repo_after_scope_switch() {
+    use futures::StreamExt as _;
+
+    let root_a = std::env::temp_dir().join(format!("cgc-rt-stale-repo-a-{}", std::process::id()));
+    let root_b = std::env::temp_dir().join(format!("cgc-rt-stale-repo-b-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root_a);
+    let _ = std::fs::remove_dir_all(&root_b);
+    std::fs::create_dir_all(&root_a).unwrap();
+    std::fs::create_dir_all(&root_b).unwrap();
+
+    let mut owner = configured_owner(&root_a);
+    owner.store = Some(SessionStore::open_in_memory().unwrap());
+
+    let (sw_a_tx, sw_a_rx) = oneshot::channel();
+    owner.command(Command::SwitchScope(
+        AgentScope {
+            key: "scope-a".into(),
+            root: root_a.clone(),
+        },
+        sw_a_tx,
+    ));
+    let snap_a = block_on(sw_a_rx).unwrap().unwrap();
+    let thread_a = snap_a.thread.id.clone();
+    for seq in 1..=2 {
+        std::fs::write(root_a.join("a.txt"), format!("a-{seq}")).unwrap();
+        owner.capture_checkpoint(&thread_a, seq);
+    }
+
+    let (inspect_tx, inspect_rx) = oneshot::channel();
+    owner.command(Command::InspectCheckpointStorage(inspect_tx));
+    let inspected_a = block_on(inspect_rx)
+        .unwrap()
+        .unwrap()
+        .expect("inspected storage for scope A");
+    assert_eq!(inspected_a.repo, root_a);
+    assert_eq!(inspected_a.summary.total_refs, 2);
+
+    // 切换到 scope-b 并写入 3 个检查点。
+    let (sw_b_tx, sw_b_rx) = oneshot::channel();
+    owner.command(Command::SwitchScope(
+        AgentScope {
+            key: "scope-b".into(),
+            root: root_b.clone(),
+        },
+        sw_b_tx,
+    ));
+    let snap_b = block_on(sw_b_rx).unwrap().unwrap();
+    let thread_b = snap_b.thread.id.clone();
+    for seq in 1..=3 {
+        std::fs::write(root_b.join("b.txt"), format!("b-{seq}")).unwrap();
+        owner.capture_checkpoint(&thread_b, seq);
+    }
+
+    // 使用从 scope-a 读到的 `expected_repo` 发起清理必须被拒绝，且 B 与 A 均不受影响。
+    let (stale_tx, mut stale_rx) = oneshot::channel();
+    owner.command(Command::PurgeCheckpointHistory {
+        expected_repo: inspected_a.repo.clone(),
+        reply: stale_tx,
+    });
+    assert!(!owner.checkpoint_gc_running);
+    assert_eq!(
+        stale_rx
+            .try_recv()
+            .expect("channel open")
+            .expect("immediate rejection reply")
+            .unwrap_err(),
+        NativeRuntimeError::WorkspaceChanged
+    );
+    let mgr_a = CheckpointManager::open(&root_a).unwrap();
+    let mgr_b = CheckpointManager::open(&root_b).unwrap();
+    assert_eq!(mgr_a.storage_summary().unwrap().total_refs, 2);
+    assert_eq!(mgr_b.storage_summary().unwrap().total_refs, 3);
+
+    // 重新确认 scope-b 后可正常清理 scope-b，scope-a 保持原样。
+    let (purge_b_tx, purge_b_rx) = oneshot::channel();
+    owner.command(Command::PurgeCheckpointHistory {
+        expected_repo: root_b.clone(),
+        reply: purge_b_tx,
+    });
+    let job = block_on(owner.jobs.next()).expect("manual cleanup job for scope-b");
+    owner.completed(job);
+    let report = block_on(purge_b_rx).unwrap().expect("purge b succeeds");
+    assert_eq!(report.pruned.len(), 2);
+    assert_eq!(mgr_b.storage_summary().unwrap().total_refs, 1);
+    assert_eq!(mgr_a.storage_summary().unwrap().total_refs, 2);
+
+    let _ = std::fs::remove_dir_all(root_a);
+    let _ = std::fs::remove_dir_all(root_b);
 }

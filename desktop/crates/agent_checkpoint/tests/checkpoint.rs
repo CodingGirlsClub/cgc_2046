@@ -904,3 +904,30 @@ fn non_utf8_filename_is_included_in_snapshot_and_restored() {
     assert_eq!(std::fs::read(&non_utf8_path).unwrap(), b"v1-bytes\n");
     let _ = std::fs::remove_dir_all(workspace);
 }
+
+#[test]
+fn snapshot_and_restore_preserve_exact_line_endings_under_autocrlf_true() {
+    let workspace = temp_workspace("autocrlf");
+    let manager = CheckpointManager::initialize(&workspace).expect("init");
+    assert!(run_git(&workspace, &["config", "core.autocrlf", "true"])
+        .status
+        .success());
+
+    std::fs::write(workspace.join("lf.txt"), b"line1\nline2\n").unwrap();
+    std::fs::write(workspace.join("crlf.txt"), b"win1\r\nwin2\r\n").unwrap();
+    let cp1 = manager.snapshot("thread-eol", 1).expect("snapshot 1");
+
+    std::fs::remove_file(workspace.join("lf.txt")).unwrap();
+    std::fs::write(workspace.join("crlf.txt"), b"changed").unwrap();
+    manager.restore(&cp1).expect("restore cp1");
+
+    assert_eq!(
+        std::fs::read(workspace.join("lf.txt")).unwrap(),
+        b"line1\nline2\n"
+    );
+    assert_eq!(
+        std::fs::read(workspace.join("crlf.txt")).unwrap(),
+        b"win1\r\nwin2\r\n"
+    );
+    let _ = std::fs::remove_dir_all(workspace);
+}

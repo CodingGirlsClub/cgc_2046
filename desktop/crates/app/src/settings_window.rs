@@ -193,6 +193,22 @@ impl SettingsWindowView {
             .and_then(|guard| guard.notice.clone())
     }
 
+    #[cfg(all(test, cgc_ui_tests))]
+    pub(crate) fn checkpoint_storage_error_for_test(&self) -> Option<String> {
+        self.checkpoint_storage
+            .lock()
+            .ok()
+            .and_then(|guard| guard.error.clone())
+    }
+
+    #[cfg(all(test, cgc_ui_tests))]
+    pub(crate) fn checkpoint_storage_armed_for_test(&self) -> bool {
+        self.checkpoint_storage
+            .lock()
+            .ok()
+            .is_some_and(|guard| guard.armed)
+    }
+
     /// 从其他窗口直接定位到 LLM Providers 配置页。
     pub fn open_llm_providers(&mut self, cx: &mut Context<Self>) {
         self.ai_view = AiRoute::Providers;

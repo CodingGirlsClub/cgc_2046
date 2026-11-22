@@ -127,7 +127,10 @@ impl Owner {
                 let _ = reply.send(result);
             }
             Command::InspectCheckpointStorage(reply) => self.inspect_checkpoint_storage(reply),
-            Command::PurgeCheckpointHistory(reply) => self.start_manual_checkpoint_cleanup(reply),
+            Command::PurgeCheckpointHistory {
+                expected_repo,
+                reply,
+            } => self.start_manual_checkpoint_cleanup(expected_repo, reply),
             Command::SelectModel {
                 provider,
                 model,

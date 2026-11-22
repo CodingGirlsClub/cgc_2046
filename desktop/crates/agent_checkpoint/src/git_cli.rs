@@ -151,9 +151,9 @@ pub(crate) fn stderr(output: &std::process::Output) -> String {
 /// 与 `cgc-platform::process::hide_console_window` 同义；本 crate 不依赖 platform，
 /// 为不改依赖图保留这 6 行本地实现。
 pub(crate) fn git_command() -> Command {
-    // 非 Windows 平台不需要 creation_flags，mut 只在 cfg(windows) 分支用到。
-    #[cfg_attr(not(windows), allow(unused_mut))]
     let mut command = Command::new("git");
+    // 检查点按工作区原始字节做快照与恢复，禁止 `core.autocrlf=true`（Windows 默认）改写换行符。
+    command.args(["-c", "core.autocrlf=false"]);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt as _;

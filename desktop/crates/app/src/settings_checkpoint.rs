@@ -1,5 +1,6 @@
 //! 设置页（AI → 通用）的 Git 检查点对象库占用展示与手动一键清理入口（ADR-0028 决策 9 Phase 2）。
 
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use cgc_agent_checkpoint::{CheckpointStorageSummary, ReclaimReport};
@@ -12,7 +13,9 @@ use gpui_kit::{
     WeakEntity,
 };
 
-use crate::native_runtime::{format_bytes, NativeRuntimeError, NativeRuntimeHandle};
+use crate::native_runtime::{
+    format_bytes, NativeRuntimeError, NativeRuntimeHandle, WorkspaceCheckpointStorage,
+};
 use crate::settings_window::SettingsWindowView;
 use crate::theme::{self, space};
 
@@ -22,6 +25,7 @@ pub(crate) struct CheckpointSettingsState {
     pub cleaning: bool,
     pub armed: bool,
     pub request_serial: u64,
+    pub repo: Option<PathBuf>,
     pub summary: Option<CheckpointStorageSummary>,
     pub unavailable: bool,
     pub notice: Option<String>,
@@ -39,25 +43,41 @@ impl CheckpointSettingsState {
 
     pub(crate) fn apply_summary(
         &mut self,
-        result: Result<Option<CheckpointStorageSummary>, NativeRuntimeError>,
+        result: Result<Option<WorkspaceCheckpointStorage>, NativeRuntimeError>,
+        clear_error: bool,
     ) {
         self.loading = false;
         match result {
-            Ok(Some(summary)) => {
+            Ok(Some(storage)) => {
+                if self.repo.as_ref() != Some(&storage.repo) {
+                    self.armed = false;
+                    self.notice = None;
+                }
                 self.unavailable = false;
-                self.summary = Some(summary);
-                self.error = None;
+                self.repo = Some(storage.repo);
+                self.summary = Some(storage.summary);
+                if clear_error {
+                    self.error = None;
+                }
             }
             Ok(None) => {
                 self.unavailable = true;
+                self.repo = None;
                 self.summary = None;
                 self.armed = false;
+                if clear_error {
+                    self.error = None;
+                }
             }
             Err(error) => self.error = Some(error.to_string()),
         }
     }
 
-    pub(crate) fn apply_cleanup(&mut self, result: Result<ReclaimReport, NativeRuntimeError>) {
+    /// 应用一次手动清理结果；若因工作区切换而被拒绝，返回 `true` 提示上层触发自动刷新。
+    pub(crate) fn apply_cleanup(
+        &mut self,
+        result: Result<ReclaimReport, NativeRuntimeError>,
+    ) -> bool {
         self.cleaning = false;
         self.armed = false;
         match result {
@@ -81,8 +101,19 @@ impl CheckpointSettingsState {
                 self.notice = Some(format!(
                     "已清理 {pruned} 个历史检查点，当前占用 {used} / {limit}{suffix}"
                 ));
+                false
             }
-            Err(error) => self.error = Some(error.to_string()),
+            Err(NativeRuntimeError::WorkspaceChanged) => {
+                self.repo = None;
+                self.summary = None;
+                self.notice = None;
+                self.error = Some(NativeRuntimeError::WorkspaceChanged.to_string());
+                true
+            }
+            Err(error) => {
+                self.error = Some(error.to_string());
+                false
+            }
         }
     }
 
@@ -99,10 +130,18 @@ impl CheckpointSettingsState {
             let used_s = format_bytes(used);
             let limit_s = format_bytes(summary.limit_bytes);
             let refs = summary.total_refs;
-            return (
-                format!("当前占用：{used_s} / {limit_s}（共 {refs} 个检查点）"),
-                used > summary.limit_bytes,
-            );
+            let text = match self
+                .repo
+                .as_deref()
+                .and_then(Path::file_name)
+                .and_then(|name| name.to_str())
+            {
+                Some(name) if !name.is_empty() => {
+                    format!("当前工作区（{name}）占用：{used_s} / {limit_s}（共 {refs} 个检查点）")
+                }
+                _ => format!("当前占用：{used_s} / {limit_s}（共 {refs} 个检查点）"),
+            };
+            return (text, used > summary.limit_bytes);
         }
         ("尚未读取检查点仓库占用".into(), false)
     }
@@ -123,22 +162,38 @@ pub(crate) fn refresh(
     state: Arc<Mutex<CheckpointSettingsState>>,
     cx: &mut Context<SettingsWindowView>,
 ) {
+    refresh_with_options(runtime, state, true, cx);
+}
+
+fn refresh_with_options(
+    runtime: Option<NativeRuntimeHandle>,
+    state: Arc<Mutex<CheckpointSettingsState>>,
+    clear_error: bool,
+    cx: &mut Context<SettingsWindowView>,
+) {
     let Some(runtime) = runtime else {
         if let Ok(mut guard) = state.lock() {
             guard.loading = false;
             guard.unavailable = true;
+            guard.repo = None;
             guard.summary = None;
             guard.armed = false;
+            if clear_error {
+                guard.error = None;
+            }
         }
         cx.notify();
         return;
     };
     let serial = if let Ok(mut guard) = state.lock() {
-        if guard.cleaning || guard.loading {
+        if guard.cleaning {
             return;
         }
         guard.loading = true;
-        guard.error = None;
+        guard.armed = false;
+        if clear_error {
+            guard.error = None;
+        }
         guard.request_serial = guard.request_serial.wrapping_add(1);
         guard.request_serial
     } else {
@@ -150,7 +205,7 @@ pub(crate) fn refresh(
         let result = operation.await;
         if let Ok(mut guard) = state.lock() {
             if guard.request_serial == serial && !guard.cleaning {
-                guard.apply_summary(result);
+                guard.apply_summary(result, clear_error);
             }
         }
         let _ = this.update(cx, |_, cx| cx.notify());
@@ -166,13 +221,37 @@ pub(crate) fn handle_clear_click(
     let Some(runtime) = runtime else {
         if let Ok(mut guard) = state.lock() {
             guard.armed = false;
+            guard.repo = None;
+            guard.summary = None;
             guard.unavailable = true;
         }
         cx.notify();
         return;
     };
-    if let Ok(mut guard) = state.lock() {
+    let latest_workspace = runtime
+        .latest_snapshot()
+        .map(|snapshot| snapshot.workspace.as_ref().clone());
+    let expected_repo = {
+        let Ok(mut guard) = state.lock() else {
+            return;
+        };
         if guard.cleaning || guard.loading || guard.unavailable {
+            return;
+        }
+        let Some(repo) = guard.repo.clone() else {
+            return;
+        };
+        if latest_workspace
+            .as_ref()
+            .is_some_and(|workspace| workspace != &repo)
+        {
+            guard.armed = false;
+            guard.repo = None;
+            guard.summary = None;
+            guard.notice = None;
+            guard.error = Some(NativeRuntimeError::WorkspaceChanged.to_string());
+            drop(guard);
+            refresh_with_options(Some(runtime), state, false, cx);
             return;
         }
         if !guard.armed {
@@ -188,15 +267,26 @@ pub(crate) fn handle_clear_click(
         guard.error = None;
         guard.notice = None;
         guard.request_serial = guard.request_serial.wrapping_add(1);
-    }
+        repo
+    };
     cx.notify();
-    let operation = runtime.purge_checkpoint_history();
+    let runtime_for_retry = runtime.clone();
+    let state_for_retry = state.clone();
+    let operation = runtime.purge_checkpoint_history(expected_repo);
     cx.spawn(async move |this, cx| {
         let result = operation.await;
-        if let Ok(mut guard) = state.lock() {
-            guard.apply_cleanup(result);
-        }
-        let _ = this.update(cx, |_, cx| cx.notify());
+        let workspace_changed = if let Ok(mut guard) = state.lock() {
+            guard.apply_cleanup(result)
+        } else {
+            false
+        };
+        let _ = this.update(cx, |_, cx| {
+            if workspace_changed {
+                refresh_with_options(Some(runtime_for_retry), state_for_retry, false, cx);
+            } else {
+                cx.notify();
+            }
+        });
     })
     .detach();
 }
@@ -210,6 +300,7 @@ pub(crate) fn render_item(
         let snapshot = state.lock().map(|guard| guard.clone()).unwrap_or_default();
         let (status_text, over_budget) = snapshot.status_line();
         let disabled = snapshot.cleaning || snapshot.loading || snapshot.unavailable;
+        let clear_disabled = disabled || snapshot.repo.is_none();
         let status_color = if over_budget {
             palette.danger
         } else {
@@ -243,7 +334,7 @@ pub(crate) fn render_item(
                             .outline()
                             .small()
                             .when(snapshot.armed, |button| button.danger())
-                            .disabled(disabled)
+                            .disabled(clear_disabled)
                             .label(snapshot.button_label())
                             .on_click(move |_, _, cx| {
                                 let _ = clear_weak.update(cx, |this, cx| {
@@ -287,209 +378,5 @@ pub(crate) fn render_item(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::CheckpointSettingsState;
-    use cgc_agent_checkpoint::{
-        CheckpointStorageSummary, ObjectStoreStats, PrunedRef, ReclaimReport,
-    };
-
-    #[test]
-    fn state_transitions_format_summary_and_cleanup_feedback() {
-        let mut state = CheckpointSettingsState::for_runtime(true);
-        state.loading = true;
-        assert_eq!(state.status_line().0, "正在统计检查点仓库占用…");
-
-        state.apply_summary(Ok(Some(CheckpointStorageSummary {
-            stats: ObjectStoreStats {
-                loose_bytes: 2 * 1024 * 1024,
-                pack_bytes: 512 * 1024,
-                ..Default::default()
-            },
-            total_refs: 12,
-            limit_bytes: 500 * 1024 * 1024,
-        })));
-        assert!(!state.loading);
-        let (line, over) = state.status_line();
-        assert!(!over && line.contains("2.5 MiB / 500.0 MiB") && line.contains("共 12 个检查点"));
-        assert_eq!(state.button_label(), "清理全部历史检查点");
-
-        state.armed = true;
-        assert_eq!(state.button_label(), "再次点击确认清理");
-
-        state.apply_cleanup(Ok(ReclaimReport {
-            pruned: vec![PrunedRef {
-                thread_id: "t1".into(),
-                seq: 1,
-                ref_name: "refs/cgc/checkpoints/t1/1".into(),
-            }],
-            remaining_refs: 1,
-            stats_after: ObjectStoreStats {
-                loose_bytes: 192 * 1024,
-                ..Default::default()
-            },
-            within_budget: true,
-            limit_bytes: 500 * 1024 * 1024,
-        }));
-        assert!(!state.armed && !state.cleaning);
-        assert_eq!(state.summary.unwrap().total_refs, 1);
-        let notice = state.notice.as_deref().unwrap();
-        assert!(
-            notice.contains("已清理 1 个历史检查点") && notice.contains("保留当前对话最新 1 条")
-        );
-    }
-}
-
-#[cfg(all(test, cgc_ui_tests))]
-mod ui_tests {
-    use std::sync::atomic::AtomicBool;
-    use std::sync::Arc;
-
-    use cgc_agent_checkpoint::CheckpointManager;
-    use cgc_agent_core::{SelectedModel, Thread};
-    use cgc_agent_provider::{EchoProvider, Model, ModelLimits, ProviderId};
-    use cgc_agent_store::SessionStore;
-    use cgc_agent_tools::{ToolContext, ToolRegistry};
-    use cgc_platform::session::FakeAuthApi;
-    use gpui_kit::test::TestWindowExt;
-    use gpui_kit::{
-        px, size, AppContext, Bounds, TestAppContext, VisualTestContext, WeakEntity, WindowBounds,
-        WindowOptions,
-    };
-
-    use crate::i18n::Language;
-    use crate::native_runtime::{NativeRuntimeConfig, NativeRuntimeHandle};
-    use crate::settings_window::SettingsWindowView;
-
-    #[gpui_kit::test]
-    fn settings_ai_page_displays_checkpoint_storage_and_purges_history_on_double_confirm(
-        cx: &mut TestAppContext,
-    ) {
-        cx.executor().allow_parking();
-        let root =
-            std::env::temp_dir().join(format!("cgc-settings-cp-ui-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&root).unwrap();
-        let manager = CheckpointManager::initialize(&root).unwrap();
-        for (tid, seq, body) in [("old-thread", 1, "old-1\n"), ("old-thread", 2, "old-2\n")] {
-            std::fs::write(root.join("a.txt"), body).unwrap();
-            manager.snapshot(tid, seq).unwrap();
-        }
-        let model = Model::new(
-            ProviderId::new("test"),
-            "Test",
-            "m1",
-            "m1",
-            ModelLimits::new(8_000, 1_000),
-        );
-        let thread = Thread::new(
-            "ui-thread",
-            SelectedModel::new(model.provider_id.clone(), model.id.clone()),
-        );
-        let runtime = NativeRuntimeHandle::spawn(
-            thread,
-            None,
-            NativeRuntimeConfig {
-                provider: Arc::new(EchoProvider::new(model.clone())),
-                model,
-                registry: Arc::new(ToolRegistry::new()),
-                context: ToolContext::new(&root),
-                context_size: 8_000,
-                auto_approve: false,
-            },
-            Some(SessionStore::open_in_memory().unwrap()),
-        );
-        let scope = crate::agent_scope::AgentScope {
-            key: "cp-ui".into(),
-            root: root.clone(),
-        };
-        let active_thread_id = futures::executor::block_on(runtime.switch_scope(scope))
-            .expect("switch scope")
-            .thread
-            .id
-            .clone();
-        for (seq, body) in [(1, "cur-1\n"), (2, "cur-2\n")] {
-            std::fs::write(root.join("a.txt"), body).unwrap();
-            manager.snapshot(&active_thread_id, seq).unwrap();
-        }
-
-        cx.update(gpui_kit::init);
-        let bounds = cx.update(|cx| Bounds::centered(None, size(px(620.0), px(900.0)), cx));
-        let options = WindowOptions {
-            window_bounds: Some(WindowBounds::Windowed(bounds)),
-            ..Default::default()
-        };
-        let (handle, settings) = cx.update(|cx| {
-            gpui_kit::open_window(options, cx, |_, cx| {
-                cx.new(|cx| {
-                    let mut view = SettingsWindowView::new(
-                        Language::Zh,
-                        None,
-                        "cp-ui-user".into(),
-                        Some("Checkpoint UI".into()),
-                        String::new(),
-                        Arc::new(FakeAuthApi::demo()),
-                        Arc::new(AtomicBool::new(false)),
-                        Some(runtime.clone()),
-                        WeakEntity::new_invalid(),
-                        cx,
-                    );
-                    view.open_ai(cx);
-                    view
-                })
-            })
-            .expect("settings window")
-        });
-
-        let mut visual = VisualTestContext::from_window(handle, cx);
-        for _ in 0..40 {
-            visual.run_until_parked();
-            if visual.update(|_, cx| {
-                settings
-                    .read(cx)
-                    .checkpoint_storage_summary_for_test()
-                    .is_some()
-            }) {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-        visual.update(|window, cx| {
-            window.render_frame(cx);
-            assert!(window.find("settings-clear-checkpoint-history").visible());
-            assert!(window.find("settings-refresh-checkpoint-storage").visible());
-            let summary = settings
-                .read(cx)
-                .checkpoint_storage_summary_for_test()
-                .expect("loaded summary");
-            assert_eq!(summary.total_refs, 4);
-        });
-
-        visual.update(|_, cx| settings.update(cx, |view, cx| view.trigger_checkpoint_cleanup(cx)));
-        assert_eq!(manager.storage_summary().unwrap().total_refs, 4);
-
-        visual.update(|_, cx| settings.update(cx, |view, cx| view.trigger_checkpoint_cleanup(cx)));
-        for _ in 0..60 {
-            visual.run_until_parked();
-            if visual.update(|_, cx| {
-                settings
-                    .read(cx)
-                    .checkpoint_storage_notice_for_test()
-                    .is_some()
-            }) {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(15));
-        }
-
-        visual.update(|_, cx| {
-            let view = settings.read(cx);
-            let notice = view.checkpoint_storage_notice_for_test().unwrap();
-            assert!(notice.contains("已清理 3 个历史检查点"), "notice: {notice}");
-            let summary = view.checkpoint_storage_summary_for_test().unwrap();
-            assert_eq!(summary.total_refs, 1);
-        });
-        assert_eq!(manager.storage_summary().unwrap().total_refs, 1);
-        assert!(manager.list("old-thread").unwrap().is_empty());
-        assert_eq!(manager.list(&active_thread_id).unwrap()[0].seq, 2);
-        let _ = std::fs::remove_dir_all(root);
-    }
-}
+#[path = "settings_checkpoint_tests.rs"]
+mod tests;
