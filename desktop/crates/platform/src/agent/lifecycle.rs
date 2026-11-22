@@ -117,11 +117,13 @@ fn graceful_signal(pid: u32) {
 
 #[cfg(windows)]
 fn graceful_signal(pid: u32) {
-    let _ = Command::new("taskkill")
+    let mut command = Command::new("taskkill");
+    command
         .args(["/PID", &pid.to_string(), "/T"])
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
+        .stderr(std::process::Stdio::null());
+    crate::process::hide_console_window(&mut command);
+    let _ = command.status();
 }
 
 #[cfg(not(any(unix, windows)))]

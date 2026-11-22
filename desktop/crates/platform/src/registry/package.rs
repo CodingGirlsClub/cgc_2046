@@ -74,7 +74,7 @@ pub(crate) fn executable_in(
             "{package} executable is missing or outside its package"
         ));
     }
-    Ok(executable)
+    Ok(crate::paths::strip_windows_verbatim(&executable))
 }
 
 pub(crate) fn executable(entry: &AgentEntry, runtime: &NodeRuntime) -> Result<PathBuf, String> {

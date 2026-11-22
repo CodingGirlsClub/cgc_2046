@@ -17,6 +17,12 @@ pub const ALLOWED_ENV: &[&str] = &[
     "HOME",
     "USERPROFILE",
     "SYSTEMROOT",
+    "COMSPEC",
+    "PATHEXT",
+    "SYSTEMDRIVE",
+    "PROGRAMFILES",
+    "PROGRAMFILES(X86)",
+    "PROGRAMDATA",
     "TMPDIR",
     "TMP",
     "TEMP",
@@ -434,6 +440,12 @@ mod tests {
         let plan = build_launch_with_env(&entry("omp"), None, Path::new("/tmp"), |key| match key {
             "PATH" => Some("/usr/bin".to_string()),
             "HOME" => Some("/Users/example".to_string()),
+            "COMSPEC" => Some(r"C:\Windows\System32\cmd.exe".to_string()),
+            "PATHEXT" => Some(".COM;.EXE;.BAT;.CMD".to_string()),
+            "SYSTEMDRIVE" => Some("C:".to_string()),
+            "PROGRAMFILES" => Some(r"C:\Program Files".to_string()),
+            "PROGRAMFILES(X86)" => Some(r"C:\Program Files (x86)".to_string()),
+            "PROGRAMDATA" => Some(r"C:\ProgramData".to_string()),
             "CGC_SESSION_TOKEN" => Some("jwt.secret".to_string()),
             "OPENAI_API_KEY" => Some("sk-secret".to_string()),
             _ => None,
@@ -441,6 +453,19 @@ mod tests {
         .expect("plan");
         assert_eq!(plan.env.get("PATH").map(String::as_str), Some("/usr/bin"));
         assert!(plan.env.contains_key("HOME"));
+        for required in [
+            "COMSPEC",
+            "PATHEXT",
+            "SYSTEMDRIVE",
+            "PROGRAMFILES",
+            "PROGRAMFILES(X86)",
+            "PROGRAMDATA",
+        ] {
+            assert!(
+                plan.env.contains_key(required),
+                "Windows 必需变量 {required} 应透传"
+            );
+        }
         assert!(!plan.env.contains_key("CGC_SESSION_TOKEN"));
         assert!(!plan.env.contains_key("OPENAI_API_KEY"));
         assert!(!plan.env.values().any(|value| value.contains("secret")));

@@ -35,8 +35,14 @@ pub(crate) fn resolve(user_id: Option<&str>) -> AgentScope {
 }
 
 fn workspace_base() -> PathBuf {
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
+    cgc_platform::paths::home_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("cgc2046_workspace")
+}
+
+#[cfg(test)]
+fn workspace_base_from(env: impl Fn(&str) -> Option<PathBuf>) -> PathBuf {
+    cgc_platform::paths::home_dir_from(env)
         .unwrap_or_else(std::env::temp_dir)
         .join("cgc2046_workspace")
 }
@@ -107,5 +113,26 @@ mod tests {
         assert_eq!(env.root, Path::new("/tmp/custom-ws"));
 
         assert_eq!(sanitize("../../etc"), "------etc");
+    }
+
+    #[test]
+    fn workspace_base_from_supports_windows_home_vars() {
+        use std::collections::HashMap;
+        let mut values = HashMap::new();
+        values.insert("HOME".to_string(), PathBuf::new());
+        values.insert("USERPROFILE".to_string(), PathBuf::from(r"C:\Users\alice"));
+        assert_eq!(
+            workspace_base_from(|key| values.get(key).cloned()),
+            PathBuf::from(r"C:\Users\alice").join("cgc2046_workspace"),
+            "空 HOME 不得遮蔽 USERPROFILE"
+        );
+
+        values.remove("USERPROFILE");
+        values.insert("HOMEDRIVE".to_string(), PathBuf::from("D:"));
+        values.insert("HOMEPATH".to_string(), PathBuf::from(r"\Users\bob"));
+        assert_eq!(
+            workspace_base_from(|key| values.get(key).cloned()),
+            PathBuf::from(r"D:\Users\bob").join("cgc2046_workspace")
+        );
     }
 }

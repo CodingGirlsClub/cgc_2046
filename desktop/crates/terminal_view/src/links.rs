@@ -32,6 +32,10 @@ pub(crate) fn strip_line_col(target: &str) -> &str {
         let Some(colon) = target[..end].rfind(':') else {
             break;
         };
+        // 保留 Windows 盘符冒号（如 `C:\src\main.rs`），不把它当作行号分隔符。
+        if colon == 1 && target.as_bytes()[0].is_ascii_alphabetic() {
+            break;
+        }
         let suffix = &target[colon + 1..end];
         if suffix.is_empty() || !suffix.bytes().all(|b| b.is_ascii_digit()) {
             break;
@@ -41,17 +45,55 @@ pub(crate) fn strip_line_col(target: &str) -> &str {
     &target[..end]
 }
 
+fn non_empty_env_path(env: &impl Fn(&str) -> Option<PathBuf>, key: &str) -> Option<PathBuf> {
+    env(key).filter(|value| !value.as_os_str().is_empty())
+}
+
+fn home_dir_from(env: impl Fn(&str) -> Option<PathBuf>) -> Option<PathBuf> {
+    if let Some(home) = non_empty_env_path(&env, "HOME") {
+        return Some(home);
+    }
+    if let Some(profile) = non_empty_env_path(&env, "USERPROFILE") {
+        return Some(profile);
+    }
+    if let (Some(drive), Some(path)) = (
+        non_empty_env_path(&env, "HOMEDRIVE"),
+        non_empty_env_path(&env, "HOMEPATH"),
+    ) {
+        let mut combined = drive.into_os_string();
+        combined.push(path);
+        return Some(PathBuf::from(combined));
+    }
+    None
+}
+
+fn is_windows_drive_path(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && matches!(bytes[2], b'\\' | b'/')
+}
+
 /// 把点中的路径变成可打开的文件路径。
 ///
-/// `~/` 展开到 home；绝对路径直接用；相对路径需要终端的 cwd（OSC 7），
-/// 否则无法定位，返回 `None`。
+/// `~/` / `~\` 展开到 home；绝对路径（含 Windows 盘符路径）直接用；
+/// 相对路径需要终端的 cwd（OSC 7），否则无法定位，返回 `None`。
 pub(crate) fn resolve_path(target: &str, cwd: Option<&str>) -> Option<PathBuf> {
+    resolve_path_with(target, cwd, |key| std::env::var_os(key).map(PathBuf::from))
+}
+
+fn resolve_path_with(
+    target: &str,
+    cwd: Option<&str>,
+    env: impl Fn(&str) -> Option<PathBuf>,
+) -> Option<PathBuf> {
     let path = strip_line_col(target);
-    if let Some(rest) = path.strip_prefix("~/") {
-        let home = std::env::var_os("HOME")?;
-        return Some(PathBuf::from(home).join(rest));
+    if let Some(rest) = path.strip_prefix("~/").or_else(|| path.strip_prefix(r"~\")) {
+        let home = home_dir_from(env)?;
+        return Some(home.join(rest));
     }
-    if path.starts_with('/') {
+    if path.starts_with('/') || is_windows_drive_path(path) {
         return Some(PathBuf::from(path));
     }
     let cwd = cwd?;
@@ -61,8 +103,14 @@ pub(crate) fn resolve_path(target: &str, cwd: Option<&str>) -> Option<PathBuf> {
 /// 把本地路径编码成 `file://` URL：保留常见 ASCII，转义空格、分隔符与非 ASCII
 /// 字节（`Path::display` 直接拼进 URL 会让含空格/中文的路径打不开）。
 pub(crate) fn file_url(path: &Path) -> String {
+    let raw = path.to_string_lossy().replace('\\', "/");
+    let normalized = if is_windows_drive_path(&raw) {
+        format!("/{raw}")
+    } else {
+        raw
+    };
     let mut out = String::from("file://");
-    for byte in path.to_string_lossy().bytes() {
+    for byte in normalized.bytes() {
         match byte {
             b'%' => out.push_str("%25"),
             b' ' => out.push_str("%20"),
@@ -174,8 +222,8 @@ fn is_path_start_byte(byte: u8) -> bool {
 
 /// 判定候选串是否像路径，避免把 `and/or` 这类普通词当链接。
 ///
-/// - 以 `/`、`./`、`../`、`~/` 开头：一定接受；
-/// - 否则要求含 `/`，且带扩展名或 `:行号` 后缀。
+/// - 以 `/`、`./`、`../`、`~/`、`.\`、`..\`、`~\` 或 Windows 盘符开头：一定接受；
+/// - 否则要求含 `/` 或 `\`，且带扩展名或 `:行号` 后缀。
 fn looks_like_path(candidate: &[u8]) -> bool {
     let Ok(text) = std::str::from_utf8(candidate) else {
         return false;
@@ -183,11 +231,15 @@ fn looks_like_path(candidate: &[u8]) -> bool {
     let absolute = text.starts_with('/')
         || text.starts_with("./")
         || text.starts_with("../")
-        || text.starts_with("~/");
+        || text.starts_with("~/")
+        || text.starts_with(r".\")
+        || text.starts_with(r"..\")
+        || text.starts_with(r"~\")
+        || is_windows_drive_path(text);
     if absolute {
         return true;
     }
-    let has_separator = text.contains('/');
+    let has_separator = text.contains('/') || text.contains('\\');
     let has_extension = text.contains('.');
     let has_line_suffix = text.rsplit_once(':').is_some_and(|(_, suffix)| {
         !suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit())
@@ -206,11 +258,14 @@ fn is_terminator(byte: u8) -> bool {
     byte.is_ascii_whitespace() || matches!(byte, b'"' | b'\'' | b'<' | b'>' | b'`')
 }
 
-/// 路径字符：字母数字、路径分隔符与 `:line:col` 的冒号；非 ASCII 字节也算
+/// 路径字符：字母数字、路径分隔符（`/` / `\`）与 `:line:col` 的冒号；非 ASCII 字节也算
 /// （中文文件名）。
 fn is_path_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric()
-        || matches!(byte, b'/' | b'.' | b'_' | b'-' | b'~' | b':' | b'+' | b'@')
+        || matches!(
+            byte,
+            b'/' | b'\\' | b'.' | b'_' | b'-' | b'~' | b':' | b'+' | b'@'
+        )
         || byte >= 0x80
 }
 
@@ -319,6 +374,65 @@ mod tests {
             resolve_path("src/main.rs", None),
             None,
             "相对路径没有 cwd 就不解析"
+        );
+    }
+
+    #[test]
+    fn supports_windows_paths_links_and_file_urls() {
+        let line = r"error at C:\src\main.rs:42:10 and .\local\mod.rs and ..\up\lib.rs";
+        assert_eq!(
+            hit(line, "main.rs"),
+            Some((r"C:\src\main.rs:42:10", LinkKind::Path))
+        );
+        assert_eq!(
+            hit(line, "mod.rs"),
+            Some((r".\local\mod.rs", LinkKind::Path))
+        );
+        assert_eq!(hit(line, "lib.rs"), Some((r"..\up\lib.rs", LinkKind::Path)));
+
+        let tilde_line = r"open ~\notes\todo.md done";
+        assert_eq!(
+            hit(tilde_line, "todo.md"),
+            Some((r"~\notes\todo.md", LinkKind::Path))
+        );
+
+        assert_eq!(strip_line_col(r"C:\src\main.rs"), r"C:\src\main.rs");
+        assert_eq!(strip_line_col(r"C:\src\main.rs:42:10"), r"C:\src\main.rs");
+        assert_eq!(strip_line_col("C:/src/main.rs:42"), "C:/src/main.rs");
+
+        assert_eq!(
+            resolve_path(r"C:\src\main.rs:42:10", Some("/ignored")),
+            Some(PathBuf::from(r"C:\src\main.rs"))
+        );
+        assert_eq!(
+            resolve_path("C:/src/main.rs:42", Some("/ignored")),
+            Some(PathBuf::from("C:/src/main.rs"))
+        );
+
+        let env = std::collections::HashMap::from([
+            ("HOME".to_string(), PathBuf::new()),
+            ("USERPROFILE".to_string(), PathBuf::from(r"C:\Users\alice")),
+        ]);
+        assert_eq!(
+            resolve_path_with(r"~\notes.md:3", None, |key| env.get(key).cloned()),
+            Some(PathBuf::from(r"C:\Users\alice").join("notes.md"))
+        );
+        let homedrive_env = std::collections::HashMap::from([
+            ("HOMEDRIVE".to_string(), PathBuf::from("D:")),
+            ("HOMEPATH".to_string(), PathBuf::from(r"\Users\bob")),
+        ]);
+        assert_eq!(
+            resolve_path_with("~/notes.md", None, |key| homedrive_env.get(key).cloned()),
+            Some(PathBuf::from(r"D:\Users\bob").join("notes.md"))
+        );
+
+        assert_eq!(
+            file_url(Path::new(r"C:\Users\alice\my file.txt")),
+            "file:///C:/Users/alice/my%20file.txt"
+        );
+        assert_eq!(
+            file_url(Path::new("C:/Users/alice/main.rs")),
+            "file:///C:/Users/alice/main.rs"
         );
     }
 }

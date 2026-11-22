@@ -91,10 +91,26 @@ fn normalize_pwd(value: &str) -> Option<String> {
     match value.strip_prefix("file://") {
         Some(rest) => {
             let index = rest.find('/')?;
-            Some(percent_decode(&rest[index..]))
+            let decoded = percent_decode(&rest[index..]);
+            Some(strip_windows_url_leading_slash(decoded))
         }
         // 裸路径不是 URI：不 trim、不做 percent-decode（目录名可能真含 `%20` 或空格）。
         None => Some(value.to_string()),
+    }
+}
+
+/// Windows 上 OSC 7 URI 解码后会多出前导 `/`（`/C:/Users/...` 或 `/C:`），剥离为 `C:/Users/...`。
+fn strip_windows_url_leading_slash(path: String) -> String {
+    let bytes = path.as_bytes();
+    if bytes.len() >= 3
+        && bytes[0] == b'/'
+        && bytes[1].is_ascii_alphabetic()
+        && bytes[2] == b':'
+        && (bytes.len() == 3 || bytes[3] == b'/')
+    {
+        path[1..].to_string()
+    } else {
+        path
     }
 }
 
@@ -506,6 +522,19 @@ mod tests {
         );
         assert_eq!(normalize_pwd("file://host").as_deref(), None);
         assert_eq!(normalize_pwd("").as_deref(), None);
+        assert_eq!(
+            normalize_pwd("file://DESKTOP/C:/Users/alice/my%20app").as_deref(),
+            Some("C:/Users/alice/my app")
+        );
+        assert_eq!(
+            normalize_pwd("file:///C:/Users/alice").as_deref(),
+            Some("C:/Users/alice")
+        );
+        assert_eq!(normalize_pwd("file://localhost/C:").as_deref(), Some("C:"));
+        assert_eq!(
+            normalize_pwd("file://localhost/tmp").as_deref(),
+            Some("/tmp")
+        );
     }
 
     #[test]

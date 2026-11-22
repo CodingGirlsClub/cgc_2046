@@ -4299,11 +4299,9 @@ fn next_terminal_session_id() -> String {
     format!("term-{millis}-{}", COUNTER.fetch_add(1, Ordering::Relaxed))
 }
 
-/// 用户 home：macOS/Linux 用 `HOME`，Windows 用 `USERPROFILE`。
+/// 用户 home：委托 [`cgc_platform::paths::home_dir`]（支持 `HOME` / `USERPROFILE` / `HOMEDRIVE`+`HOMEPATH`）。
 pub(in crate::root_view) fn home_dir() -> Option<std::path::PathBuf> {
-    std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .map(std::path::PathBuf::from)
+    cgc_platform::paths::home_dir()
 }
 
 /// 新终端的默认工作目录优先级：上次关闭时的目录 → agent 工作区 → home。

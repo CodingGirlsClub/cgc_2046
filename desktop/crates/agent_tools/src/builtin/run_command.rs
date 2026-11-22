@@ -115,6 +115,7 @@ fn execute(
     sandbox: Option<SandboxPolicy>,
     cancelled: Option<crate::tool::CancelProbe>,
 ) -> Result<ToolResult, ToolError> {
+    let cwd = cgc_platform::paths::strip_windows_verbatim(&cwd);
     let mut process = match sandbox {
         Some(policy) => CommandSandbox::detect().wrap(&command, &cwd, &policy),
         None => {
@@ -183,18 +184,29 @@ fn execute(
     })
 }
 
-/// 终止命令及其派生进程；Unix 上按进程组发送 SIGKILL，其他平台退化为只杀 shell。
+/// 终止命令及其派生进程；Unix 上按进程组发送 SIGKILL，Windows 用 `taskkill /T /F`
+/// 清理整棵子进程树，避免超时或 Stop 后留下孤儿进程。
 ///
 /// 直接走 `kill(2)` 而不是 PATH 上的 `kill(1)`：procps 的 `kill` 把 `-KILL -1234`
 /// 里的负数当成选项（invalid option），进程组杀不掉，后台孙子进程会活过 turn。
 /// 失败（ESRCH/EPERM）只体现在返回值里，随后仍退回单进程 kill。
-// Windows 下没有进程组概念，`process_group` 只用于 Unix 的进程组 kill。
-#[cfg_attr(not(unix), allow(unused_variables))]
+#[cfg_attr(not(any(unix, windows)), allow(unused_variables))]
 fn terminate(child: &mut std::process::Child, process_group: u32) {
     #[cfg(unix)]
     {
         // SAFETY: kill(2) 不读写内存，只把负 pid 解释为进程组；失败返回 -1。
         let _ = unsafe { libc::kill(-(process_group as libc::pid_t), libc::SIGKILL) };
+    }
+    #[cfg(windows)]
+    {
+        let mut taskkill = Command::new("taskkill");
+        taskkill
+            .args(["/PID", &process_group.to_string(), "/T", "/F"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        cgc_platform::process::hide_console_window(&mut taskkill);
+        let _ = taskkill.status();
     }
     let _ = child.kill();
 }

@@ -80,6 +80,7 @@ impl CommandSandbox {
 
     /// 生成可执行的 Command；沙箱不可用（或 Windows 降级）时回退到直接执行。
     pub fn wrap(&self, command: &str, cwd: &Path, policy: &SandboxPolicy) -> Command {
+        let cwd = cgc_platform::paths::strip_windows_verbatim(cwd);
         match self.kind {
             SandboxKind::MacosSeatbelt => {
                 let profile = seatbelt_profile(policy);
@@ -91,25 +92,26 @@ impl CommandSandbox {
                     .arg("sh")
                     .arg("-c")
                     .arg(command)
-                    .current_dir(cwd);
+                    .current_dir(&cwd);
                 process
             }
             SandboxKind::LinuxBwrap => {
                 let mut process = Command::new("bwrap");
-                for arg in bwrap_args(policy, cwd) {
+                for arg in bwrap_args(policy, &cwd) {
                     process.arg(arg);
                 }
                 process.args(["--", "sh", "-c", command]);
                 process
             }
             SandboxKind::WindowsApprovalOnly | SandboxKind::Unavailable => {
-                shell_command(command, cwd)
+                shell_command(command, &cwd)
             }
         }
     }
 }
 
 fn shell_command(command: &str, cwd: &Path) -> Command {
+    let cwd = cgc_platform::paths::strip_windows_verbatim(cwd);
     #[cfg(windows)]
     let mut process = {
         let mut process = Command::new("cmd");
@@ -122,7 +124,7 @@ fn shell_command(command: &str, cwd: &Path) -> Command {
         process.arg("-c").arg(command);
         process
     };
-    process.current_dir(cwd);
+    process.current_dir(&cwd);
     process
 }
 
