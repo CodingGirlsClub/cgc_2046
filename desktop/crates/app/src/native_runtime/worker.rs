@@ -1,3 +1,4 @@
+use super::checkpoint::{CheckpointGcOutcome, CheckpointGcRequest};
 use super::*;
 use cgc_agent_checkpoint::CheckpointManager;
 use cgc_agent_core::{Agent, CancelToken};
@@ -54,6 +55,11 @@ pub(super) enum Job {
         result:
             Result<Vec<Arc<dyn cgc_agent_tools::Tool>>, cgc_platform::mcp::client::McpClientError>,
     },
+    CheckpointGc {
+        repo: PathBuf,
+        request: CheckpointGcRequest,
+        outcome: CheckpointGcOutcome,
+    },
 }
 
 pub(super) struct Owner {
@@ -77,6 +83,12 @@ pub(super) struct Owner {
     pub title_running: bool,
     pub title_cancel: CancelToken,
     pub checkpoint_notice_reported: bool,
+    pub checkpoint_gc_running: bool,
+    pub checkpoint_gc_pending: Option<CheckpointGcRequest>,
+    pub last_checkpoint_gc_at: Option<std::time::Instant>,
+    pub checkpoint_budget_exceeded: bool,
+    pub checkpoint_budget_notice_reported: bool,
+    pub checkpoint_unrecoverable_notice_reported: bool,
     pub pending_title: Option<bool>,
     /// 标题在 turn 期间生成完成；等 agent 归还后落到 thread 上再 persist/freeze。
     pub pending_generated_title: Option<(u64, String)>,
@@ -228,6 +240,12 @@ impl Owner {
             title_running: false,
             title_cancel: CancelToken::new(),
             checkpoint_notice_reported: false,
+            checkpoint_gc_running: false,
+            checkpoint_gc_pending: None,
+            last_checkpoint_gc_at: None,
+            checkpoint_budget_exceeded: false,
+            checkpoint_budget_notice_reported: false,
+            checkpoint_unrecoverable_notice_reported: false,
             pending_title: None,
             pending_generated_title: None,
             title_generation_error: None,

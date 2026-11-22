@@ -325,6 +325,11 @@ impl Owner {
         }
         self.scope = Some(Arc::new(scope));
         self.checkpoint_notice_reported = false;
+        self.checkpoint_budget_exceeded = false;
+        self.checkpoint_budget_notice_reported = false;
+        self.checkpoint_unrecoverable_notice_reported = false;
+        self.checkpoint_gc_pending = None;
+        self.last_checkpoint_gc_at = None;
         self.replace(thread, RuntimeChange::Opened);
         Ok(self.snapshot())
     }

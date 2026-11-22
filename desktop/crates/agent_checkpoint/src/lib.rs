@@ -5,5 +5,13 @@
 //! 目录、二进制与超大文件不纳入快照。
 
 pub mod checkpoint;
+mod git_cli;
+mod index;
+pub mod maintenance;
 
-pub use checkpoint::{Checkpoint, CheckpointError, CheckpointManager, FileChange};
+pub use checkpoint::{
+    Checkpoint, CheckpointError, CheckpointManager, FileChange, DEFAULT_GC_LOOSE_THRESHOLD,
+    DEFAULT_MAX_OBJECT_BYTES, DEFAULT_MAX_REFS, DEFAULT_MAX_TOTAL_REFS, DEFAULT_PRESSURE_KEEP_REFS,
+    MAX_FILE_BYTES,
+};
+pub use maintenance::{GcMode, ObjectStoreStats, PrunedRef, ReclaimReport, SnapshotReport};

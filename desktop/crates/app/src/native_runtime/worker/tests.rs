@@ -951,3 +951,231 @@ fn base_tools_subagent_inherits_active_thread_affinity_session_id() {
 
     std::fs::remove_dir_all(root).ok();
 }
+
+#[test]
+fn checkpoint_prune_invalidates_sqlite_and_memory_entries() {
+    let root = std::env::temp_dir().join(format!("cgc-rt-prune-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let mut owner = configured_owner(&root);
+    owner.store = Some(SessionStore::open_in_memory().unwrap());
+    owner.freeze();
+    owner.checkpoint_manager = Some(
+        CheckpointManager::initialize(&root)
+            .unwrap()
+            .with_max_refs(2)
+            .with_max_total_refs(2),
+    );
+    let thread_id = owner.frozen.id.clone();
+    for seq in 1..=3 {
+        std::fs::write(root.join("note.txt"), format!("turn-{seq}")).unwrap();
+        owner.capture_checkpoint(&thread_id, seq);
+    }
+
+    let in_mem: Vec<usize> = owner.checkpoints.iter().map(|(seq, _)| *seq).collect();
+    assert_eq!(in_mem, vec![2, 3]);
+
+    let records = owner
+        .store
+        .as_ref()
+        .unwrap()
+        .list_checkpoints(&thread_id)
+        .unwrap();
+    assert_eq!(records.len(), 3);
+    assert_eq!(records[0].user_entry_seq, 1);
+    assert_eq!(records[0].state, "invalid");
+    assert_eq!(records[1].state, "active");
+    assert_eq!(records[2].state, "active");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn rewind_deletes_git_refs_from_ordinal_and_marks_sqlite_invalid() {
+    let root = std::env::temp_dir().join(format!("cgc-rt-rewind-refs-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let mut owner = configured_owner(&root);
+    owner.store = Some(SessionStore::open_in_memory().unwrap());
+    owner.checkpoint_manager = Some(CheckpointManager::initialize(&root).unwrap());
+    let thread_id = owner.frozen.id.clone();
+
+    std::fs::write(root.join("note.txt"), "v1").unwrap();
+    owner.capture_checkpoint(&thread_id, 1);
+
+    {
+        let thread = owner.agent.as_mut().unwrap().thread_mut();
+        thread.push_user("second user prompt");
+    }
+    std::fs::write(root.join("note.txt"), "v2").unwrap();
+    owner.capture_checkpoint(&thread_id, 2);
+
+    {
+        let thread = owner.agent.as_mut().unwrap().thread_mut();
+        thread.push_user("third user prompt");
+    }
+    std::fs::write(root.join("note.txt"), "v3").unwrap();
+    owner.capture_checkpoint(&thread_id, 3);
+    owner.freeze();
+
+    assert_eq!(
+        owner
+            .checkpoint_manager
+            .as_ref()
+            .unwrap()
+            .list(&thread_id)
+            .unwrap()
+            .into_iter()
+            .map(|c| c.seq)
+            .collect::<Vec<_>>(),
+        vec![1, 2, 3]
+    );
+
+    owner.rewind(2, true).expect("rewind to ordinal 2");
+
+    assert_eq!(
+        std::fs::read_to_string(root.join("note.txt")).unwrap(),
+        "v2"
+    );
+    let remaining_refs: Vec<u64> = owner
+        .checkpoint_manager
+        .as_ref()
+        .unwrap()
+        .list(&thread_id)
+        .unwrap()
+        .into_iter()
+        .map(|c| c.seq)
+        .collect();
+    assert_eq!(remaining_refs, vec![1]);
+
+    let records = owner
+        .store
+        .as_ref()
+        .unwrap()
+        .list_checkpoints(&thread_id)
+        .unwrap();
+    assert_eq!(records[0].state, "active");
+    assert_eq!(records[1].state, "invalid");
+    assert_eq!(records[2].state, "invalid");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn checkpoint_budget_circuit_breaker_dedups_notices_and_recovers_after_background_gc() {
+    use futures::StreamExt as _;
+
+    let root = std::env::temp_dir().join(format!("cgc-rt-budget-gc-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+
+    let manager = CheckpointManager::initialize(&root)
+        .unwrap()
+        .with_max_refs(50)
+        .with_max_total_refs(200)
+        .with_max_object_bytes(250 * 1024);
+
+    let mut state: u64 = 0x1234_5678_9ABC_DEF0;
+    let mut base = String::with_capacity(120 * 1024);
+    while base.len() < 120 * 1024 {
+        state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+        use std::fmt::Write as _;
+        let _ = writeln!(base, "{state:016x}");
+    }
+    for seq in 1..=5 {
+        std::fs::write(root.join("data.txt"), format!("{base}seq={seq}\n")).unwrap();
+        let _ = manager.snapshot_with_report("old-thread", seq);
+    }
+
+    let mut owner = configured_owner(&root);
+    owner.store = Some(SessionStore::open_in_memory().unwrap());
+    owner.freeze();
+    owner.checkpoint_manager = Some(manager.clone());
+
+    let (sub_tx, mut sub_rx) = mpsc::unbounded();
+    owner.command(Command::Subscribe(sub_tx));
+    let _ = block_on(sub_rx.next()); // initial snapshot
+
+    let thread_id = owner.frozen.id.clone();
+    owner.capture_checkpoint(&thread_id, 1);
+    assert!(owner.checkpoint_budget_exceeded);
+    assert!(owner.checkpoints.is_empty());
+
+    // 第二轮仍处于熔断状态时，不能重复弹 notice。
+    owner.capture_checkpoint(&thread_id, 2);
+
+    let mut notices = Vec::new();
+    while let Ok(event) = sub_rx.try_recv() {
+        if let NativeRuntimeEvent::Notice { message, .. } = &*event {
+            notices.push(message.clone());
+        }
+    }
+    assert_eq!(notices.len(), 1, "budget notice should be deduplicated");
+
+    // 触发并完成后台 reclaim GC 后，应自动解除熔断并重新放行快照。
+    owner.maybe_start_checkpoint_gc();
+    assert!(owner.checkpoint_gc_running);
+    let job = block_on(owner.jobs.next()).expect("checkpoint gc job");
+    owner.completed(job);
+
+    assert!(!owner.checkpoint_gc_running);
+    assert!(!owner.checkpoint_budget_exceeded);
+    assert!(owner.last_checkpoint_gc_at.is_some());
+
+    owner.capture_checkpoint(&thread_id, 1);
+    assert_eq!(owner.checkpoints.len(), 1);
+
+    // 不可恢复场景（用户 HEAD 自己已超限）：保持熔断，仅发一次不可恢复通知，绝不碰 HEAD。
+    std::fs::write(root.join("committed.txt"), &base).unwrap();
+    for args in [
+        &["add", "--all"][..],
+        &[
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-m",
+            "user commit",
+        ][..],
+    ] {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(out.status.success());
+    }
+    let impossible = manager.with_max_object_bytes(1);
+    owner.checkpoint_manager = Some(impossible);
+    owner.capture_checkpoint(&thread_id, 2);
+    assert!(owner.checkpoint_budget_exceeded);
+    owner.maybe_start_checkpoint_gc();
+    let job = block_on(owner.jobs.next()).expect("unrecoverable gc job");
+    owner.completed(job);
+    assert!(owner.checkpoint_budget_exceeded);
+
+    owner.capture_checkpoint(&thread_id, 3);
+    // 冷却时间内，不可恢复状态下不应重复触发后台 reclaim。
+    owner.maybe_start_checkpoint_gc();
+    assert!(!owner.checkpoint_gc_running);
+
+    owner.last_checkpoint_gc_at = None;
+    owner.maybe_start_checkpoint_gc();
+    let job2 = block_on(owner.jobs.next()).expect("second unrecoverable gc job");
+    owner.completed(job2);
+    assert!(owner.checkpoint_budget_exceeded);
+
+    let mut post_notices = Vec::new();
+    while let Ok(event) = sub_rx.try_recv() {
+        if let NativeRuntimeEvent::Notice { message, .. } = &*event {
+            post_notices.push(message.clone());
+        }
+    }
+    // 1 条首次超限 notice + 1 条不可恢复 notice（第二次仍不可恢复不重复刷屏）
+    assert_eq!(
+        post_notices.len(),
+        2,
+        "expected exactly 1 budget notice + 1 unrecoverable notice, got: {post_notices:?}"
+    );
+    let _ = std::fs::remove_dir_all(root);
+}

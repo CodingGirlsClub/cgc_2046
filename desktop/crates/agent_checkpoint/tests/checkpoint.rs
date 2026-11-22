@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use cgc_agent_checkpoint::CheckpointManager;
+use cgc_agent_checkpoint::{CheckpointError, CheckpointManager, GcMode};
 
 fn temp_workspace(tag: &str) -> PathBuf {
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -30,7 +30,17 @@ fn run_git(repo: &Path, args: &[&str]) -> std::process::Output {
 }
 
 fn tree_files(repo: &Path, sha: &str) -> Vec<String> {
-    let output = run_git(repo, &["ls-tree", "-r", "--name-only", sha]);
+    let output = run_git(
+        repo,
+        &[
+            "-c",
+            "core.quotepath=false",
+            "ls-tree",
+            "-r",
+            "--name-only",
+            sha,
+        ],
+    );
     assert!(
         output.status.success(),
         "ls-tree: {}",
@@ -351,4 +361,307 @@ fn restore_does_not_stage_previously_untracked_files() {
         assert_eq!(index.stdout, b"", "restore must not stage the file");
         std::fs::remove_dir_all(workspace).unwrap();
     }
+}
+
+fn compute_blob_oid(repo: &Path, file: &Path) -> String {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .arg("hash-object")
+        .arg(file)
+        .output()
+        .expect("git hash-object");
+    assert!(
+        output.status.success(),
+        "hash-object failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
+fn object_exists_in_store(git_dir: &Path, oid: &str) -> bool {
+    let (prefix, rest) = oid.split_at(2);
+    if git_dir.join("objects").join(prefix).join(rest).exists() {
+        return true;
+    }
+    let verify = Command::new("git")
+        .arg("--git-dir")
+        .arg(git_dir)
+        .args(["cat-file", "-e", oid])
+        .output()
+        .expect("git cat-file");
+    verify.status.success()
+}
+
+#[test]
+fn large_binary_and_ignored_dir_blobs_never_enter_object_store() {
+    let workspace = temp_workspace("no-leak-objects");
+    let manager = CheckpointManager::initialize(&workspace).expect("init");
+    std::fs::write(workspace.join("small.txt"), "keep me\n").unwrap();
+    let big = workspace.join("big.bin");
+    let zip = workspace.join("archive.zip");
+    std::fs::write(&big, vec![0x5Au8; 3 * 1024 * 1024]).unwrap();
+    std::fs::write(&zip, b"PK\x03\x04fakezip").unwrap();
+    std::fs::create_dir_all(workspace.join("node_modules/pkg")).unwrap();
+    let nm = workspace.join("node_modules/pkg/index.js");
+    std::fs::write(&nm, "module.exports = 'node_modules_marker';\n").unwrap();
+    std::fs::create_dir_all(workspace.join("target/debug")).unwrap();
+    let tgt = workspace.join("target/debug/app.txt");
+    std::fs::write(&tgt, "target_artifact_marker\n").unwrap();
+    std::fs::create_dir_all(workspace.join(".venv")).unwrap();
+    let venv = workspace.join(".venv/lib.py");
+    std::fs::write(&venv, "venv_marker = 1\n").unwrap();
+
+    let forbidden_oids = [
+        ("big.bin", compute_blob_oid(&workspace, &big)),
+        ("archive.zip", compute_blob_oid(&workspace, &zip)),
+        ("node_modules", compute_blob_oid(&workspace, &nm)),
+        ("target", compute_blob_oid(&workspace, &tgt)),
+        (".venv", compute_blob_oid(&workspace, &venv)),
+    ];
+
+    let checkpoint = manager.snapshot("thread-1", 1).expect("snapshot");
+    let files = tree_files(&workspace, &checkpoint.sha);
+    assert_eq!(files, vec!["small.txt".to_string()]);
+
+    // 同时跑一次 diff / changed_files，确认查看变更路径同样不会把大/忽略文件写入对象库。
+    std::fs::write(workspace.join("small.txt"), "modified\n").unwrap();
+    let _ = manager.diff(&checkpoint).expect("diff");
+    let _ = manager.changed_files(&checkpoint).expect("changed_files");
+
+    for (label, oid) in forbidden_oids {
+        assert!(
+            !object_exists_in_store(manager.git_dir(), &oid),
+            "{label} 的 blob ({oid}) 不得进入 .git/objects"
+        );
+    }
+    let _ = std::fs::remove_dir_all(workspace);
+}
+
+#[test]
+fn deleted_files_and_special_paths_snapshot_and_restore() {
+    let workspace = temp_workspace("special-paths");
+    let manager = CheckpointManager::initialize(&workspace).expect("init");
+    let special = "笔记 [v1] 测试.md";
+    std::fs::write(workspace.join(special), "第一版正文\n").unwrap();
+    std::fs::write(workspace.join("removed.txt"), "will be deleted\n").unwrap();
+
+    let first = manager.snapshot("thread-special", 1).expect("snap 1");
+    let first_files = tree_files(&workspace, &first.sha);
+    assert!(first_files.contains(&"removed.txt".to_string()));
+    assert!(first_files.iter().any(|name| name.contains("笔记 [v1]")));
+
+    std::fs::remove_file(workspace.join("removed.txt")).unwrap();
+    std::fs::write(workspace.join(special), "第二版正文\n").unwrap();
+    let second = manager.snapshot("thread-special", 2).expect("snap 2");
+    let second_files = tree_files(&workspace, &second.sha);
+    assert!(!second_files.contains(&"removed.txt".to_string()));
+
+    manager.restore(&first).expect("restore first");
+    assert_eq!(
+        std::fs::read_to_string(workspace.join("removed.txt")).unwrap(),
+        "will be deleted\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(workspace.join(special)).unwrap(),
+        "第一版正文\n"
+    );
+    let _ = std::fs::remove_dir_all(workspace);
+}
+
+#[test]
+fn global_total_refs_limit_prunes_oldest_other_thread_first_and_keeps_current() {
+    let workspace = temp_workspace("global-prune");
+    let manager = CheckpointManager::initialize(&workspace)
+        .expect("init")
+        .with_max_refs(5)
+        .with_max_total_refs(3);
+    std::fs::write(workspace.join("a.txt"), "v1").unwrap();
+
+    // thread-a 创建 2 条；sleep 确保 committerdate(unix) 可区分先后顺序（或者 seq 校验）。
+    let r1 = manager.snapshot_with_report("thread-a", 1).unwrap();
+    assert!(r1.pruned.is_empty());
+    let r2 = manager.snapshot_with_report("thread-a", 2).unwrap();
+    assert!(r2.pruned.is_empty());
+
+    // thread-b 创建第 1 条（总 3 条，未超）和第 2 条（总 4 条 → 超出 1 条，应淘汰 thread-a 的 ref）。
+    let r3 = manager.snapshot_with_report("thread-b", 1).unwrap();
+    assert!(r3.pruned.is_empty());
+    let r4 = manager.snapshot_with_report("thread-b", 2).unwrap();
+    assert_eq!(r4.pruned.len(), 1);
+    assert_eq!(r4.pruned[0].thread_id, "thread-a");
+    assert_eq!(r4.pruned[0].seq, 1);
+    assert!(r4.needs_gc);
+
+    assert_eq!(manager.list("thread-a").unwrap().len(), 1);
+    assert_eq!(manager.list("thread-a").unwrap()[0].seq, 2);
+    assert_eq!(manager.list("thread-b").unwrap().len(), 2);
+
+    // 即便 max_total_refs = 1，当前线程最新 1 条也必须被保留。
+    let tight = manager.clone().with_max_total_refs(1);
+    let r5 = tight.snapshot_with_report("thread-b", 3).unwrap();
+    assert!(!r5.pruned.is_empty());
+    let remaining_b = tight.list("thread-b").unwrap();
+    assert_eq!(remaining_b.len(), 1);
+    assert_eq!(remaining_b[0].seq, 3);
+    assert!(tight.list("thread-a").unwrap().is_empty());
+    let _ = std::fs::remove_dir_all(workspace);
+}
+
+#[test]
+fn delete_refs_from_and_delete_thread_refs_preserve_user_branches_and_other_threads() {
+    let workspace = temp_workspace("delete-refs");
+    let manager = CheckpointManager::initialize(&workspace).expect("init");
+    std::fs::write(workspace.join("a.txt"), "base").unwrap();
+    assert!(run_git(&workspace, &["add", "--all"]).status.success());
+    assert!(run_git(&workspace, &["commit", "-m", "user commit"])
+        .status
+        .success());
+    let head_before = manager.head().unwrap().expect("head commit");
+
+    for seq in 1..=3 {
+        std::fs::write(workspace.join("a.txt"), format!("t1-{seq}")).unwrap();
+        manager.snapshot("thread-1", seq).unwrap();
+    }
+    for seq in 1..=2 {
+        std::fs::write(workspace.join("a.txt"), format!("t2-{seq}")).unwrap();
+        manager.snapshot("thread-2", seq).unwrap();
+    }
+
+    let deleted_rewind = manager
+        .delete_refs_from("thread-1", 2)
+        .expect("delete from 2");
+    let deleted_seqs: Vec<u64> = deleted_rewind.iter().map(|r| r.seq).collect();
+    assert_eq!(deleted_seqs, vec![2, 3]);
+    assert_eq!(
+        manager
+            .list("thread-1")
+            .unwrap()
+            .into_iter()
+            .map(|c| c.seq)
+            .collect::<Vec<_>>(),
+        vec![1]
+    );
+    assert_eq!(manager.list("thread-2").unwrap().len(), 2);
+    assert_eq!(
+        manager.head().unwrap().as_deref(),
+        Some(head_before.as_str())
+    );
+
+    let deleted_thread = manager
+        .delete_thread_refs("thread-2")
+        .expect("delete thread-2");
+    assert_eq!(deleted_thread.len(), 2);
+    assert!(manager.list("thread-2").unwrap().is_empty());
+    assert_eq!(manager.list("thread-1").unwrap().len(), 1);
+    assert_eq!(
+        manager.head().unwrap().as_deref(),
+        Some(head_before.as_str())
+    );
+    let _ = std::fs::remove_dir_all(workspace);
+}
+
+#[test]
+fn budget_exceeded_blocks_snapshot_and_reclaim_recovers_within_budget() {
+    let workspace = temp_workspace("budget-reclaim");
+    // 构造“同基线微调的高熵内容”：单份 ~120 KiB（zlib 无法压小），多版本以松散对象存放会超 250 KiB，
+    // 删掉旧 ref 后经 git gc --prune=1.hour.ago 打包 delta 压缩可落回 250 KiB 预算内。
+    let manager = CheckpointManager::initialize(&workspace)
+        .expect("init")
+        .with_max_refs(50)
+        .with_max_total_refs(200)
+        .with_max_object_bytes(250 * 1024);
+
+    let mut state: u64 = 0x1234_5678_9ABC_DEF0;
+    let mut base = String::with_capacity(120 * 1024);
+    while base.len() < 120 * 1024 {
+        state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+        use std::fmt::Write as _;
+        let _ = writeln!(base, "{state:016x}");
+    }
+
+    for seq in 1..=5 {
+        std::fs::write(workspace.join("data.txt"), format!("{base}seq={seq}\n")).unwrap();
+        let _ = manager.snapshot_with_report("thread-old", seq);
+    }
+
+    let stats_before = manager.object_store_stats().expect("stats");
+    assert!(
+        stats_before.total_bytes() > 250 * 1024,
+        "expected loose objects to exceed 250 KiB before reclaim, got {}",
+        stats_before.total_bytes()
+    );
+
+    let err = manager
+        .snapshot_with_report("thread-new", 1)
+        .expect_err("over budget must return BudgetExceeded");
+    assert!(matches!(err, CheckpointError::BudgetExceeded { .. }));
+
+    let reclaim = manager
+        .reclaim_for_budget("thread-new", 1)
+        .expect("reclaim");
+    assert!(!reclaim.pruned.is_empty());
+    assert!(
+        reclaim.within_budget,
+        "pack 后应回到 250 KiB 预算内: {:?}",
+        reclaim
+    );
+    assert!(manager.list("thread-old").unwrap().is_empty());
+
+    // 恢复预算后，新线程快照重新放行。
+    let ok = manager
+        .snapshot_with_report("thread-new", 1)
+        .expect("snapshot succeeds after reclaim");
+    assert_eq!(ok.checkpoint.seq, 1);
+
+    // 若用户 HEAD 本身已超极小预算，reclaim 不得触碰用户分支且返回 within_budget = false。
+    std::fs::write(workspace.join("committed.txt"), &base).unwrap();
+    assert!(run_git(&workspace, &["add", "--all"]).status.success());
+    assert!(run_git(&workspace, &["commit", "-m", "user data"])
+        .status
+        .success());
+    let head_before = manager.head().unwrap().expect("head");
+    let impossible = manager.clone().with_max_object_bytes(1);
+    let unrecoverable = impossible
+        .reclaim_for_budget("thread-new", 1)
+        .expect("reclaim does not error");
+    assert!(!unrecoverable.within_budget);
+    assert_eq!(
+        impossible.head().unwrap().as_deref(),
+        Some(head_before.as_str()),
+        "reclaim 绝不能删除用户分支或提交"
+    );
+    let _ = std::fs::remove_dir_all(workspace);
+}
+
+#[test]
+fn concurrent_gc_and_snapshots_do_not_collide_on_git_locks() {
+    let workspace = temp_workspace("concurrent-lock");
+    let manager = CheckpointManager::initialize(&workspace).expect("init");
+    std::fs::write(workspace.join("work.txt"), "start").unwrap();
+
+    let writer = manager.clone();
+    let gc_runner = manager.clone();
+
+    let t1 = std::thread::spawn(move || {
+        for seq in 1..=10 {
+            std::fs::write(writer.repo().join("work.txt"), format!("turn-{seq}")).unwrap();
+            writer
+                .snapshot_with_report("thread-concurrent", seq)
+                .expect("concurrent snapshot must succeed");
+        }
+    });
+    let t2 = std::thread::spawn(move || {
+        for _ in 0..5 {
+            gc_runner
+                .run_gc(GcMode::Auto)
+                .expect("concurrent gc must succeed");
+            let _ = gc_runner.object_store_stats().expect("stats");
+        }
+    });
+
+    t1.join().expect("writer thread");
+    t2.join().expect("gc thread");
+    assert_eq!(manager.list("thread-concurrent").unwrap().len(), 10);
+    let _ = std::fs::remove_dir_all(workspace);
 }

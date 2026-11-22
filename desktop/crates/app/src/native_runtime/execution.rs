@@ -248,6 +248,7 @@ impl Owner {
                     // 迁移时漏接，标题因此退化成只能手动 Regenerate。
                     self.start_title(false);
                 }
+                self.maybe_start_checkpoint_gc();
             }
             Job::Title {
                 generation,
@@ -287,6 +288,11 @@ impl Owner {
                 self.publish(RuntimeChange::Activity);
             }
             Job::Mcp { context, result } => self.mcp_prepared(context, result),
+            Job::CheckpointGc {
+                repo,
+                request,
+                outcome,
+            } => self.checkpoint_gc_completed(repo, request, outcome),
         }
     }
 }
