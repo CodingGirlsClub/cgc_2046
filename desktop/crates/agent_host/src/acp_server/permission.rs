@@ -1,9 +1,9 @@
 //! native 审批 → ACP `session/request_permission` 桥（Stage 3.1 Phase A）。
 //!
-//! native 4 档选项（允许一次 / 本会话允许 / 允许前缀 / 拒绝）编成 ACP
-//! `PermissionOption`；客户端按 `option_id` 回传，这里再还原成
-//! [`ApprovalDecision`] 交回 runtime。取消（客户端 `Cancelled` / 本地 turn
-//! 被 cancel）一律按 `Deny` 处理：不默认允许。
+//! - 沙箱生效时提供 4 档选项（允许一次 / 本会话允许 / 允许前缀 / 拒绝）；
+//! - 无 OS 沙箱时（如 Windows / 无 `bwrap` 的 Linux），`run_command` 强制降级为逐条审批：
+//!   仅暴露「允许一次 / 拒绝」2 档，并在解析回包时按 fail-closed 拒绝任何会话/前缀级放行；
+//! - 取消（客户端 `Cancelled` / 本地 turn 被 cancel）一律按 `Deny` 处理：不默认允许。
 
 use agent_client_protocol::schema::v1::{
     PermissionOption, PermissionOptionKind, RequestPermissionOutcome, RequestPermissionRequest,
@@ -22,8 +22,26 @@ pub const OPTION_ALLOW_SESSION: &str = "allow_session";
 pub const OPTION_DENY: &str = "deny";
 const OPTION_ALLOW_PATTERN_PREFIX: &str = "allow_pattern:";
 
-/// native 审批的 4 档选项；`allow_pattern` 仅在能从入参推出前缀时提供。
-pub(crate) fn approval_options(request: &ApprovalRequest) -> Vec<PermissionOption> {
+fn is_unsandboxed_command(tool_name: &str, sandbox_enforcing: bool) -> bool {
+    tool_name == "run_command" && !sandbox_enforcing
+}
+
+/// native 审批选项：无沙箱 `run_command` 仅提供逐条确认（允许一次 / 拒绝），其余保持 4 档。
+pub(crate) fn approval_options_for_sandbox(
+    request: &ApprovalRequest,
+    sandbox_enforcing: bool,
+) -> Vec<PermissionOption> {
+    if is_unsandboxed_command(&request.tool_name, sandbox_enforcing) {
+        return vec![
+            PermissionOption::new(
+                OPTION_ALLOW_ONCE,
+                "允许一次",
+                PermissionOptionKind::AllowOnce,
+            ),
+            PermissionOption::new(OPTION_DENY, "拒绝", PermissionOptionKind::RejectOnce),
+        ];
+    }
+
     let mut options = vec![
         PermissionOption::new(
             OPTION_ALLOW_ONCE,
@@ -70,8 +88,20 @@ pub fn permission_pattern_prefix(args: &serde_json::Value) -> Option<String> {
         .filter(|prefix| !prefix.is_empty())
 }
 
-/// option_id → native 审批决定。未知 id / 取消 → `Deny`（不默认允许）。
-pub(crate) fn decision_for_option(option_id: &str) -> ApprovalDecision {
+/// option_id → native 审批决定。无沙箱 `run_command` 仅允许 `allow_once`（fail-closed）；
+/// 其余未知 id / 取消 → `Deny`。
+pub(crate) fn decision_for_option_for_sandbox(
+    option_id: &str,
+    tool_name: &str,
+    sandbox_enforcing: bool,
+) -> ApprovalDecision {
+    if is_unsandboxed_command(tool_name, sandbox_enforcing) {
+        return match option_id {
+            OPTION_ALLOW_ONCE => ApprovalDecision::AllowOnce,
+            _ => ApprovalDecision::Deny,
+        };
+    }
+
     match option_id {
         OPTION_ALLOW_ONCE => ApprovalDecision::AllowOnce,
         OPTION_ALLOW_SESSION => ApprovalDecision::AllowForSession,
@@ -89,14 +119,16 @@ pub(crate) fn decision_for_option(option_id: &str) -> ApprovalDecision {
 ///
 /// 审批回传与取消可能在同一个事件循环周期内就绪，因此不能只看「谁先返回」，
 /// 还要在解析结果时再次确认 turn 没有被取消。
-pub(crate) fn resolve_response(
+pub(crate) fn resolve_response_for_sandbox(
     cancelled: bool,
+    tool_name: &str,
+    sandbox_enforcing: bool,
     response: Result<RequestPermissionResponse, ()>,
 ) -> ApprovalDecision {
     match response {
         Ok(response) => match response.outcome {
             RequestPermissionOutcome::Selected(selected) if !cancelled => {
-                decision_for_option(&selected.option_id.0)
+                decision_for_option_for_sandbox(&selected.option_id.0, tool_name, sandbox_enforcing)
             }
             _ => ApprovalDecision::Deny,
         },
@@ -112,6 +144,7 @@ pub(crate) struct PermissionBridge {
     pub(crate) connection: ConnectionTo<Client>,
     pub(crate) session_id: SessionId,
     pub(crate) cancel: CancelSwitch,
+    pub(crate) sandbox_enforcing: bool,
 }
 
 impl Approver for PermissionBridge {
@@ -119,8 +152,9 @@ impl Approver for PermissionBridge {
         let connection = self.connection.clone();
         let session_id = self.session_id.clone();
         let cancel = self.cancel.clone();
+        let sandbox_enforcing = self.sandbox_enforcing;
         Box::pin(async move {
-            let options = approval_options(&request);
+            let options = approval_options_for_sandbox(&request, sandbox_enforcing);
             let tool_call = ToolCallUpdate::new(
                 request.tool_call_id.clone(),
                 ToolCallUpdateFields::new()
@@ -139,7 +173,12 @@ impl Approver for PermissionBridge {
             futures::pin_mut!(cancelled, permission);
             futures::select_biased! {
                 _ = cancelled => ApprovalDecision::Deny,
-                result = permission => resolve_response(cancel.is_cancelled(), result.map_err(|_| ())),
+                result = permission => resolve_response_for_sandbox(
+                    cancel.is_cancelled(),
+                    &request.tool_name,
+                    sandbox_enforcing,
+                    result.map_err(|_| ()),
+                ),
             }
         })
     }
@@ -150,11 +189,87 @@ mod tests {
     use super::*;
 
     fn request(args: serde_json::Value) -> ApprovalRequest {
+        request_for_tool("run_command", args)
+    }
+
+    fn request_for_tool(tool_name: &str, args: serde_json::Value) -> ApprovalRequest {
         ApprovalRequest {
             tool_call_id: "c1".to_string(),
-            tool_name: "run_command".to_string(),
+            tool_name: tool_name.to_string(),
             args,
         }
+    }
+
+    fn approval_options(request: &ApprovalRequest) -> Vec<PermissionOption> {
+        approval_options_for_sandbox(request, true)
+    }
+
+    fn decision_for_option(option_id: &str) -> ApprovalDecision {
+        decision_for_option_for_sandbox(option_id, "run_command", true)
+    }
+
+    fn resolve_response(
+        cancelled: bool,
+        response: Result<RequestPermissionResponse, ()>,
+    ) -> ApprovalDecision {
+        resolve_response_for_sandbox(cancelled, "run_command", true, response)
+    }
+
+    #[test]
+    fn unsandboxed_run_command_offers_only_allow_once_and_deny() {
+        let options =
+            approval_options_for_sandbox(&request(serde_json::json!({"command": "ls -la"})), false);
+        let ids = options
+            .iter()
+            .map(|option| option.option_id.0.to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(ids, vec![OPTION_ALLOW_ONCE, OPTION_DENY]);
+        use agent_client_protocol::schema::v1::PermissionOptionKind as Kind;
+        assert_eq!(
+            options.iter().map(|option| option.kind).collect::<Vec<_>>(),
+            vec![Kind::AllowOnce, Kind::RejectOnce]
+        );
+    }
+
+    #[test]
+    fn unsandboxed_run_command_rejects_session_and_pattern_decisions() {
+        assert_eq!(
+            decision_for_option_for_sandbox(OPTION_ALLOW_ONCE, "run_command", false),
+            ApprovalDecision::AllowOnce
+        );
+        assert_eq!(
+            decision_for_option_for_sandbox(OPTION_ALLOW_SESSION, "run_command", false),
+            ApprovalDecision::Deny
+        );
+        assert_eq!(
+            decision_for_option_for_sandbox("allow_pattern:ls", "run_command", false),
+            ApprovalDecision::Deny
+        );
+        assert_eq!(
+            decision_for_option_for_sandbox(OPTION_DENY, "run_command", false),
+            ApprovalDecision::Deny
+        );
+    }
+
+    #[test]
+    fn unsandboxed_non_command_tools_keep_session_options() {
+        let options = approval_options_for_sandbox(
+            &request_for_tool("write_file", serde_json::json!({"path": "src/main.rs"})),
+            false,
+        );
+        let ids = options
+            .iter()
+            .map(|option| option.option_id.0.to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            ids,
+            vec![
+                OPTION_ALLOW_ONCE.to_string(),
+                OPTION_ALLOW_SESSION.to_string(),
+                allow_pattern_option_id("src"),
+                OPTION_DENY.to_string(),
+            ]
+        );
     }
 
     #[test]

@@ -33,16 +33,31 @@ impl Default for CommandPolicy {
                 "chown -r /",
                 "> /dev/sda",
                 "mv /* /dev/null",
-                // Windows 破坏性命令（统一小写匹配；`rd /s`、`rmdir /s`、`format` 走 token 判定防误杀）。
-                "del /f /s",
-                "del /s /f",
-                "del /s /q",
-                "del /q /s",
+                // Windows 破坏性系统/整盘命令（classify 统一转小写）。`rd /s`、`rmdir /s`、
+                // `format <drive>:` 走 token 判定（见 detect_windows_destructive_command），
+                // 避免裸子串误杀 `rg card /src/ui`、`mix format C:\repo\...` 等常规命令；
+                // 其余整盘删除命令按子串拦截。相对路径的 rd/del 仍走审批。
+                "del /f /s /q c:\\",
+                "del /s /f /q c:\\",
+                "del /s /q c:\\",
+                "del /q /s c:\\",
+                "del /f /s c:\\",
+                "del /f /s /q \\",
+                "del /s /f /q \\",
+                "del /q /s \\",
+                "del /f /s /q %userprofile%",
+                "del /s /q %userprofile%",
+                "remove-item -recurse -force c:\\",
+                "remove-item -force -recurse c:\\",
+                "remove-item -recurse -force ~",
+                "remove-item -recurse -force $env:userprofile",
                 "diskpart",
-                "reg delete",
-                "remove-item -recurse -force",
-                "remove-item -force -recurse",
+                "bcdedit",
+                "reg delete hklm",
+                "reg delete hkcu",
                 "cipher /w",
+                "takeown /f c:\\",
+                "icacls c:\\",
             ]
             .into_iter()
             .map(str::to_string)
@@ -98,7 +113,8 @@ fn detect_windows_destructive_command(normalized: &str) -> Option<&'static str> 
             "rd" | "rmdir"
                 if rest
                     .iter()
-                    .any(|&arg| arg == "/s" || arg.starts_with("/s/")) =>
+                    .any(|&arg| arg == "/s" || arg.starts_with("/s/"))
+                    && rest.iter().any(|&arg| is_windows_system_target(arg)) =>
             {
                 return Some("rd /s");
             }
@@ -154,6 +170,22 @@ fn command_basename(token: &str) -> &str {
         .unwrap_or(name)
 }
 
+/// `rd /s` 的目标是否落在盘符路径、当前盘根或用户主目录这类系统级位置。
+/// 相对路径（工作区内 `rd /s /q dist`）仍走审批，不硬拦。
+fn is_windows_system_target(arg: &str) -> bool {
+    let bytes = arg.as_bytes();
+    let drive_absolute = bytes.len() >= 2
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && (bytes.len() == 2 || matches!(bytes[2], b'\\' | b'/'));
+    drive_absolute
+        || arg == "\\"
+        || arg.starts_with("\\\\")
+        || arg == "~"
+        || arg.starts_with("%userprofile%")
+        || arg.starts_with("$env:userprofile")
+}
+
 fn is_windows_drive_arg(arg: &str) -> bool {
     let bytes = arg.as_bytes();
     bytes.len() >= 2
@@ -184,10 +216,37 @@ mod tests {
     }
 
     #[test]
+    fn default_policy_denies_windows_destructive_commands() {
+        let policy = CommandPolicy::default();
+        for dangerous in [
+            r"rd /s /q C:\",
+            r"rmdir /s /q %USERPROFILE%\Documents",
+            r"del /f /s /q C:\Windows",
+            r"Remove-Item -Recurse -Force C:\Users",
+            "diskpart",
+            "format C: /fs:ntfs",
+            r"reg delete HKLM\Software\Test",
+            "bcdedit /delete {current}",
+        ] {
+            assert!(
+                matches!(policy.classify(dangerous), CommandDecision::Deny(_)),
+                "expected Deny for Windows destructive command: {dangerous}"
+            );
+        }
+    }
+
+    #[test]
     fn normal_commands_still_ask() {
         let policy = CommandPolicy::default();
         assert_eq!(policy.classify("cargo test"), CommandDecision::Ask);
         assert_eq!(policy.classify("echo hello"), CommandDecision::Ask);
+        assert_eq!(
+            policy.classify(r#"git log --format "%H""#),
+            CommandDecision::Ask
+        );
+        assert_eq!(policy.classify("rd /s /q dist"), CommandDecision::Ask);
+        assert_eq!(policy.classify("del temp.txt"), CommandDecision::Ask);
+        assert_eq!(policy.classify("dir"), CommandDecision::Ask);
     }
 
     #[test]

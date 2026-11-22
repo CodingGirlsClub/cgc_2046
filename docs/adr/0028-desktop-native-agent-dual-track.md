@@ -52,7 +52,7 @@ Zed 的实践提供了直接参照：native agent 是进程内 Rust 实现，与
    - 自定义：任意 OpenAI-compatible endpoint（含用户自己的中转站；CGC 不转售、不承担上游供给）。
    凭据：API key 存 keychain 且与 `api_url` 绑定；**CGC 网关用登录会话 token**，照 Zed Cloud 的鉴权模式：服务端签发短时 LLM token（Bearer），响应带 `expired/outdated` 信号或 401 时刷新并只重试一次；402 映射为「订阅/额度不足」，429 映射为限流，403 映射为重新登录。**v1 不做 ChatGPT / Claude 订阅 OAuth**；key 不进 settings 与日志，登出清理。
    模型目录：客户端内置可版本化 JSON（context / tools / vision / thinking / 价格可选）+ 远程增量覆盖 + 用户可手填自定义模型。用量：本地 `TokenUsage` 展示；网关模式服务端计量配额。
-5. **工具与权限**：v1 工具为读文件、写 / 编辑、搜索、列目录、终端命令、课程与学习工具（经 MCP）、可选 web 搜索。审批沿用现有 permission 事件与卡片，危险命令内置规则。**OS 级沙箱（macOS Seatbelt / Linux bwrap / Windows WSL）在 P1 就要落地**，与终端工具同批交付；**沙箱不可用时（如 Windows 无 WSL）降级为逐条命令审批并显式提示风险**，不静默放行。参考 Zed 的实现路径但只取 approach（Zed 为 GPL-3.0-or-later，代码复用需人裁）。
+5. **工具与权限（2026-11-22 修订）**：v1 工具为读文件、写 / 编辑、搜索、列目录、终端命令、课程与学习工具（经 MCP）、可选 web 搜索。审批沿用现有 permission 事件与卡片，危险命令内置规则（同时覆盖 Unix 与 Windows 破坏性命令）。**OS 级沙箱在 macOS（Seatbelt）与 Linux（bwrap）落地**，与终端工具同批交付；**放弃 P1 Windows WSL 沙箱**（对普通学员安装门槛过高）——**Windows 及无 `bwrap` 的 Linux 统一降级为「无沙箱逐条强审批 + 显式风险提示」**：审批卡隐藏「本会话允许 / 允许前缀」仅保留「允许一次 / 拒绝」、禁止 `ApprovalMode::Auto` 与 `toolPermissions` 自动放行 `run_command`，并在卡片上醒目提示命令可访问网络及工作区外文件。参考 Zed 的实现路径但只取 approach（Zed 为 GPL-3.0-or-later，代码复用需人裁）。
 6. **平台工具经 MCP 获取（2026-10-25 修订）**：MCP 是**客户端资产**——客户端持有唯一的 MCP
    配置/注册表（形状对齐 Zed 的 `context_servers`：Stdio `{command,args,env}` / Http
    `{url,headers,timeout}`），按 session 物化后由两个 runtime 消费：ACP 轨序列化成
@@ -118,11 +118,11 @@ Zed 的实践提供了直接参照：native agent 是进程内 Rust 实现，与
 ## 落地
 
 - **P0（2 周）**：ADR 定稿 + `agent_provider` 四件套 + FakeProvider + 一个真 provider（DeepSeek 或 CGC 网关）跑通流式文本。验收：不烧 token 的单测 + 可交互 demo。
-- **P1a（6 周）**：`agent_core` turn loop + 读 / 写 / 终端工具 + 审批 + **OS 沙箱（Seatbelt / bwrap / WSL 同批，Windows 无 WSL 时降级审批）** + 本地会话 + **交互核心**（Commands / Events / confirm / notify + AppAction：打开页面、高亮）。验收：课程场景 E2E、审批卡复用、沙箱逃逸/越权用例、交互链路、崩溃恢复。
+- **P1a（6 周）**：`agent_core` turn loop + 读 / 写 / 终端工具 + 审批 + **OS 沙箱（macOS Seatbelt / Linux bwrap；Windows 及无 `bwrap` 环境走逐条强审批 + 显式风险提示 + 危险命令拦截）** + 本地会话 + **交互核心**（Commands / Events / confirm / notify + AppAction：打开页面、高亮）。验收：课程场景 E2E、审批卡复用、沙箱逃逸/越权用例、无沙箱强审批与风险提示用例、交互链路、崩溃恢复。
 - **P1b（2–3 周）**：Checkpoint / diff（文件快照、Keep/Reject、Restore）+ 课程页灰度替换 ACP（开关）
   + **native MCP client（与灰度同批，来源为 `learning_host` lease）**。验收：恢复/拒绝/大文件/
   工作区外路径用例、灰度验收、native 与 external 学习工具等价。
-- **P2（4–6 周）**：Provider 设置页、模型选择器、用量展示、compaction、CGC 网关配额与对账；**steering / follow-up、slash 命令面板、todo / plan / goal、subagent 进度、create_note AppAction**。验收：三平台真机（含沙箱在 Windows / Linux 的真机回归）。
+- **P2（4–6 周）**：Provider 设置页、模型选择器、用量展示、compaction、CGC 网关配额与对账；**steering / follow-up、slash 命令面板、todo / plan / goal、subagent 进度、create_note AppAction**。验收：三平台真机（含 macOS/Linux 沙箱与 Windows 无沙箱逐条强审批的真机回归）。
 - **P3**：多 mate 定义下发；OS 沙箱；web agent 退役评估。
 
 ## 参考

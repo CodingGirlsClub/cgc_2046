@@ -211,11 +211,12 @@ fn run_and_capture(host: &AcpHost, prompt: &str) -> (PermissionRequest, Permissi
 
 #[test]
 fn native_and_acp_tracks_produce_same_permission_card_data() {
-    let native_server =
-        NativeAcpServer::new(Box::new(NativeApprovalRuntime)).with_config(NativeAcpServerConfig {
+    let native_server = NativeAcpServer::new(Box::new(NativeApprovalRuntime))
+        .with_config(NativeAcpServerConfig {
             agent_name: "cgc-native".to_string(),
             version: "0.0.1".to_string(),
-        });
+        })
+        .with_sandbox_enforcing(true);
     let native_host =
         AcpHost::start_in_process(AcpHostConfig::new("", temp_cwd("native")), native_server)
             .expect("start native in-process host");
@@ -271,4 +272,44 @@ fn native_and_acp_tracks_produce_same_permission_card_data() {
 
     native_host.shutdown();
     acp_host.shutdown();
+}
+
+#[test]
+fn unsandboxed_native_run_command_restricts_options_and_surfaces_risk_warning() {
+    let native_server = NativeAcpServer::new(Box::new(NativeApprovalRuntime))
+        .with_config(NativeAcpServerConfig {
+            agent_name: "cgc-native".to_string(),
+            version: "0.0.1".to_string(),
+        })
+        .with_sandbox_enforcing(false);
+    let native_host = AcpHost::start_in_process(
+        AcpHostConfig::new("", temp_cwd("unsandboxed")),
+        native_server,
+    )
+    .expect("start unsandboxed native host");
+    wait_ready(&native_host);
+    let (native_request, _) = run_and_capture(&native_host, "run");
+    let view = permission_card_view(
+        &PermissionCardModel::from_request(&native_request).with_sandbox_enforcing(false),
+    );
+    assert_eq!(
+        view.buttons
+            .iter()
+            .map(|button| button.option_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["allow_once", "deny"]
+    );
+    assert_eq!(
+        view.buttons
+            .iter()
+            .map(|button| button.label.as_str())
+            .collect::<Vec<_>>(),
+        vec!["允许一次", "拒绝"]
+    );
+    assert!(!view.description.contains("将在工作区内执行"));
+    assert!(view
+        .risk_warning
+        .as_deref()
+        .is_some_and(|w| w.contains("无 OS 沙箱保护")));
+    native_host.shutdown();
 }

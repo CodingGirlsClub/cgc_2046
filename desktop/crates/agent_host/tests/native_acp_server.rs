@@ -194,6 +194,10 @@ fn emit(observer: &mut dyn TurnObserver, event: &cgc_agent_host::AgentEvent) {
 }
 
 fn start_native(runtime: FakeRuntime) -> AcpHost {
+    start_native_with_sandbox(runtime, true)
+}
+
+fn start_native_with_sandbox(runtime: FakeRuntime, sandbox_enforcing: bool) -> AcpHost {
     let cwd = std::env::temp_dir().join(format!(
         "cgc-native-acp-{}-{}",
         std::process::id(),
@@ -205,7 +209,7 @@ fn start_native(runtime: FakeRuntime) -> AcpHost {
     std::fs::create_dir_all(&cwd).expect("cwd");
     AcpHost::start_in_process(
         AcpHostConfig::new("", cwd),
-        NativeAcpServer::new(Box::new(runtime)),
+        NativeAcpServer::new(Box::new(runtime)).with_sandbox_enforcing(sandbox_enforcing),
     )
     .expect("start native in-process host")
 }
@@ -544,6 +548,65 @@ fn permission_pattern_option_round_trips_prefix() {
         Some(cgc_agent_tools::ApprovalDecision::AllowPattern(
             "cargo".to_string()
         ))
+    );
+    host.shutdown();
+}
+
+#[test]
+fn unsandboxed_run_command_restricts_options_and_fail_closes_session_option() {
+    let runtime = FakeRuntime::new();
+    {
+        let mut state = runtime.state();
+        state.permission = Some(ApprovalRequest {
+            tool_call_id: "c1".to_string(),
+            tool_name: "run_command".to_string(),
+            args: serde_json::json!({"command": "ls -la"}),
+        });
+        state.outcome = Some(turn_outcome("", StopReason::EndTurn));
+    }
+    let host = start_native_with_sandbox(runtime.clone(), false);
+    let mut events = Vec::new();
+    assert!(wait_for(
+        &host,
+        &mut events,
+        |event| matches!(event, HostEvent::Ready { .. }),
+        Duration::from_secs(10)
+    ));
+    assert!(host.prompt("go"));
+    assert!(wait_for(
+        &host,
+        &mut events,
+        |event| matches!(event, HostEvent::PermissionRequested { .. }),
+        Duration::from_secs(10)
+    ));
+    let (request_id, option_ids) = events
+        .iter()
+        .find_map(|event| match event {
+            HostEvent::PermissionRequested {
+                request_id,
+                options,
+                ..
+            } => Some((
+                request_id.clone(),
+                options
+                    .iter()
+                    .map(|option| option.option_id.clone())
+                    .collect::<Vec<_>>(),
+            )),
+            _ => None,
+        })
+        .expect("permission event");
+    assert_eq!(option_ids, vec![OPTION_ALLOW_ONCE, OPTION_DENY]);
+    let _ = host.respond_permission_option(&request_id, OPTION_ALLOW_SESSION);
+    assert!(wait_for(
+        &host,
+        &mut events,
+        |event| matches!(event, HostEvent::TurnEnd { .. }),
+        Duration::from_secs(10)
+    ));
+    assert_eq!(
+        runtime.state().decision,
+        Some(cgc_agent_tools::ApprovalDecision::Deny)
     );
     host.shutdown();
 }

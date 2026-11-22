@@ -215,10 +215,25 @@ pub struct AutoPermission {
 
 /// 规则 → 自动决定（**仅 native 轨**）。仅当 allow/deny 且请求里有对应 kind 的
 /// option 时返回 `Some`；否则返回 `None` 表示继续弹共享卡（不误放行、不死锁）。
+/// 无 OS 沙箱保护时（`!sandbox_enforcing`），`run_command` 绝不自动放行（允许仍弹卡，
+/// 显式 `alwaysDeny` / `default: deny` 仍自动拒绝）。
 /// external ACP 轨不调用本函数：由 agent 自身的模式/选项决定审批。
 pub fn auto_permission_for_event(
     rules: &ApprovalRules,
     event: &HostEvent,
+) -> Option<AutoPermission> {
+    auto_permission_for_event_with_sandbox(
+        rules,
+        event,
+        cgc_agent_tools::SandboxKind::detect().is_enforcing(),
+    )
+}
+
+/// 同 [`auto_permission_for_event`]，显式传入当前 OS 沙箱是否生效（供跨平台测试注入）。
+pub fn auto_permission_for_event_with_sandbox(
+    rules: &ApprovalRules,
+    event: &HostEvent,
+    sandbox_enforcing: bool,
 ) -> Option<AutoPermission> {
     let HostEvent::PermissionRequested {
         request_id,
@@ -231,7 +246,12 @@ pub fn auto_permission_for_event(
         return None;
     };
     let (allowed, verb) = match rules.decide(tool_name.as_deref(), args.as_deref()) {
-        RuleDecision::Allow => (true, "自动允许"),
+        RuleDecision::Allow => {
+            if !sandbox_enforcing && tool_name.as_deref() == Some("run_command") {
+                return None;
+            }
+            (true, "自动允许")
+        }
         RuleDecision::Deny => (false, "自动拒绝"),
         RuleDecision::Confirm | RuleDecision::Ask => return None,
     };
@@ -443,9 +463,10 @@ mod tests {
         let rules = compiled(serde_json::json!({
             "tools": { "run_command": { "alwaysAllow": ["ls"] } }
         }));
-        let auto = auto_permission_for_event(
+        let auto = auto_permission_for_event_with_sandbox(
             &rules,
             &permission_event("run_command", "{\"command\":\"ls\"}", native_options()),
+            true,
         )
         .expect("auto allow");
         assert!(auto.allowed);
@@ -482,9 +503,10 @@ mod tests {
             option("i-mean-no", "No", "reject_once"),
             option("yes-please", "Yes", "allow_once"),
         ];
-        let auto = auto_permission_for_event(
+        let auto = auto_permission_for_event_with_sandbox(
             &rules,
             &permission_event("run_command", "{\"command\":\"ls\"}", acp_options),
+            true,
         )
         .expect("auto allow");
         assert_eq!(
@@ -500,9 +522,10 @@ mod tests {
         }));
         // 只有 reject 类选项：allow 规则无法表达 → 必须回退弹卡，不能误放行。
         let only_reject = vec![option("deny", "拒绝", "reject_once")];
-        assert!(auto_permission_for_event(
+        assert!(auto_permission_for_event_with_sandbox(
             &allow_rules,
             &permission_event("run_command", "{\"command\":\"ls\"}", only_reject),
+            true,
         )
         .is_none());
 
@@ -534,5 +557,62 @@ mod tests {
         )
         .expect("auto deny by default");
         assert_eq!(auto.notice, "已按设置自动拒绝 run_command");
+    }
+
+    #[test]
+    fn unsandboxed_run_command_never_auto_allows_but_still_auto_denies() {
+        let default_allow = compiled(serde_json::json!({"default": "allow"}));
+        assert!(
+            auto_permission_for_event_with_sandbox(
+                &default_allow,
+                &permission_event("run_command", "{\"command\":\"ls\"}", native_options()),
+                false,
+            )
+            .is_none(),
+            "无沙箱时 default=allow 不得静默放行 run_command"
+        );
+
+        let always_allow = compiled(serde_json::json!({
+            "tools": { "run_command": { "alwaysAllow": ["ls"] } }
+        }));
+        assert!(
+            auto_permission_for_event_with_sandbox(
+                &always_allow,
+                &permission_event("run_command", "{\"command\":\"ls\"}", native_options()),
+                false,
+            )
+            .is_none(),
+            "无沙箱时 alwaysAllow 不得静默放行 run_command"
+        );
+
+        // 非终端工具（已受工作区路径约束）仍可按 default=allow 放行。
+        let write_auto = auto_permission_for_event_with_sandbox(
+            &default_allow,
+            &permission_event("write_file", "{\"path\":\"a.txt\"}", native_options()),
+            false,
+        )
+        .expect("write_file keeps workspace confinement");
+        assert!(write_auto.allowed);
+
+        // 显式拒绝 / default=deny 仍可自动拒绝。
+        let deny_rule = compiled(serde_json::json!({
+            "tools": { "run_command": { "alwaysDeny": ["rm"] } }
+        }));
+        let denied = auto_permission_for_event_with_sandbox(
+            &deny_rule,
+            &permission_event("run_command", "{\"command\":\"rm\"}", native_options()),
+            false,
+        )
+        .expect("auto deny still works without sandbox");
+        assert!(!denied.allowed);
+
+        let default_deny = compiled(serde_json::json!({"default": "deny"}));
+        let denied_default = auto_permission_for_event_with_sandbox(
+            &default_deny,
+            &permission_event("run_command", "{\"command\":\"ls\"}", native_options()),
+            false,
+        )
+        .expect("default deny still works without sandbox");
+        assert!(!denied_default.allowed);
     }
 }
