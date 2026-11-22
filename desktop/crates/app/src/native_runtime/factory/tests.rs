@@ -522,3 +522,29 @@ fn env_byok_credentials_override_managed_default_when_signed_in() {
     assert!(!managed);
     assert_eq!(active.expect("BYOK provider").id, "deepseek");
 }
+
+#[test]
+fn managed_provider_config_attaches_desktop_client_headers() {
+    let model = Model::new(
+        ProviderId::new(CGC_CLOUD_PROVIDER_ID),
+        "CGC Cloud",
+        "deepseek-chat",
+        "DeepSeek Chat",
+        ModelLimits::new(128_000, 8_192),
+    );
+    let config = super::managed_provider_config(&model, "https://api.codingirlsclub.com/v1");
+    assert_eq!(
+        config.extra_headers,
+        vec![
+            ("x-cgc-client".to_string(), "desktop".to_string()),
+            (
+                "x-cgc-client-version".to_string(),
+                cgc_platform::runtime::client_version().to_string(),
+            ),
+            (
+                "x-cgc-client-platform".to_string(),
+                cgc_platform::runtime::client_platform().to_string(),
+            ),
+        ]
+    );
+}

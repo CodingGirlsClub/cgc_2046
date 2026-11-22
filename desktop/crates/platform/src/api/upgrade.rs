@@ -50,7 +50,7 @@ impl UpgradeNotice {
     }
 }
 
-fn sanitize_download_url(raw: &str) -> Option<String> {
+pub fn sanitize_download_url(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return None;
@@ -91,7 +91,7 @@ pub fn parse_upgrade_notice(body: &str) -> UpgradeNotice {
         };
         let code = non_empty("code").unwrap_or_else(|| "client_upgrade_required".to_string());
         let message = non_empty("message").unwrap_or_else(|| DEFAULT_UPGRADE_MESSAGE.to_string());
-        let min_version = non_empty("min_version");
+        let min_version = non_empty("min_version").or_else(|| non_empty("min_supported_version"));
         let download_url = non_empty("download_url");
         return UpgradeNotice {
             code,

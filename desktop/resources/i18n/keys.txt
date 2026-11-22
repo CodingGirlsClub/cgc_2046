@@ -488,6 +488,9 @@ platform.upgrade.download
 platform.upgrade.retry
 platform.upgrade.default_message
 platform.upgrade.disabled_message
+platform.update.available
+platform.update.download
+platform.update.dismiss
 agent_chat.auth.required
 agent_chat.auth.hint
 agent_chat.auth.methods

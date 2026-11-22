@@ -984,13 +984,84 @@ impl RootView {
     pub(in crate::root_view) fn clear_upgrade_overlay_state(&mut self) {
         cgc_platform::api::clear_upgrade_notice();
         self.upgrade_notice = None;
+        self.update_check_started = false;
         if self.is_signed_in() {
             self.session_checked = false;
+            if matches!(
+                self.workspaces.state(),
+                WorkspaceListState::Failed(_) | WorkspaceListState::Idle
+            ) {
+                self.workspaces.reset();
+                self.workspaces_started = false;
+            }
+            if matches!(self.events.state(), ListState::Failed(_) | ListState::Idle) {
+                self.events.reset();
+                self.events_started = false;
+            }
+            if matches!(self.detail.state(), ListState::Failed(_) | ListState::Idle) {
+                self.detail.reset();
+                self.detail_started = false;
+            }
+            if matches!(
+                self.courses.state(),
+                CoursesListState::Failed(_) | CoursesListState::Idle
+            ) {
+                self.courses.reset();
+                self.courses_started = false;
+            }
+            if matches!(
+                self.course_detail.state(),
+                CoursesListState::Failed(_) | CoursesListState::Idle
+            ) {
+                self.course_detail.reset();
+                self.course_detail_started = false;
+            }
+            if matches!(
+                self.content.state(),
+                CourseContentState::Failed(_) | CourseContentState::Idle
+            ) {
+                self.content.reset();
+            }
+            if matches!(self.notes.state(), NotesState::Failed(_) | NotesState::Idle) {
+                self.notes.reset();
+                self.notes_started = false;
+            }
+            if matches!(
+                self.projection.state(),
+                ProjectionState::Failed(_) | ProjectionState::Idle
+            ) {
+                self.projection.reset();
+            }
+            if matches!(
+                self.nav_events.state(),
+                ListState::Failed(_) | ListState::Idle
+            ) {
+                self.nav_events.reset();
+                self.nav_events_started = false;
+            }
+            if matches!(
+                self.nav_courses.state(),
+                CoursesListState::Failed(_) | CoursesListState::Idle
+            ) {
+                self.nav_courses.reset();
+                self.nav_courses_started = false;
+            }
+            if matches!(
+                self.enrollments_state,
+                EnrollmentsListState::Failed(_) | EnrollmentsListState::Idle
+            ) {
+                self.enrollments_state = EnrollmentsListState::Idle;
+                self.enrollments_started = false;
+            }
         }
     }
 
     pub(in crate::root_view) fn retry_upgrade_gate(&mut self, cx: &mut Context<Self>) {
         self.clear_upgrade_overlay_state();
+        self.maybe_start_update_check(cx);
+        if self.is_signed_in() && self.agent_authorization_error.is_some() {
+            self.prepare_agent_authorization(cx);
+        }
         cx.notify();
     }
 

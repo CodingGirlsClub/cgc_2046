@@ -172,7 +172,6 @@ jobs:
       - name: 打包（Windows / Linux）
         if: runner.os != 'macOS'
         env:
-          APPIMAGE_EXTRACT_AND_RUN: "1"
           CGC_DEFAULT_API_URL: https://api.codingirlsclub.com/api/graphql
           CGC_DEFAULT_ENV: prod
           CGC_BUILD_VERSION: ${{ steps.src.outputs.version }}
