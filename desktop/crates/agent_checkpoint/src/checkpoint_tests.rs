@@ -128,6 +128,11 @@ fn snapshot_works_in_linked_worktree_subdir() {
     std::fs::write(sub.join("inside.txt"), "changed\n").expect("modify inside.txt");
     assert_eq!(manager.changed_files(&checkpoint).unwrap().len(), 1);
     let _second = manager.snapshot("native-wt", 2).expect("second snapshot");
+    std::fs::remove_file(sub.join("inside.txt")).expect("remove inside.txt");
+    let third = manager
+        .snapshot("native-wt", 3)
+        .expect("snapshot after deleting file inside linked worktree subdir");
+    assert!(manager.changed_files(&third).unwrap().is_empty());
     manager.restore(&checkpoint).expect("restore in worktree");
     assert_eq!(
         std::fs::read_to_string(sub.join("inside.txt")).unwrap(),

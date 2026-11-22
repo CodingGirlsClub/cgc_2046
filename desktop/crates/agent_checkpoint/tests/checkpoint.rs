@@ -931,3 +931,43 @@ fn snapshot_and_restore_preserve_exact_line_endings_under_autocrlf_true() {
     );
     let _ = std::fs::remove_dir_all(workspace);
 }
+
+#[cfg(unix)]
+#[test]
+fn replacing_snapshotted_directory_with_symlink_and_back_succeeds() {
+    let workspace = temp_workspace("dir-to-symlink");
+    let external = temp_workspace("dir-to-symlink-ext");
+    std::fs::create_dir_all(external.join("sub")).unwrap();
+    std::fs::write(external.join("sub/a.txt"), "external\n").unwrap();
+
+    let manager = CheckpointManager::initialize(&workspace).expect("init");
+    std::fs::create_dir_all(workspace.join("dir/sub")).unwrap();
+    std::fs::write(workspace.join("dir/sub/a.txt"), "v1\n").unwrap();
+
+    let cp1 = manager.snapshot("thread-sym", 1).expect("snapshot 1");
+    assert_eq!(tree_files(&workspace, &cp1.sha), vec!["dir/sub/a.txt"]);
+
+    // 用指向外部目录（含同名后代 dir/sub/a.txt）的 symlink 替换原实体目录：
+    // 必须先清掉旧后代条目，再将替换后的 symlink 本身写入索引，不得触发 `beyond a symbolic link`。
+    std::fs::remove_dir_all(workspace.join("dir")).unwrap();
+    std::os::unix::fs::symlink(&external, workspace.join("dir")).unwrap();
+
+    assert!(manager.changed_files(&cp1).is_ok());
+    assert!(manager.diff(&cp1).is_ok());
+    let cp2 = manager
+        .snapshot("thread-sym", 2)
+        .expect("snapshot 2 after dir->symlink must succeed");
+    assert_eq!(tree_files(&workspace, &cp2.sha), vec!["dir"]);
+
+    // 将 symlink 换回实体目录后，旧 symlink 条目也应被清除且新目录内文件能重新纳入快照。
+    std::fs::remove_file(workspace.join("dir")).unwrap();
+    std::fs::create_dir_all(workspace.join("dir/sub")).unwrap();
+    std::fs::write(workspace.join("dir/sub/b.txt"), "v3\n").unwrap();
+    let cp3 = manager
+        .snapshot("thread-sym", 3)
+        .expect("snapshot 3 after symlink->dir must succeed");
+    assert_eq!(tree_files(&workspace, &cp3.sha), vec!["dir/sub/b.txt"]);
+
+    let _ = std::fs::remove_dir_all(workspace);
+    let _ = std::fs::remove_dir_all(external);
+}

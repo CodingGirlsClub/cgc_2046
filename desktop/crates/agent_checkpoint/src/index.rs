@@ -21,14 +21,6 @@ impl CheckpointManager {
             }
         };
 
-        let others = self.list_index_paths_z(&[
-            "ls-files",
-            "--others",
-            "--exclude-standard",
-            "-z",
-            "--",
-            ".",
-        ])?;
         let newly_ignored: HashSet<Vec<u8>> = if cached.is_empty() {
             HashSet::new()
         } else {
@@ -55,29 +47,32 @@ impl CheckpointManager {
                 to_stage.push(path);
             }
         }
-        for path in others {
-            if self.should_stage_worktree_path(&path) {
-                to_stage.push(path);
-            }
-        }
 
+        // 先从私有索引强制清除失效条目（含被符号链接或普通文件替换后的旧目录后代），
+        // 再扫描 `--others`，避免目录↔文件/symlink 替换冲突卡住索引更新。
         if !to_remove.is_empty() {
             let stdin_bytes = encode_nul_paths(&to_remove);
             let rm = self.git_with_index_stdin(
                 &self.index_path,
-                &[
-                    "rm",
-                    "--force",
-                    "--cached",
-                    "--ignore-unmatch",
-                    "--quiet",
-                    "--pathspec-from-file=-",
-                    "--pathspec-file-nul",
-                ],
+                &["update-index", "--force-remove", "-z", "--stdin"],
                 &stdin_bytes,
             )?;
             if !rm.status.success() {
                 return Err(CheckpointError::Git(stderr(&rm)));
+            }
+        }
+
+        let others = self.list_index_paths_z(&[
+            "ls-files",
+            "--others",
+            "--exclude-standard",
+            "-z",
+            "--",
+            ".",
+        ])?;
+        for path in others {
+            if self.should_stage_worktree_path(&path) {
+                to_stage.push(path);
             }
         }
 
@@ -125,9 +120,33 @@ impl CheckpointManager {
         if should_skip(rel_path) {
             return false;
         }
-        let full_path = self.repo.join(rel_path);
-        match std::fs::symlink_metadata(&full_path) {
-            Ok(metadata) => !metadata.is_dir() && metadata.len() <= MAX_FILE_BYTES,
+        let mut components = Vec::new();
+        for component in rel_path.components() {
+            match component {
+                Component::Normal(segment) => components.push(segment),
+                Component::CurDir => {}
+                _ => return false,
+            }
+        }
+        let Some((leaf, ancestors)) = components.split_last() else {
+            return false;
+        };
+        let mut cursor = self.repo.clone();
+        for ancestor in ancestors {
+            cursor.push(ancestor);
+            let Ok(metadata) = std::fs::symlink_metadata(&cursor) else {
+                return false;
+            };
+            if !metadata.file_type().is_dir() {
+                return false;
+            }
+        }
+        cursor.push(leaf);
+        match std::fs::symlink_metadata(&cursor) {
+            Ok(metadata) => {
+                let file_type = metadata.file_type();
+                (file_type.is_file() || file_type.is_symlink()) && metadata.len() <= MAX_FILE_BYTES
+            }
             Err(_) => false,
         }
     }
