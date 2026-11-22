@@ -38,6 +38,7 @@ use crate::preferences::{self, CursorBlinkPreference};
 use crate::provider_fetch::{fill_missing_efforts, merge_remote_models, now_unix};
 use crate::provider_settings::{ProviderPrefsChange, ProviderSettings};
 use crate::root_view::{title_bar_left_inset, TITLEBAR_HEIGHT};
+use crate::settings_checkpoint::{self, CheckpointSettingsState};
 use crate::settings_provider::{
     append_reasoning_efforts, catalog_status, edited_models, efforts_in_text, format_model_lines,
     next_provider_name, optional, parse_model_lines, CatalogTab, KeyValidation,
@@ -82,6 +83,8 @@ pub struct SettingsWindowView {
     /// Stage 3.3：清空 ACP 对话历史的二次确认状态与结果提示。
     clear_acp_history_armed: Arc<AtomicBool>,
     clear_acp_history_notice: Arc<Mutex<Option<String>>>,
+    /// Git 检查点对象库占用与手动清理状态。
+    checkpoint_storage: Arc<Mutex<CheckpointSettingsState>>,
     /// 「重置当前工作台布局」的二次确认状态与结果提示。
     reset_workspace_layout_armed: Arc<AtomicBool>,
     reset_workspace_layout_notice: Arc<Mutex<Option<String>>>,
@@ -115,7 +118,10 @@ impl SettingsWindowView {
                 None => drafts.push(ProviderDraft::from_prefs(provider)),
             }
         }
-        Self {
+        let checkpoint_storage = Arc::new(Mutex::new(CheckpointSettingsState::for_runtime(
+            runtime.is_some(),
+        )));
+        let view = Self {
             language,
             email,
             user_id,
@@ -134,13 +140,18 @@ impl SettingsWindowView {
             settings_nonce: 0,
             key_validation: KeyValidation::default(),
             provider_settings,
-            runtime,
+            runtime: runtime.clone(),
             clear_acp_history_armed: Arc::new(AtomicBool::new(false)),
             clear_acp_history_notice: Arc::new(Mutex::new(None)),
+            checkpoint_storage: checkpoint_storage.clone(),
             reset_workspace_layout_armed: Arc::new(AtomicBool::new(false)),
             reset_workspace_layout_notice: Arc::new(Mutex::new(None)),
             root,
+        };
+        if runtime.is_some() {
+            settings_checkpoint::refresh(runtime, checkpoint_storage, cx);
         }
+        view
     }
 
     /// 从其他窗口打开 Settings 时直接定位到 AI 页。
@@ -148,7 +159,38 @@ impl SettingsWindowView {
         self.ai_view = AiRoute::General;
         self.settings_page = SETTINGS_PAGE_AI;
         self.settings_nonce = self.settings_nonce.wrapping_add(1);
+        self.refresh_checkpoint_storage(cx);
         cx.notify();
+    }
+
+    pub fn refresh_checkpoint_storage(&mut self, cx: &mut Context<Self>) {
+        settings_checkpoint::refresh(self.runtime.clone(), self.checkpoint_storage.clone(), cx);
+    }
+
+    pub(crate) fn trigger_checkpoint_cleanup(&mut self, cx: &mut Context<Self>) {
+        settings_checkpoint::handle_clear_click(
+            self.runtime.clone(),
+            self.checkpoint_storage.clone(),
+            cx,
+        );
+    }
+
+    #[cfg(all(test, cgc_ui_tests))]
+    pub(crate) fn checkpoint_storage_summary_for_test(
+        &self,
+    ) -> Option<cgc_agent_checkpoint::CheckpointStorageSummary> {
+        self.checkpoint_storage
+            .lock()
+            .ok()
+            .and_then(|guard| guard.summary)
+    }
+
+    #[cfg(all(test, cgc_ui_tests))]
+    pub(crate) fn checkpoint_storage_notice_for_test(&self) -> Option<String> {
+        self.checkpoint_storage
+            .lock()
+            .ok()
+            .and_then(|guard| guard.notice.clone())
     }
 
     /// 从其他窗口直接定位到 LLM Providers 配置页。
@@ -1914,6 +1956,8 @@ impl SettingsWindowView {
             ),
         )
         .description("开启后课程 CTA 直接发送并保留已有草稿；回答类动作始终填充");
+        let checkpoint_storage_item =
+            settings_checkpoint::render_item(self.checkpoint_storage.clone(), weak.clone());
         // Stage 3.3：清空 ACP 对话历史（二次确认；只清 conversations.db，
         // native threads.db 完全不碰）。
         let clear_armed = self.clear_acp_history_armed.clone();
@@ -2261,6 +2305,7 @@ impl SettingsWindowView {
                         llm_link,
                         native_agent,
                         course_action_delivery,
+                        checkpoint_storage_item,
                         clear_acp_history,
                     ]),
                 ]),

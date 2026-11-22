@@ -665,3 +665,72 @@ fn concurrent_gc_and_snapshots_do_not_collide_on_git_locks() {
     assert_eq!(manager.list("thread-concurrent").unwrap().len(), 10);
     let _ = std::fs::remove_dir_all(workspace);
 }
+
+#[test]
+fn manual_purge_history_checkpoints_prunes_unreachable_objects_now_and_keeps_latest_current() {
+    let workspace = temp_workspace("manual-purge");
+    let manager = CheckpointManager::initialize(&workspace).expect("init");
+    std::fs::write(workspace.join("base.txt"), "user committed base\n").unwrap();
+    assert!(run_git(&workspace, &["add", "--all"]).status.success());
+    assert!(run_git(&workspace, &["commit", "-m", "user commit"])
+        .status
+        .success());
+    let head_before = manager.head().unwrap().expect("head");
+
+    let old_only = workspace.join("old-only.txt");
+    std::fs::write(
+        &old_only,
+        "unique-old-thread-blob-content-for-prune-now-verification\n",
+    )
+    .unwrap();
+    let old_only_oid = compute_blob_oid(&workspace, &old_only);
+    for seq in 1..=3 {
+        std::fs::write(workspace.join("shared.txt"), format!("old-{seq}\n")).unwrap();
+        manager.snapshot("thread-old", seq).unwrap();
+    }
+    std::fs::remove_file(&old_only).unwrap();
+
+    for seq in 1..=3 {
+        std::fs::write(workspace.join("shared.txt"), format!("current-{seq}\n")).unwrap();
+        manager.snapshot("thread-current", seq).unwrap();
+    }
+
+    let before = manager.storage_summary().expect("storage summary before");
+    assert_eq!(before.total_refs, 6);
+    assert!(before.stats.total_bytes() > 0);
+    assert_eq!(before.limit_bytes, manager.max_object_bytes());
+    assert!(
+        object_exists_in_store(manager.git_dir(), &old_only_oid),
+        "old-only blob should exist before manual purge"
+    );
+
+    let report = manager
+        .purge_history_checkpoints(Some("thread-current"), 1)
+        .expect("purge history checkpoints");
+    assert_eq!(report.pruned.len(), 5);
+    assert_eq!(report.remaining_refs, 1);
+    assert!(report.within_budget);
+    assert!(manager.list("thread-old").unwrap().is_empty());
+    assert_eq!(
+        manager
+            .list("thread-current")
+            .unwrap()
+            .into_iter()
+            .map(|c| c.seq)
+            .collect::<Vec<_>>(),
+        vec![3]
+    );
+    assert!(
+        !object_exists_in_store(manager.git_dir(), &old_only_oid),
+        "--prune=now must immediately reclaim unreachable blobs"
+    );
+    assert_eq!(
+        manager.head().unwrap().as_deref(),
+        Some(head_before.as_str()),
+        "manual purge must never touch user commits or branches"
+    );
+
+    let after = manager.storage_summary().expect("storage summary after");
+    assert_eq!(after.total_refs, 1);
+    let _ = std::fs::remove_dir_all(workspace);
+}

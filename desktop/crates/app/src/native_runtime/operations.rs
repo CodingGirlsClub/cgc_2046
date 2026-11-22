@@ -126,6 +126,8 @@ impl Owner {
                 let result = self.checkpoint(action);
                 let _ = reply.send(result);
             }
+            Command::InspectCheckpointStorage(reply) => self.inspect_checkpoint_storage(reply),
+            Command::PurgeCheckpointHistory(reply) => self.start_manual_checkpoint_cleanup(reply),
             Command::SelectModel {
                 provider,
                 model,

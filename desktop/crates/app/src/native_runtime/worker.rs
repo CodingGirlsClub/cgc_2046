@@ -60,6 +60,11 @@ pub(super) enum Job {
         request: CheckpointGcRequest,
         outcome: CheckpointGcOutcome,
     },
+    ManualCheckpointCleanup {
+        repo: PathBuf,
+        reply: Reply<ReclaimReport>,
+        result: Result<ReclaimReport, cgc_agent_checkpoint::CheckpointError>,
+    },
 }
 
 pub(super) struct Owner {
@@ -461,6 +466,12 @@ fn reject(command: Command, error: NativeRuntimeError) {
             let _ = reply.send(Err(error));
         }
         Command::Prepare(_, reply) | Command::Steer(_, reply) => {
+            let _ = reply.send(Err(error));
+        }
+        Command::InspectCheckpointStorage(reply) => {
+            let _ = reply.send(Err(error));
+        }
+        Command::PurgeCheckpointHistory(reply) => {
             let _ = reply.send(Err(error));
         }
         Command::Connect(reply) => {

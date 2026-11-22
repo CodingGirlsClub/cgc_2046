@@ -293,6 +293,11 @@ impl Owner {
                 request,
                 outcome,
             } => self.checkpoint_gc_completed(repo, request, outcome),
+            Job::ManualCheckpointCleanup {
+                repo,
+                reply,
+                result,
+            } => self.manual_checkpoint_cleanup_completed(repo, reply, result),
         }
     }
 }

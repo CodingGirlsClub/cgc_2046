@@ -11,12 +11,13 @@ mod thinking_tests;
 mod title;
 mod worker;
 
-use cgc_agent_checkpoint::{Checkpoint, FileChange};
+use cgc_agent_checkpoint::{Checkpoint, CheckpointStorageSummary, FileChange, ReclaimReport};
 use cgc_agent_core::{AgentError, ImageAttachment, Thread, ToolTurnOutcome};
 use cgc_agent_host::{AgentEvent, NativeTurn, NativeTurnRuntime};
 use cgc_agent_provider::{Model, Provider, ProviderErrorCategory, ToolSchema};
 use cgc_agent_store::{ProviderPrefs, SessionStore};
 use cgc_agent_tools::{AgentState, AppAction, ToolContext, ToolRegistry};
+pub(crate) use checkpoint::format_bytes;
 use futures::{
     channel::{mpsc, oneshot},
     future::BoxFuture,
@@ -292,6 +293,8 @@ enum Command {
         reply: Reply<Arc<NativeRuntimeSnapshot>>,
     },
     Checkpoint(CheckpointAction, Reply<Arc<NativeRuntimeSnapshot>>),
+    InspectCheckpointStorage(Reply<Option<CheckpointStorageSummary>>),
+    PurgeCheckpointHistory(Reply<ReclaimReport>),
     SelectModel {
         provider: String,
         model: String,
@@ -497,6 +500,18 @@ impl NativeRuntimeHandle {
     ) -> impl Future<Output = Result<Arc<NativeRuntimeSnapshot>, NativeRuntimeError>> + Send + 'static
     {
         self.request(|reply| Command::Checkpoint(action, reply))
+    }
+    pub(crate) fn inspect_checkpoint_storage(
+        &self,
+    ) -> impl Future<Output = Result<Option<CheckpointStorageSummary>, NativeRuntimeError>>
+           + Send
+           + 'static {
+        self.request(Command::InspectCheckpointStorage)
+    }
+    pub(crate) fn purge_checkpoint_history(
+        &self,
+    ) -> impl Future<Output = Result<ReclaimReport, NativeRuntimeError>> + Send + 'static {
+        self.request(Command::PurgeCheckpointHistory)
     }
     pub fn select_model(
         &self,

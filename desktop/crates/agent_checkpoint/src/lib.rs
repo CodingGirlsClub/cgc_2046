@@ -14,4 +14,6 @@ pub use checkpoint::{
     DEFAULT_MAX_OBJECT_BYTES, DEFAULT_MAX_REFS, DEFAULT_MAX_TOTAL_REFS, DEFAULT_PRESSURE_KEEP_REFS,
     MAX_FILE_BYTES,
 };
-pub use maintenance::{GcMode, ObjectStoreStats, PrunedRef, ReclaimReport, SnapshotReport};
+pub use maintenance::{
+    CheckpointStorageSummary, GcMode, ObjectStoreStats, PrunedRef, ReclaimReport, SnapshotReport,
+};

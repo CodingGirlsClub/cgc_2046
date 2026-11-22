@@ -3065,9 +3065,12 @@ impl RootView {
             Some((window, view))
         }) {
             let _ = existing.update(cx, |_, window, cx| {
-                if open_llm_providers {
-                    view.update(cx, |view, cx| view.open_llm_providers(cx));
-                }
+                view.update(cx, |view, cx| {
+                    view.refresh_checkpoint_storage(cx);
+                    if open_llm_providers {
+                        view.open_llm_providers(cx);
+                    }
+                });
                 window.activate_window();
             });
             return;

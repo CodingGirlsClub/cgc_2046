@@ -378,9 +378,104 @@ impl Owner {
         self.publish(RuntimeChange::Checkpoint);
         Ok(self.snapshot())
     }
+
+    pub(super) fn inspect_checkpoint_storage(
+        &self,
+        reply: Reply<Option<CheckpointStorageSummary>>,
+    ) {
+        let Some(manager) = self.checkpoint_manager.clone() else {
+            let _ = reply.send(Ok(None));
+            return;
+        };
+        let _ = std::thread::Builder::new()
+            .name("cgc-checkpoint-stats".into())
+            .spawn(move || {
+                let result = manager
+                    .storage_summary()
+                    .map(Some)
+                    .map_err(|error| NativeRuntimeError::Checkpoint(error.to_string()));
+                let _ = reply.send(result);
+            });
+    }
+
+    pub(super) fn start_manual_checkpoint_cleanup(&mut self, reply: Reply<ReclaimReport>) {
+        if self.active.is_some() || self.checkpoint_gc_running {
+            let _ = reply.send(Err(NativeRuntimeError::Busy));
+            return;
+        }
+        let Some(manager) = self.checkpoint_manager.clone() else {
+            let _ = reply.send(Err(NativeRuntimeError::Checkpoint(
+                "当前工作区没有可用的 Git 检查点".into(),
+            )));
+            return;
+        };
+        self.checkpoint_gc_running = true;
+        self.checkpoint_gc_pending = None;
+        let current_thread_id = self.frozen.id.clone();
+        let repo = manager.repo().to_path_buf();
+        let (sender, receiver) = oneshot::channel();
+        let spawned = std::thread::Builder::new()
+            .name("cgc-checkpoint-purge".into())
+            .spawn(move || {
+                let result = manager.purge_history_checkpoints(Some(&current_thread_id), 1);
+                let _ = sender.send(result);
+            });
+        if let Err(error) = spawned {
+            self.checkpoint_gc_running = false;
+            let _ = reply.send(Err(NativeRuntimeError::Checkpoint(error.to_string())));
+            return;
+        }
+        self.jobs.push(Box::pin(async move {
+            let result = match receiver.await {
+                Ok(result) => result,
+                Err(_) => Err(CheckpointError::Io(
+                    "manual checkpoint purge cancelled".into(),
+                )),
+            };
+            Job::ManualCheckpointCleanup {
+                repo,
+                reply,
+                result,
+            }
+        }));
+    }
+
+    pub(super) fn manual_checkpoint_cleanup_completed(
+        &mut self,
+        repo: PathBuf,
+        reply: Reply<ReclaimReport>,
+        result: Result<ReclaimReport, CheckpointError>,
+    ) {
+        self.checkpoint_gc_running = false;
+        let same_repo = self
+            .checkpoint_manager
+            .as_ref()
+            .is_some_and(|manager| manager.repo() == repo);
+        let mapped = match result {
+            Ok(report) => {
+                if same_repo {
+                    self.last_checkpoint_gc_at = Some(std::time::Instant::now());
+                    self.apply_pruned_refs(&report.pruned);
+                    if report.within_budget {
+                        self.checkpoint_budget_exceeded = false;
+                        self.checkpoint_budget_notice_reported = false;
+                        self.checkpoint_unrecoverable_notice_reported = false;
+                    } else {
+                        self.checkpoint_budget_exceeded = true;
+                    }
+                    self.refresh_changes();
+                    self.publish(RuntimeChange::Checkpoint);
+                }
+                Ok(report)
+            }
+            Err(error) => Err(NativeRuntimeError::Checkpoint(error.to_string())),
+        };
+        let _ = reply.send(mapped);
+        self.maybe_start_checkpoint_gc();
+    }
 }
 
-fn format_bytes(bytes: u64) -> String {
+pub(crate) fn format_bytes(bytes: u64) -> String {
     const KIB: f64 = 1024.0;
     const MIB: f64 = 1024.0 * 1024.0;
     if bytes as f64 >= MIB {

@@ -47,6 +47,15 @@ impl ObjectStoreStats {
 pub enum GcMode {
     Auto,
     PruneGracePeriod,
+    PruneNow,
+}
+
+/// 设置页展示用的检查点仓库占用与 ref 计数概览。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CheckpointStorageSummary {
+    pub stats: ObjectStoreStats,
+    pub total_refs: usize,
+    pub limit_bytes: u64,
 }
 
 /// 单次快照返回，包含同步裁剪掉的旧 ref 与是否需要后台 GC 的提示。
@@ -57,10 +66,11 @@ pub struct SnapshotReport {
     pub needs_gc: bool,
 }
 
-/// 超过 500 MB 水位后执行自救清理的返回摘要。
+/// 超过 500 MB 水位或手动全量清理后的返回摘要。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReclaimReport {
     pub pruned: Vec<PrunedRef>,
+    pub remaining_refs: usize,
     pub stats_after: ObjectStoreStats,
     pub within_budget: bool,
     pub limit_bytes: u64,
@@ -89,6 +99,18 @@ impl CheckpointManager {
     pub fn object_store_stats(&self) -> Result<ObjectStoreStats, CheckpointError> {
         let _guard = self.lock_git()?;
         self.object_store_stats_locked()
+    }
+
+    /// 读取检查点对象库占用、全部隐藏 ref 数与容量预算上限。
+    pub fn storage_summary(&self) -> Result<CheckpointStorageSummary, CheckpointError> {
+        let _guard = self.lock_git()?;
+        let stats = self.object_store_stats_locked()?;
+        let total_refs = self.list_all_checkpoint_refs_locked()?.len();
+        Ok(CheckpointStorageSummary {
+            stats,
+            total_refs,
+            limit_bytes: self.max_object_bytes,
+        })
     }
 
     /// 删除指定线程 `seq >= min_seq` 的隐藏 ref（rewind 时使用），绝不触碰用户分支。
@@ -137,12 +159,37 @@ impl CheckpointManager {
         current_thread_id: &str,
         keep_current: usize,
     ) -> Result<ReclaimReport, CheckpointError> {
+        self.reclaim_locked(
+            Some(current_thread_id),
+            keep_current,
+            GcMode::PruneGracePeriod,
+        )
+    }
+
+    /// 用户在设置页显式触发的全量历史检查点清理：
+    /// 仅保留 `current_thread_id` 最新 `keep_current` 条隐藏 ref，其余全部删除并立即执行 `--prune=now`，
+    /// 始终不触碰用户分支、索引与 HEAD 提交。
+    pub fn purge_history_checkpoints(
+        &self,
+        current_thread_id: Option<&str>,
+        keep_current: usize,
+    ) -> Result<ReclaimReport, CheckpointError> {
+        self.reclaim_locked(current_thread_id, keep_current, GcMode::PruneNow)
+    }
+
+    fn reclaim_locked(
+        &self,
+        current_thread_id: Option<&str>,
+        keep_current: usize,
+        gc_mode: GcMode,
+    ) -> Result<ReclaimReport, CheckpointError> {
         let _guard = self.lock_git()?;
         let all_refs = self.list_all_checkpoint_refs_locked()?;
+        let total_before = all_refs.len();
         let mut other_refs = Vec::new();
         let mut current_refs = Vec::new();
         for entry in all_refs {
-            if entry.thread_id == current_thread_id {
+            if current_thread_id.is_some_and(|id| entry.thread_id == id) {
                 current_refs.push(entry);
             } else {
                 other_refs.push(entry);
@@ -162,11 +209,13 @@ impl CheckpointManager {
                 .map(PrunedRef::from),
         );
 
+        let remaining_refs = total_before.saturating_sub(pruned.len());
         self.delete_refs_locked(&pruned)?;
-        self.run_gc_locked(GcMode::PruneGracePeriod)?;
+        self.run_gc_locked(gc_mode)?;
         let stats_after = self.object_store_stats_locked()?;
         Ok(ReclaimReport {
             pruned,
+            remaining_refs,
             within_budget: stats_after.total_bytes() <= self.max_object_bytes,
             stats_after,
             limit_bytes: self.max_object_bytes,
@@ -329,6 +378,9 @@ impl CheckpointManager {
                 "--prune=1.hour.ago",
                 "--quiet",
             ])?,
+            GcMode::PruneNow => {
+                self.git(["-c", "gc.autoDetach=false", "gc", "--prune=now", "--quiet"])?
+            }
         };
         if !output.status.success() {
             return Err(CheckpointError::Git(stderr(&output)));
