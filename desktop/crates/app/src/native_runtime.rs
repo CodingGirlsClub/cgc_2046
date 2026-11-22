@@ -199,9 +199,9 @@ pub(crate) fn maybe_record_upgrade_notice(error: &AgentError, managed_provider: 
     }) = error
     {
         if cgc_platform::api::upgrade_notice().is_none() {
-            cgc_platform::api::record_upgrade_notice(
-                cgc_platform::api::UpgradeNotice::fallback_from_message(message.clone()),
-            );
+            cgc_platform::api::record_upgrade_notice(cgc_platform::api::parse_upgrade_notice(
+                message,
+            ));
         }
     }
 }
@@ -688,13 +688,21 @@ mod model_setup_tests {
         );
         assert_eq!(cgc_platform::api::upgrade_notice(), None);
 
-        // CGC Cloud 426 应触发全局升级覆盖层
+        // CGC Cloud 426 应触发全局升级覆盖层并保留结构化载荷（code / min_version / download_url）
+        let structured_426 = r#"{"error":{"code":"desktop_client_disabled","message":"临时维护中","min_version":"0.2.0","download_url":"https://codingirlsclub.com/releases"}}"#;
         maybe_record_upgrade_notice(
-            &AgentError::Provider(ProviderError::api(426, "请升级桌面端")),
+            &AgentError::Provider(ProviderError::api(426, structured_426)),
             true,
         );
         let notice = cgc_platform::api::upgrade_notice().expect("managed 426 latches notice");
-        assert_eq!(notice.message, "请升级桌面端");
+        assert_eq!(notice.code, "desktop_client_disabled");
+        assert!(notice.is_kill_switch());
+        assert_eq!(notice.message, "临时维护中");
+        assert_eq!(notice.min_version.as_deref(), Some("0.2.0"));
+        assert_eq!(
+            notice.safe_download_url(),
+            "https://codingirlsclub.com/releases"
+        );
         cgc_platform::api::clear_upgrade_notice();
     }
 }

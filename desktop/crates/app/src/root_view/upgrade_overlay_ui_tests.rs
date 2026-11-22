@@ -159,7 +159,7 @@ fn upgrade_overlay_renders_over_signed_out_and_signed_in_views_without_sign_out(
     crate::native_runtime::maybe_record_upgrade_notice(
         &cgc_agent_core::AgentError::Provider(cgc_agent_provider::ProviderError::api(
             426,
-            "版本过旧，请升级客户端",
+            r#"{"error":{"code":"desktop_client_disabled","message":"版本过旧，请升级客户端","min_version":"0.2.0","download_url":"https://codingirlsclub.com/releases"}}"#,
         )),
         true,
     );
@@ -172,10 +172,17 @@ fn upgrade_overlay_renders_over_signed_out_and_signed_in_views_without_sign_out(
     });
 
     root.read_with(cx, |this, _| {
+        let latched = this
+            .upgrade_notice
+            .as_ref()
+            .expect("子视图 426 turn error 必须立即同步到父级 RootView.upgrade_notice");
+        assert_eq!(latched.code, "desktop_client_disabled");
+        assert!(latched.is_kill_switch());
+        assert_eq!(latched.message, "版本过旧，请升级客户端");
+        assert_eq!(latched.min_version.as_deref(), Some("0.2.0"));
         assert_eq!(
-            this.upgrade_notice.as_ref().map(|n| n.message.as_str()),
-            Some("版本过旧，请升级客户端"),
-            "子视图 426 turn error 必须立即同步到父级 RootView.upgrade_notice"
+            latched.safe_download_url(),
+            "https://codingirlsclub.com/releases"
         );
     });
     vcx.update(|window, cx| {

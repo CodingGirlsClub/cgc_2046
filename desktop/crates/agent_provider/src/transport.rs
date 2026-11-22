@@ -29,11 +29,15 @@ pub(crate) fn truncate(text: &str, max_chars: usize) -> String {
 }
 
 /// 解析 OpenAI / CGC Gateway 的 HTTP 或 SSE 错误载荷：
+/// - HTTP 426 → 保留完整 JSON 载荷（含 `code`、`message`、`min_version`、`download_url`），供上层 `parse_upgrade_notice` 解析
 /// - HTTP 402 或 `error.code == "insufficient_quota"` → `InsufficientQuota`（禁止重试）
 /// - `error.code == "concurrency_limit_exceeded"` → `ConcurrencyLimitExceeded`
 /// - 其它状态码与错误分类保留原语义。
 pub(crate) fn parse_openai_error(status: Option<u16>, raw: &str) -> ProviderError {
     let trimmed = raw.trim();
+    if status == Some(426) {
+        return ProviderError::api(426, truncate(trimmed, 2_000));
+    }
     if let Ok(parsed) = serde_json::from_str::<Value>(trimmed) {
         if let Some(error) = parsed.get("error") {
             if let Some(code_str) = error.as_str() {
@@ -130,5 +134,21 @@ mod tests {
         let err2 = parse_openai_error(Some(403), raw_no_reason);
         assert_eq!(err2.category(), ProviderErrorCategory::Permission);
         assert!(!err2.to_string().contains("(reason:"));
+    }
+
+    #[test]
+    fn parse_openai_error_preserves_structured_426_upgrade_payload() {
+        let raw = r#"{"error":{"code":"desktop_client_disabled","message":"临时维护中","min_version":"0.2.0","download_url":"https://codingirlsclub.com/releases"}}"#;
+        let err = parse_openai_error(Some(426), raw);
+        match err {
+            ProviderError::Api {
+                status: Some(426),
+                message,
+                ..
+            } => {
+                assert_eq!(message, raw);
+            }
+            other => panic!("expected 426 Api error, got {other:?}"),
+        }
     }
 }
