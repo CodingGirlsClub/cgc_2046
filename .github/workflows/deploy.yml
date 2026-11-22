@@ -337,6 +337,11 @@ jobs:
         env:
           PLAYBOOK_HASH: ${{ steps.playbook.outputs.hash }}
           PUBLIC_SHA: ${{ github.sha }}
+          DESKTOP_KILL_SWITCH: ${{ vars.DESKTOP_KILL_SWITCH }}
+          DESKTOP_KILL_SWITCH_MESSAGE: ${{ vars.DESKTOP_KILL_SWITCH_MESSAGE }}
+          DESKTOP_MIN_SUPPORTED_VERSION: ${{ vars.DESKTOP_MIN_SUPPORTED_VERSION }}
+          DESKTOP_BLOCKED_VERSIONS: ${{ vars.DESKTOP_BLOCKED_VERSIONS }}
+          DESKTOP_DOWNLOAD_URL: ${{ vars.DESKTOP_DOWNLOAD_URL }}
         # step 级超时结论是 failure，job 级是 cancelled（后者已两次被误判
         # 为人为取消）——85 < job 90，超时恒先红在 step 上，job 级仅作兜底
         timeout-minutes: 85
@@ -346,6 +351,33 @@ jobs:
               -e "s|<TCR_USERNAME>|\"${{ secrets.TCR_USERNAME }}\"|" \
               -e "s|<SERVER_HOST>|\"${{ secrets.SERVER_HOST }}\"|" \
               config/deploy.yml > config/deploy.ci.yml
+          # 仅在 GitHub Repository Variable 非空时安全覆写 env.clear 中的 DESKTOP_* 值
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          path = Path("config/deploy.ci.yml")
+          text = path.read_text(encoding="utf-8")
+          keys = [
+              "DESKTOP_KILL_SWITCH",
+              "DESKTOP_KILL_SWITCH_MESSAGE",
+              "DESKTOP_MIN_SUPPORTED_VERSION",
+              "DESKTOP_BLOCKED_VERSIONS",
+              "DESKTOP_DOWNLOAD_URL",
+          ]
+          for key in keys:
+              val = os.environ.get(key, "").strip()
+              if not val:
+                  continue
+              pattern = rf"(^[ \t]*{key}:\s*)\"\"([ \t]*$)"
+              replacement = lambda m, v=json.dumps(val, ensure_ascii=False): f"{m.group(1)}{v}{m.group(2)}"
+              updated, count = re.subn(pattern, replacement, text, count=1, flags=re.MULTILINE)
+              assert count == 1, f"expected single {key} entry in deploy.ci.yml, found {count}"
+              text = updated
+          path.write_text(text, encoding="utf-8")
+          PY
           # 显式 login（runner 本地 + 服务器）：隔离 deploy 内部 login，
           # 失败信息直指凭证链而非埋在 build 之后
           kamal registry login -c config/deploy.ci.yml
