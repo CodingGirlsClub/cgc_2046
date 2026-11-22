@@ -17,9 +17,6 @@ members = [
   "crates/terminal",
   "crates/terminal_view",
   "crates/platform",
-  "crates/platform-macos",
-  "crates/platform-windows",
-  "crates/platform-linux",
 ]
 
 [workspace.package]
@@ -55,6 +52,3 @@ cgc-agent-checkpoint = { path = "crates/agent_checkpoint" }
 cgc-terminal = { path = "crates/terminal" }
 cgc-terminal-view = { path = "crates/terminal_view" }
 cgc-platform = { path = "crates/platform" }
-cgc-platform-macos = { path = "crates/platform-macos" }
-cgc-platform-windows = { path = "crates/platform-windows" }
-cgc-platform-linux = { path = "crates/platform-linux" }

@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """依赖边界检查（story 1.10）。
 
-断言三条禁止边（脊柱 AD-1）：
+断言两条禁止边（脊柱 AD-1）：
 1. domain crate 互引（account/events/courses/agent_chat）；
-2. cgc-platform 反向依赖任何 cgc-platform-* 适配 crate；
-3. cgc-platform 反向依赖 domain 实现 crate。
+2. cgc-platform 反向依赖 domain 或 cgc-desktop-app 实现 crate。
 
 用法：
   python3 scripts/check_dependencies.py              # 检查真实 cargo metadata
-  python3 scripts/check_dependencies.py --self-test  # 用假图验证三类违规都能报出
+  python3 scripts/check_dependencies.py --self-test  # 用假图验证两类违规都能报出
 """
 
 import json
@@ -39,9 +38,7 @@ def violations(graph):
                 found.append(("DOMAIN_DEP", name, dep))
         if name == PLATFORM:
             for dep in deps:
-                if dep.startswith("cgc-platform-"):
-                    found.append(("PLATFORM_REVERSE", name, dep))
-                elif dep in DOMAINS or dep == "cgc-desktop-app":
+                if dep in DOMAINS or dep == "cgc-desktop-app":
                     found.append(("PLATFORM_IMPL", name, dep))
     return found
 
@@ -56,11 +53,6 @@ def self_test():
             "domain interdependency",
             [package("cgc-events", ["cgc-platform", "cgc-account"])],
             "DOMAIN_DEP",
-        ),
-        (
-            "platform reverse adapter",
-            [package("cgc-platform", ["cgc-platform-macos"])],
-            "PLATFORM_REVERSE",
         ),
         (
             "platform reverse domain impl",
@@ -80,7 +72,6 @@ def self_test():
             package("cgc-desktop-app", ["cgc-events", "cgc-platform"]),
             package("cgc-events", ["cgc-platform"]),
             package("cgc-platform", []),
-            package("cgc-platform-macos", ["cgc-platform"]),
         ]
     )
     if violations(clean):
