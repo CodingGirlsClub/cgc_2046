@@ -11,7 +11,7 @@ defmodule Cgc2046Web.DesktopRelease do
 
   require Logger
 
-  @default_download_url "https://github.com/CodingGirlsClub/cgc_2046/releases/latest"
+  @default_download_url "https://github.com/CodingGirlsClub/cgc_2046/releases"
   @default_kill_switch_message "桌面客户端当前暂停服务，请稍后重试或关注更新通知。"
   @default_blocked_message "当前桌面客户端版本已停用，请下载安装最新版本后继续使用。"
   @default_upgrade_message "当前桌面客户端版本过旧，请升级至最新版本后继续使用。"
@@ -22,7 +22,7 @@ defmodule Cgc2046Web.DesktopRelease do
   def default_download_url, do: @default_download_url
 
   @doc """
-  从环境变量 map 解析 `:desktop_release` 运行时配置（与 `config/0` 共用规范化逻辑）。
+  从环境变量 map 解析 `:desktop_client_gate` 运行时配置（与 `config/0` 共用规范化逻辑）。
   """
   @spec parse_env(%{optional(String.t()) => String.t() | nil}) :: keyword()
   def parse_env(env) when is_map(env) do
@@ -38,11 +38,16 @@ defmodule Cgc2046Web.DesktopRelease do
   end
 
   @doc """
-  读取并规范化 `:cgc_2046, :desktop_release` 应用配置。
+  读取并规范化 `:cgc_2046, :desktop_client_gate`（兼容 `:desktop_release`）应用配置。
   """
   @spec config() :: map()
   def config do
-    raw = Application.get_env(:cgc_2046, :desktop_release, [])
+    raw =
+      case Application.get_env(:cgc_2046, :desktop_client_gate) do
+        nil -> Application.get_env(:cgc_2046, :desktop_release, [])
+        gate -> gate
+      end
+
     raw |> normalize_keyword() |> Map.new()
   end
 

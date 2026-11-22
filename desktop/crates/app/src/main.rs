@@ -113,8 +113,11 @@ fn main() {
                 ))
             });
             let view = cx.new(move |_| RootView::new(view_registry));
+            let notification_responses = notification_responses.clone();
             view.update(cx, |this, cx| {
                 cgc_desktop_app::root_view::register_history_root(cx.entity().downgrade());
+                this.set_notification_responses(notification_responses);
+                this.start_notification_poll(cx);
                 this.set_history_sidebar_persisted(history_sidebar_open);
                 this.set_tray_preferences(close_to_tray.clone(), tray_hint_shown.clone());
                 this.install_main_window_lifecycle(window, cx);

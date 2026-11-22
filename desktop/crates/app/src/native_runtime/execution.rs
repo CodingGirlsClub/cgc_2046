@@ -230,7 +230,7 @@ impl Owner {
                     if generation == self.generation && !matches!(error, AgentError::Cancelled) {
                         let managed_provider = self.config.model.provider_id.as_str()
                             == cgc_agent_store::CGC_CLOUD_PROVIDER_ID;
-                        super::record_managed_upgrade_notice(error, managed_provider);
+                        maybe_record_upgrade_notice(error, managed_provider);
                         let kind = classify_turn_error(error, managed_provider);
                         self.emit(NativeRuntimeEvent::TurnError {
                             generation,

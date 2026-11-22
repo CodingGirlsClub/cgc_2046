@@ -114,9 +114,13 @@ impl Owner {
         fallback_user: &str,
     ) -> TitleOutcome {
         let mut generated = String::new();
+        let managed_provider = model.provider_id.as_str() == cgc_agent_store::CGC_CLOUD_PROVIDER_ID;
         let mut stream = match provider.stream(&model, request).await {
             Ok(stream) => stream,
-            Err(error) => return TitleOutcome::Failed(error.to_string()),
+            Err(error) => {
+                maybe_record_upgrade_notice(&AgentError::Provider(error.clone()), managed_provider);
+                return TitleOutcome::Failed(error.to_string());
+            }
         };
         while let Some(event) = stream.next().await {
             if cancel.is_cancelled() {
@@ -125,7 +129,13 @@ impl Owner {
             match event {
                 Ok(CompletionEvent::Text(text)) => generated.push_str(&text),
                 Ok(CompletionEvent::Stop(_)) => break,
-                Err(error) => return TitleOutcome::Failed(error.to_string()),
+                Err(error) => {
+                    maybe_record_upgrade_notice(
+                        &AgentError::Provider(error.clone()),
+                        managed_provider,
+                    );
+                    return TitleOutcome::Failed(error.to_string());
+                }
                 _ => {}
             }
         }

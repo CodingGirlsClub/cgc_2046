@@ -128,12 +128,20 @@ mod tests {
         assert_eq!(http.headers.len(), 4);
         assert_eq!(http.headers[0].name, "Authorization");
         assert_eq!(http.headers[0].value, "Bearer cgch_test_token");
-        assert_eq!(http.headers[1].name, "x-cgc-client");
-        assert_eq!(http.headers[1].value, "desktop");
-        assert_eq!(http.headers[2].name, "x-cgc-client-version");
-        assert_eq!(http.headers[2].value, crate::runtime::client_version());
-        assert_eq!(http.headers[3].name, "x-cgc-client-platform");
-        assert_eq!(http.headers[3].value, crate::runtime::client_platform());
+        assert!(http
+            .headers
+            .iter()
+            .any(|h| h.name == crate::runtime::CLIENT_HEADER_NAME && h.value == "desktop"));
+        assert!(http
+            .headers
+            .iter()
+            .any(|h| h.name == crate::runtime::CLIENT_VERSION_HEADER
+                && h.value == crate::runtime::client_version()));
+        assert!(http
+            .headers
+            .iter()
+            .any(|h| h.name == crate::runtime::CLIENT_PLATFORM_HEADER
+                && h.value == crate::runtime::client_platform()));
     }
 
     #[test]

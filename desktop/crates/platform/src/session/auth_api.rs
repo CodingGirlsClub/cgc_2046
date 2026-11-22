@@ -193,6 +193,7 @@ impl HttpAuthApi {
 
     fn post(&self, token: Option<&str>, query: &str, variables: Value) -> Result<Value, AuthError> {
         let config = ureq::Agent::config_builder()
+            .timeout_global(Some(std::time::Duration::from_secs(15)))
             .http_status_as_error(false)
             .build();
         let agent: ureq::Agent = config.into();
@@ -200,7 +201,7 @@ impl HttpAuthApi {
             .post(&self.endpoint)
             .header("content-type", "application/json");
         for (name, value) in crate::runtime::client_headers() {
-            request = request.header(name, value);
+            request = request.header(&name, &value);
         }
         if let Some(token) = token {
             request = request.header("authorization", format!("Bearer {token}"));
@@ -212,16 +213,13 @@ impl HttpAuthApi {
             .map_err(|err| AuthError::Transport(err.to_string()))?;
         let status = response.status().as_u16();
         if status == 426 {
-            let raw = response.body_mut().read_to_string().unwrap_or_default();
-            let notice = crate::api::upgrade::parse_upgrade_notice(&raw);
-            crate::api::upgrade::record_upgrade_notice(notice.clone());
-            return Err(AuthError::Domain {
-                code: notice.code,
-                message: notice.message,
-            });
+            let text = response.body_mut().read_to_string().unwrap_or_default();
+            let notice = crate::api::parse_upgrade_notice(&text);
+            crate::api::record_upgrade_notice(notice.clone());
+            return Err(AuthError::Server(notice.message));
         }
         if !(200..300).contains(&status) {
-            return Err(AuthError::Transport(format!("http status {status}")));
+            return Err(AuthError::Transport(format!("http status: {status}")));
         }
         response
             .body_mut()
@@ -855,34 +853,34 @@ mod tests {
     }
 
     #[test]
-    fn http_auth_sends_desktop_headers_and_426_records_latch_without_invalidating_session() {
+    fn http_validate_sends_client_headers_and_426_does_not_return_false() {
         let _guard = crate::api::upgrade::LATCH_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        crate::api::upgrade::clear_upgrade_notice();
+        crate::api::clear_upgrade_notice();
 
         let (endpoint, received) = spawn_mock_server(
             426,
-            r#"{"error":{"code":"client_upgrade_required","message":"请升级后登录","min_version":"0.2.0"}}"#,
+            r#"{"error":{"code":"client_upgrade_required","message":"需要更新桌面端","min_version":"0.2.0"}}"#,
         );
         let api = HttpAuthApi::new(endpoint);
-        let err = api
-            .validate("persisted-jwt")
-            .expect_err("426 must not return Ok(false)");
-        assert!(
-            matches!(err, AuthError::Domain { ref code, .. } if code == "client_upgrade_required")
-        );
-        let raw_req = received.recv().expect("request").to_ascii_lowercase();
-        assert!(raw_req.contains("x-cgc-client: desktop"));
-        assert!(raw_req.contains("x-cgc-client-version:"));
-        assert!(raw_req.contains("x-cgc-client-platform:"));
-        assert_eq!(
-            crate::api::upgrade::upgrade_notice()
-                .as_ref()
-                .map(|n| n.message.as_str()),
-            Some("请升级后登录")
-        );
+        let err = api.validate("jwt.token.value").unwrap_err();
+        assert!(matches!(err, AuthError::Server(ref msg) if msg == "需要更新桌面端"));
 
-        crate::api::upgrade::clear_upgrade_notice();
+        let request = received
+            .recv()
+            .expect("request captured")
+            .to_ascii_lowercase();
+        assert!(request.contains("x-cgc-client: desktop"));
+        assert!(request.contains("x-cgc-client-version:"));
+        assert!(request.contains("x-cgc-client-platform:"));
+        assert_eq!(
+            crate::api::upgrade_notice()
+                .expect("latch set")
+                .min_version
+                .as_deref(),
+            Some("0.2.0")
+        );
+        crate::api::clear_upgrade_notice();
     }
 }

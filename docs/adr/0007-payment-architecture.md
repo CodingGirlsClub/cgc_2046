@@ -1,8 +1,8 @@
 # ADR-0007: 缴费架构——平台统一商户号 + 占位限时支付
 
 > 日期：2026-08-15 ｜ 状态：**已接受（Accepted）** ｜ 决策者：用户（product owner）
-> 关联：缴费 grilling 2026-08-15（13+7 项拍板，本 ADR 固化其中两项结构性决策）、赞助文档预留插桩点（`payment_pending → paid`，`docs/01-定稿设计/赞助workflow详细设计.md` §3.3）、Enrollment 并发不变量（`confirmed_count` 条件 UPDATE）
-> 取代：Learner Q3「报名全免费」约束（`docs/03-决策记录/grill-决策记录-2026-08-01.md`）——免费仍是默认，收费为可选路径。
+> 关联：缴费 grilling 2026-08-15（13+7 项拍板，本 ADR 固化其中两项结构性决策）、赞助文档预留插桩点（`payment_pending → paid`，`docs/01-定稿设计/赞助workflow详细设计.md` §3.3；历史设计文档，已归档于 git 历史）、Enrollment 并发不变量（`confirmed_count` 条件 UPDATE；2026-11-22 补记：已随 ADR-0009 PR⑤ U6 演进为 `Cgc2046.Admission.CapacityLedger` 的 `occupancy` 条件 UPDATE，`confirmed_count` 退为异步投影缓存）
+> 取代：Learner Q3「报名全免费」约束（`docs/03-决策记录/grill-决策记录-2026-08-01.md`；历史设计文档，已归档于 git 历史）——免费仍是默认，收费为可选路径。
 
 ---
 
@@ -15,7 +15,7 @@
 ## 决策（Decision）
 
 1. **平台统一商户号。** 全平台共用一套微信支付 / 支付宝商户资质，平台是资金责任主体；各 Workspace 收款进平台账户，与分会线下结算。不做 per-workspace 支付配置。
-2. **占位 → 限时支付。** 收费活动报名时先原子占名额（复用 `confirmed_count` 条件 UPDATE），Enrollment 进入 `payment_pending` 并生成限时订单（默认 2 小时，订单截止 = `min(下单 + 时限, registration_deadline)`）；支付回调成功才 `confirmed`，超时未付自动释放名额（报名转 `expired`）。
+2. **占位 → 限时支付。** 收费活动报名时先原子占名额（复用 `confirmed_count` 条件 UPDATE；**2026-11-22 补记**：随 ADR-0009 PR⑤ U6 落地，原子占座真源已迁至 `Cgc2046.Admission.CapacityLedger` `backend/lib/cgc_2046/admission/capacity_ledger.ex` 的 `occupancy` 单行条件 UPDATE，Event/Course 上的 `confirmed_count` 改为由 `capacity.synced` 驱动的异步投影缓存），Enrollment 进入 `payment_pending` 并生成限时订单（默认 2 小时，订单截止 = `min(下单 + 时限, registration_deadline)`）；支付回调成功才 `confirmed`，超时未付自动释放名额（报名转 `expired`）。
 3. **迟到支付一律原路退款。** 订单过期后渠道侧才完成的扣款，自动原路全额退回——钱账一致是硬约束，不存在"过期还落账"分支。
 4. **退款即取消报名。** 全额退款同时取消 Enrollment 并释放名额，不产生"退钱占坑"。
 
@@ -39,7 +39,7 @@
 
 > 正文与三条决策不改，本节为实施期更正与补充（先例：ADR-0009 D2/D6/D8、ADR-0010 G1 的补记写法）。实施载体：`docs/plans/2026-09-14-1357-feat-event-deposit-plan.md`（R6–R9、KTD7、KTD8；接管 #509 押金语义落点与自动结算）。
 
-1. **新增 Order 终态 `forfeited`（`paid → forfeited`，一次性 CAS）。** 活动正常结束（锚点只认 `ends_at`）+ 48h 后仍未核销（无 Attendance 行）的 `paid` 押金单，由 `Cgc2046.Payments.Workers.DepositForfeitWorker` 结算为 `forfeited`：**押金不退、留作平台收入**，参与者事前文案明示「未到场不退」（`workspace_payment_stats` 增 `forfeited` 桶供对账导出）。**这是本 ADR 之外的第一条「钱不原路退回」的资金去向**——决策 3、4 都隐含「退款是唯一资金出口」（迟到支付全退、退款即取消），`forfeited` 明确「不退款也是合法终态」，故补记于此；资金去向的财务细则（开票义务、收入确认时点、科目）沿 #509 R4 另行确认。
+1. **新增 Order 终态 `forfeited`（`paid → forfeited`，一次性 CAS）。** 活动正常结束（锚点只认 `ends_at`）+ 48h 后仍未核销（无 Attendance 行）的 `paid` 押金单，由 `Cgc2046.Payments.Workers.DepositForfeitWorker` 结算为 `forfeited`：**押金不退、留作平台收入**，参与者事前文案明示「未到场不退」（`workspace_payment_stats` 增 `forfeited` 桶供对账导出）。**这是本 ADR 之外的第一条「钱不原路退回」的资金去向**——决策 3、4 都隐含「退款是唯一资金出口」（迟到支付全退、退款即取消），`forfeited` 明确「不退款也是合法终态」，故补记于此；资金去向的财务细则（开票义务、收入确认时点、科目）沿 #509 R4 另行确认。（**2026-11-22 补记**：`#545` 随后为 `forfeited` 引入平台管理员救济转移 `Order :unforfeit`（`forfeited → refunding`，见 `backend/lib/cgc_2046/payments/order.ex` 与 `AdminActionLog :order_unforfeit`），用于异常申诉场景下的人工原路退回。）
 
 2. **决策 4「退款即取消报名」射程收窄为一般路径。** 到场事实（Attendance 行存在 ⇔ 该报名被核销过）或免缴留痕在场时，退款**保留** confirmed 报名、不释放名额，`PaymentRefundWorker.cancel_enrollment/1` 以持久事实判定（读失败 fail-closed 上抛，绝不折叠为「未到场」）。到场即占位——退款不得撤销已发生的到场；此例外为核销即退（Attendance 落行同事务发起全额退款）与免缴路径的前提。no-show 结算只推进 Order 终态、不编排 Enrollment，报名保持 `confirmed`。
 
@@ -78,3 +78,13 @@
 2. **不占位故 `pending` 迟到可入账；已入账虚拟算力不退。** 算力订单不占用活动名额/库存，`expires_at` 仅作收银台展示截止时间，不挂超时作废 worker——仍处于 `pending` 的订单即使在展示截止后收到渠道已付回调，仍按原订单快照 `credits_mc` 正常 CAS 为 `paid` 并入账。虚拟算力一经入账（`paid`）即不可自助/自动退款（不接入 `RefundCommencement` / `PaymentRefundWorker`），成为本 ADR 下继押金 `forfeited` 之后第二条明确「不自动退款」的合法终态语义。
 
 3. **已关单（`cancelled` / `expired`）收到渠道已付回调必须告警对账，守住钱账一致底线。** 若订单因渠道创单失败已标记为 `cancelled`（或经运维/策略置为 `expired`）后，渠道侧仍完成扣款并送达已付回调，`LlmPaymentSettlementWorker` **禁止**补发算力，亦不得把订单状态翻回 `paid`；必须记录 `Logger.error` 并落单事件拍 `:llm_closed_order_paid` 对账发现（`Finding.apply_rule(..., sweep: :one_shot)`，携带 `order_source`、`out_trade_no`、`status`、`amount_cents`、`transaction_id`），交人工核对后原路退款，确保「渠道已收款而未给算力」不会静默吞没，守住钱账一致硬约束。
+
+## 参考
+
+- `backend/lib/cgc_2046/payments/order.ex`
+- `backend/lib/cgc_2046/payments/refund_commencement.ex`
+- `backend/lib/cgc_2046/admission/enrollment.ex`
+- `backend/lib/cgc_2046/admission/capacity_ledger.ex`
+- `backend/lib/cgc_2046_web/controllers/payment_webhook_controller.ex`
+- `backend/lib/cgc_2046/llm_gateway/payment_order.ex`
+- `backend/lib/cgc_2046/llm_gateway/workers/llm_payment_settlement_worker.ex`

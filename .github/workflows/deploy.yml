@@ -258,23 +258,6 @@ jobs:
           # 「本步红」实际靠 kamal 侧 missing secret 兜底、报错不指名键）
           [ -z "$missing" ] || { echo "::error::missing GitHub secrets/vars:$missing"; exit 1; }
           echo "secrets 非空校验通过（64 项）"
-          # 桌面端可选运维开关：允许 GitHub vars 留空，仍写进 .kamal/secrets 供 Kamal 解析 env.secret
-          for v in \
-            DESKTOP_KILL_SWITCH DESKTOP_KILL_SWITCH_MESSAGE \
-            DESKTOP_MIN_SUPPORTED_VERSION DESKTOP_BLOCKED_VERSIONS \
-            DESKTOP_LATEST_VERSION DESKTOP_DOWNLOAD_URL \
-            DESKTOP_RELEASE_NOTES; do
-            val="${!v}"
-            if [ -z "$val" ]; then
-              printf '%s=\n' "$v" >> .kamal/secrets
-            else
-              val="${val//$'\r'/}"
-              val="${val//$'\n'/ }"
-              val="${val//\\/\\\\}"
-              val="${val//\"/\\\"}"
-              printf '%s="%s"\n' "$v" "$val" >> .kamal/secrets
-            fi
-          done
         env:
           TCR_PASSWORD: ${{ secrets.TCR_PASSWORD }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -349,6 +332,11 @@ jobs:
           XHS_MP_APPID: ${{ vars.XHS_MP_APPID }}
           XHS_MP_SECRET: ${{ secrets.XHS_MP_SECRET }}
           WECHAT_WEB_SECRET: ${{ secrets.WECHAT_WEB_SECRET }}
+      - name: Deploy backend
+        working-directory: backend
+        env:
+          PLAYBOOK_HASH: ${{ steps.playbook.outputs.hash }}
+          PUBLIC_SHA: ${{ github.sha }}
           DESKTOP_KILL_SWITCH: ${{ vars.DESKTOP_KILL_SWITCH }}
           DESKTOP_KILL_SWITCH_MESSAGE: ${{ vars.DESKTOP_KILL_SWITCH_MESSAGE }}
           DESKTOP_MIN_SUPPORTED_VERSION: ${{ vars.DESKTOP_MIN_SUPPORTED_VERSION }}
@@ -356,11 +344,6 @@ jobs:
           DESKTOP_LATEST_VERSION: ${{ vars.DESKTOP_LATEST_VERSION }}
           DESKTOP_DOWNLOAD_URL: ${{ vars.DESKTOP_DOWNLOAD_URL }}
           DESKTOP_RELEASE_NOTES: ${{ vars.DESKTOP_RELEASE_NOTES }}
-      - name: Deploy backend
-        working-directory: backend
-        env:
-          PLAYBOOK_HASH: ${{ steps.playbook.outputs.hash }}
-          PUBLIC_SHA: ${{ github.sha }}
         # step 级超时结论是 failure，job 级是 cancelled（后者已两次被误判
         # 为人为取消）——85 < job 90，超时恒先红在 step 上，job 级仅作兜底
         timeout-minutes: 85
@@ -370,6 +353,35 @@ jobs:
               -e "s|<TCR_USERNAME>|\"${{ secrets.TCR_USERNAME }}\"|" \
               -e "s|<SERVER_HOST>|\"${{ secrets.SERVER_HOST }}\"|" \
               config/deploy.yml > config/deploy.ci.yml
+          # 仅在 GitHub Repository Variable 非空时安全覆写 env.clear 中的 DESKTOP_* 值
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          path = Path("config/deploy.ci.yml")
+          text = path.read_text(encoding="utf-8")
+          keys = [
+              "DESKTOP_KILL_SWITCH",
+              "DESKTOP_KILL_SWITCH_MESSAGE",
+              "DESKTOP_MIN_SUPPORTED_VERSION",
+              "DESKTOP_BLOCKED_VERSIONS",
+              "DESKTOP_LATEST_VERSION",
+              "DESKTOP_DOWNLOAD_URL",
+              "DESKTOP_RELEASE_NOTES",
+          ]
+          for key in keys:
+              val = os.environ.get(key, "").strip()
+              if not val:
+                  continue
+              pattern = rf"(^[ \t]*{key}:\s*)\"\"([ \t]*$)"
+              replacement = lambda m, v=json.dumps(val, ensure_ascii=False): f"{m.group(1)}{v}{m.group(2)}"
+              updated, count = re.subn(pattern, replacement, text, count=1, flags=re.MULTILINE)
+              assert count == 1, f"expected single {key} entry in deploy.ci.yml, found {count}"
+              text = updated
+          path.write_text(text, encoding="utf-8")
+          PY
           # 显式 login（runner 本地 + 服务器）：隔离 deploy 内部 login，
           # 失败信息直指凭证链而非埋在 build 之后
           kamal registry login -c config/deploy.ci.yml

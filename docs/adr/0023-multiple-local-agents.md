@@ -1,15 +1,16 @@
 ---
-status: accepted
+status: superseded
+superseded_by: ADR-0028
 date: 2026-10-17
 ---
 
 # ADR-0023：课程学习页对话栏支持多个本机 agent（先接 Codex）
 
-> **Superseded（2026-10-26）：Web 端学习搭子与 cgc-host 已移除，本 ADR 仅作历史记录。**
+> **Superseded（2026-10-26）：Web 端学习搭子、`cgc-host/**` 与 `web/lib/host-version.ts` 已移除，本 ADR 的浏览器侧实现仅作历史记录。但本 ADR 确立的「经 `@agentclientprotocol/codex-acp` 接入 Codex」与「下发 MCP 服务器改名 `cgc-2046-learning`（避免与终端 `cgc-2046` 同名冲突）」由桌面客户端内化 Host（ADR-0025 / ADR-0026 / ADR-0028）承接并在役。**
 
-> 日期：2026-10-17 ｜ 状态：**已接受（Accepted）**（2026-10-17 随 PR #1152 落地：接缝与 Codex/页面合并成一次 `0.2.0`；期 2 的一键安装随后落地：Host 用随包发布的 `bun.lock`（整棵树带 sha512）经自带 Bun 装到 `~/.cgc2046/agents/`，页面按 `capabilities` 探测入口，`MIN_HOST_VERSION` 保持 `0.2.0`）
+> 日期：2026-10-17 ｜ 状态：**已取代（Superseded，2026-10-26；外部 ACP 注册表与 cgc-2046-learning 命名由桌面端 ADR-0026 / ADR-0028 承接）**（2026-10-17 随 PR #1152 落地：接缝与 Codex/页面合并成一次 `0.2.0`；期 2 的一键安装随后落地：Host 用随包发布的 `bun.lock`（整棵树带 sha512）经自带 Bun 装到 `~/.cgc2046/agents/`，页面按 `capabilities` 探测入口，`MIN_HOST_VERSION` 保持 `0.2.0`）
 
-ADR-0022 让课程学习页经 CGC 本机 Host 驱动学员自己的 agent，接的只是 OMP（`omp acp`）。但学员的 agent 不止一种：已经有人用 Codex、Claude Code，把各自的模型额度、审批习惯与会话历史留在那边。ADR-0022 否决「Host 与 OMP 之间用私有 RPC」时的理由正是「ACP 是标准协议，之后其他 agent 可以从同一接缝接入」——本 ADR 兑现那条理由：Host 里写死的 OMP 变成 agent 注册表，先接入 Codex。完整设计、需求与验收见 `docs/plans/2026-10-17-1139-feat-multi-local-agent-selection-plan.md`，下文的 KTD 编号均指该计划。
+ADR-0022 让课程学习页经 CGC 本机 Host 驱动学员自己的 agent，接的只是 OMP（`omp acp`）。但学员的 agent 不止一种：已经有人用 Codex、Claude Code，把各自的模型额度、审批习惯与会话历史留在那边。ADR-0022 否决「Host 与 OMP 之间用私有 RPC」时的理由正是「ACP 是标准协议，之后其他 agent 可以从同一接缝接入」——本 ADR 兑现那条理由：Host 里写死的 OMP 变成 agent 注册表，先接入 Codex。完整设计、需求与验收见 `docs/plans/2026-10-17-1139-feat-multi-local-agent-selection-plan.md`（历史计划，已归档于 git 历史），下文的 KTD 编号均指该计划。
 
 决定：
 
@@ -44,3 +45,9 @@ ADR-0022 让课程学习页经 CGC 本机 Host 驱动学员自己的 agent，接
 - **Claude Code 未取证。** `@agentclientprotocol/claude-code-acp` 与 Codex 适配器同族，但本 ADR 只对 Codex 做过包内核对；接入前要重做一遍同等取证。
 
 回滚：按 PR 还原（Host 与 web 同一次部署）。协议改动是纯增量的，回滚 web 不影响新 Host 上的旧页面（`ompPresent` 仍在）；只回滚 Host、不跑数据迁移时，新版 `state.json` 的会话分桶形状对旧 Host 不可用——旧 `ensureSession` 拿对象形状的指针去 `session/list` 里比对必然匹配不到，于是判为「指针不在这门课的工作目录下」：删掉这条指针，`chat.send` 落回 `session/new`、`chat.attach` 回空历史，即 KTD6 既有的「丢了就从新对话开始」口径（旧 Host 写回状态文件时也保留 `agents` 这类它不认识的键）。学员不会卡住，也不会拿到更宽的权限。学员侧的 `codex-acp` 与 `~/.codex` 不由 CGC 安装、卸载也不碰它们。
+
+## 参考（现存承接源码）
+
+- 历史计划：`docs/plans/2026-10-17-1139-feat-multi-local-agent-selection-plan.md`（已归档于 git 历史）
+- 桌面端内置 ACP 注册表：`desktop/crates/platform/resources/registry.json`
+- 桌面端 `cgc-2046-learning` MCP 注入：`desktop/crates/platform/src/mcp/inject.rs`

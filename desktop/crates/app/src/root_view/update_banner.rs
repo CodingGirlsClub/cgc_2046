@@ -1,11 +1,8 @@
-//! 桌面客户端轻量更新提示横幅与 HTTP 426 强制升级/止损覆盖层（ADR-0027 Phase 1）。
+//! 桌面客户端轻量更新提示横幅与启动版本检查（ADR-0027 Phase 1）。
 
 use std::time::Duration;
 
-use cgc_platform::api::upgrade::{
-    clear_upgrade_notice, sanitize_download_url, upgrade_notice, UpgradeNotice,
-    DEFAULT_DOWNLOAD_URL,
-};
+use cgc_platform::api::upgrade::{sanitize_download_url, DEFAULT_DOWNLOAD_URL};
 use cgc_platform::update::{check_for_update, UpdateCheckOutcome};
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::Sizable as _;
@@ -14,7 +11,7 @@ use gpui_kit::*;
 
 use super::RootView;
 use crate::i18n::{translate, Key, Language};
-use crate::theme::{self, space, RADIUS_LARGE, RADIUS_MEDIUM};
+use crate::theme::{self, space};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::root_view) struct UpdateBannerState {
@@ -28,16 +25,6 @@ impl UpdateBannerState {
     pub fn safe_download_url(&self) -> String {
         sanitize_download_url(&self.download_url)
             .unwrap_or_else(|| DEFAULT_DOWNLOAD_URL.to_string())
-    }
-}
-
-pub(in crate::root_view) fn resolve_upgrade_title_key(notice: &UpgradeNotice) -> Key {
-    if notice.is_kill_switch() {
-        Key::PlatformUpgradeDisabledTitle
-    } else if notice.is_blocked() {
-        Key::PlatformUpgradeBlockedTitle
-    } else {
-        Key::PlatformUpgradeTitle
     }
 }
 
@@ -78,7 +65,10 @@ impl RootView {
                     dismissed: false,
                 });
             }
-            Ok(UpdateCheckOutcome::UpgradeRequired(_)) | Ok(UpdateCheckOutcome::UpToDate) => {}
+            Ok(UpdateCheckOutcome::UpgradeRequired(notice)) => {
+                self.apply_upgrade_notice(notice);
+            }
+            Ok(UpdateCheckOutcome::UpToDate) => {}
             Err(error) => {
                 log::debug!(target: "update", "版本检查未生效（离线或旧后端）：{error}");
             }
@@ -92,25 +82,13 @@ impl RootView {
         }
     }
 
-    pub(in crate::root_view) fn retry_after_upgrade_notice(&mut self, cx: &mut Context<Self>) {
-        clear_upgrade_notice();
-        self.update_check_started = false;
-        self.session_checked = false;
-        self.workspaces_started = false;
-        self.events_started = false;
-        self.courses_started = false;
-        self.enrollments_started = false;
-        self.maybe_start_update_check(cx);
-        cx.notify();
-    }
-
     pub(in crate::root_view) fn render_update_banner(
         &self,
         language: Language,
         palette: &theme::Palette,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        if upgrade_notice().is_some() {
+        if self.is_upgrade_gate_active() {
             return None;
         }
         let banner = self.update_banner.as_ref().filter(|b| !b.dismissed)?;
@@ -184,125 +162,22 @@ impl RootView {
                 .into_any_element(),
         )
     }
-
-    pub(in crate::root_view) fn render_upgrade_overlay(
-        &self,
-        notice: &UpgradeNotice,
-        language: Language,
-        palette: &theme::Palette,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let title = translate(language, resolve_upgrade_title_key(notice));
-        let message = if notice.message.trim().is_empty() {
-            if notice.is_kill_switch() {
-                translate(language, Key::PlatformUpgradeDisabledMessage).to_string()
-            } else {
-                translate(language, Key::PlatformUpgradeDefaultMessage).to_string()
-            }
-        } else {
-            notice.message.clone()
-        };
-        let current_line = format!(
-            "{}: v{}",
-            translate(language, Key::PlatformUpgradeCurrentVersion),
-            crate::build_info::VERSION
-        );
-        let min_line = notice.min_version.as_deref().map(|min| {
-            format!(
-                "{}: v{min}",
-                translate(language, Key::PlatformUpgradeMinVersion)
-            )
-        });
-        let download_url = notice.safe_download_url();
-        let root_for_retry = cx.entity().downgrade();
-
-        div()
-            .id("desktop-upgrade-required-overlay")
-            .test_support()
-            .role(Role::Alert)
-            .flex_1()
-            .w_full()
-            .flex()
-            .items_center()
-            .justify_center()
-            .p(space(6))
-            .bg(palette.canvas)
-            .child(
-                div()
-                    .w(px(460.0))
-                    .max_w_full()
-                    .flex()
-                    .flex_col()
-                    .gap(space(3))
-                    .p(space(6))
-                    .rounded(px(RADIUS_LARGE))
-                    .bg(palette.card)
-                    .border_1()
-                    .border_color(palette.line)
-                    .child(
-                        div()
-                            .text_size(px(18.0))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(palette.ink)
-                            .child(title),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(13.0))
-                            .text_color(palette.ink_2)
-                            .child(message),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap(px(4.0))
-                            .p(space(2))
-                            .rounded(px(RADIUS_MEDIUM))
-                            .bg(palette.soft)
-                            .text_size(px(12.0))
-                            .text_color(palette.ink_3)
-                            .child(current_line)
-                            .children(min_line),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap(space(2))
-                            .pt(space(1))
-                            .child(
-                                Button::new("desktop-upgrade-download")
-                                    .label(translate(language, Key::PlatformUpgradeDownload))
-                                    .primary()
-                                    .small()
-                                    .on_click(move |_, _, cx| {
-                                        cx.open_url(&download_url);
-                                    }),
-                            )
-                            .child(
-                                Button::new("desktop-upgrade-retry")
-                                    .label(translate(language, Key::PlatformUpgradeRetry))
-                                    .ghost()
-                                    .small()
-                                    .on_click(move |_, _, cx| {
-                                        let _ = root_for_retry.update(cx, |this, cx| {
-                                            this.retry_after_upgrade_notice(cx);
-                                        });
-                                    }),
-                            ),
-                    ),
-            )
-            .into_any_element()
-    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        resolve_upgrade_title_key, Key, UpdateBannerState, UpgradeNotice, DEFAULT_DOWNLOAD_URL,
-    };
+    use super::{Key, RootView, UpdateBannerState, DEFAULT_DOWNLOAD_URL};
+    use crate::i18n::Language;
+    use crate::registration::build_registry;
+    use crate::root_view::{demo_signed_in, upgrade_overlay_title_key, EnrollmentsListState};
+    use crate::theme::ThemePreference;
+    use cgc_courses::catalog::{CoursesError, CoursesListState};
+    use cgc_courses::content::CourseContentState;
+    use cgc_courses::notes::{NotesError, NotesState};
+    use cgc_courses::projection::ProjectionState;
+    use cgc_events::list::{EventsError, ListState};
+    use cgc_platform::api::UpgradeNotice;
+    use cgc_platform::workspace::{WorkspaceError, WorkspaceListState};
 
     #[test]
     fn upgrade_title_key_reflects_notice_code() {
@@ -310,11 +185,10 @@ mod tests {
             code: "desktop_client_disabled".into(),
             message: "维护中".into(),
             min_version: None,
-            latest_version: None,
             download_url: None,
         };
         assert_eq!(
-            resolve_upgrade_title_key(&kill),
+            upgrade_overlay_title_key(&kill),
             Key::PlatformUpgradeDisabledTitle
         );
 
@@ -322,17 +196,16 @@ mod tests {
             code: "client_version_blocked".into(),
             message: "已停用".into(),
             min_version: None,
-            latest_version: None,
             download_url: None,
         };
         assert_eq!(
-            resolve_upgrade_title_key(&blocked),
+            upgrade_overlay_title_key(&blocked),
             Key::PlatformUpgradeBlockedTitle
         );
 
         let upgrade = UpgradeNotice::fallback_from_message("请升级".into());
         assert_eq!(
-            resolve_upgrade_title_key(&upgrade),
+            upgrade_overlay_title_key(&upgrade),
             Key::PlatformUpgradeTitle
         );
     }
@@ -352,10 +225,84 @@ mod tests {
 
         let untrusted = UpdateBannerState {
             latest_version: "0.2.0".into(),
-            download_url: "javascript:alert(1)".into(),
+            download_url: "https://evil.example/payload.exe".into(),
             release_notes: None,
             dismissed: false,
         };
         assert_eq!(untrusted.safe_download_url(), DEFAULT_DOWNLOAD_URL);
+    }
+
+    #[test]
+    fn clear_upgrade_overlay_state_resets_failed_data_services_for_signed_in_user() {
+        let _guard = crate::root_view::upgrade_latch_test_lock();
+        let _isolation = crate::root_view::tests::isolate_workspace_state();
+        let mut view = RootView::with_session(
+            build_registry().expect("registry"),
+            Language::Zh,
+            ThemePreference::Light,
+            demo_signed_in(),
+        );
+
+        view.apply_upgrade_notice(UpgradeNotice::fallback_from_message("暂停服务".into()));
+        view.update_check_started = true;
+        view.session_checked = true;
+
+        view.workspaces
+            .fail(&WorkspaceError::Transport("426".into()));
+        view.workspaces_started = true;
+
+        view.events.fail(&EventsError::Transport("426".into()));
+        view.events_started = true;
+
+        view.detail.fail(&EventsError::Transport("426".into()));
+        view.detail_started = true;
+
+        view.courses.fail(&CoursesError::Transport("426".into()));
+        view.courses_started = true;
+
+        view.course_detail
+            .fail(&CoursesError::Transport("426".into()));
+        view.course_detail_started = true;
+
+        view.content.fail(&CoursesError::Transport("426".into()));
+        view.notes.fail(&NotesError::Transport("426".into()));
+        view.notes_started = true;
+        view.projection.fail(&CoursesError::Transport("426".into()));
+
+        view.nav_events.fail(&EventsError::Transport("426".into()));
+        view.nav_events_started = true;
+
+        view.nav_courses
+            .fail(&CoursesError::Transport("426".into()));
+        view.nav_courses_started = true;
+
+        view.enrollments_state = EnrollmentsListState::Failed("426".into());
+        view.enrollments_started = true;
+
+        view.clear_upgrade_overlay_state();
+
+        assert!(view.upgrade_notice.is_none());
+        assert!(!view.update_check_started);
+        assert!(!view.session_checked);
+        assert_eq!(view.workspaces.state(), &WorkspaceListState::Idle);
+        assert!(!view.workspaces_started);
+        assert_eq!(view.events.state(), &ListState::Idle);
+        assert!(!view.events_started);
+        assert_eq!(view.detail.state(), &ListState::Idle);
+        assert!(!view.detail_started);
+        assert_eq!(view.courses.state(), &CoursesListState::Idle);
+        assert!(!view.courses_started);
+        assert_eq!(view.course_detail.state(), &CoursesListState::Idle);
+        assert!(!view.course_detail_started);
+        assert_eq!(view.content.state(), &CourseContentState::Idle);
+        assert_eq!(view.notes.state(), &NotesState::Idle);
+        assert!(!view.notes_started);
+        assert_eq!(view.projection.state(), &ProjectionState::Idle);
+        assert_eq!(view.nav_events.state(), &ListState::Idle);
+        assert!(!view.nav_events_started);
+        assert_eq!(view.nav_courses.state(), &CoursesListState::Idle);
+        assert!(!view.nav_courses_started);
+        assert_eq!(view.enrollments_state, EnrollmentsListState::Idle);
+        assert!(!view.enrollments_started);
     }
 }

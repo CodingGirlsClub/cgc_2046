@@ -1,12 +1,11 @@
-//! 桌面端强制升级 / 止损开关响应解析、安全下载链接白名单与进程级 Latch（ADR-0027）。
+//! 桌面端强制升级与止损开关响应解析、安全链接校验与进程级 Latch（ADR-0027）。
 
 use std::sync::RwLock;
 
 use serde_json::Value;
 use url::Url;
 
-pub const DEFAULT_DOWNLOAD_URL: &str =
-    "https://github.com/CodingGirlsClub/cgc_2046/releases/latest";
+pub const DEFAULT_DOWNLOAD_URL: &str = "https://github.com/CodingGirlsClub/cgc_2046/releases";
 
 const DEFAULT_UPGRADE_MESSAGE: &str = "当前桌面客户端版本过旧，请升级至最新版本后继续使用。";
 
@@ -15,7 +14,6 @@ pub struct UpgradeNotice {
     pub code: String,
     pub message: String,
     pub min_version: Option<String>,
-    pub latest_version: Option<String>,
     pub download_url: Option<String>,
 }
 
@@ -38,7 +36,6 @@ impl UpgradeNotice {
                 trimmed.to_string()
             },
             min_version: None,
-            latest_version: None,
             download_url: None,
         }
     }
@@ -53,7 +50,6 @@ impl UpgradeNotice {
     }
 }
 
-/// 校验证书无关的官方下载链接白名单（fail-closed）。
 pub fn sanitize_download_url(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
@@ -81,7 +77,7 @@ pub fn sanitize_download_url(raw: &str) -> Option<String> {
     }
 }
 
-/// 容错解析服务端 `426` 或 `/api/desktop/version` JSON（缺字段或非 JSON 时兜底，绝不 panic）。
+/// 容错解析服务端 `426` JSON（缺字段或非 JSON 时兜底，绝不 panic）。
 pub fn parse_upgrade_notice(body: &str) -> UpgradeNotice {
     if let Ok(value) = serde_json::from_str::<Value>(body) {
         let error = value.get("error").unwrap_or(&value);
@@ -96,13 +92,11 @@ pub fn parse_upgrade_notice(body: &str) -> UpgradeNotice {
         let code = non_empty("code").unwrap_or_else(|| "client_upgrade_required".to_string());
         let message = non_empty("message").unwrap_or_else(|| DEFAULT_UPGRADE_MESSAGE.to_string());
         let min_version = non_empty("min_version").or_else(|| non_empty("min_supported_version"));
-        let latest_version = non_empty("latest_version");
         let download_url = non_empty("download_url");
         return UpgradeNotice {
             code,
             message,
             min_version,
-            latest_version,
             download_url,
         };
     }
@@ -137,14 +131,13 @@ mod tests {
 
     #[test]
     fn parses_structured_426_payload_and_preserves_kill_switch_kind() {
-        let raw = r#"{"error":{"code":"desktop_client_disabled","message":"临时维护中","min_version":"0.2.0","latest_version":"0.3.0","download_url":"https://codingirlsclub.com/releases"}}"#;
+        let raw = r#"{"error":{"code":"desktop_client_disabled","message":"临时维护中","min_version":"0.2.0","download_url":"https://codingirlsclub.com/releases"}}"#;
         let notice = parse_upgrade_notice(raw);
         assert_eq!(notice.code, "desktop_client_disabled");
         assert!(notice.is_kill_switch());
         assert!(!notice.is_blocked());
         assert_eq!(notice.message, "临时维护中");
         assert_eq!(notice.min_version.as_deref(), Some("0.2.0"));
-        assert_eq!(notice.latest_version.as_deref(), Some("0.3.0"));
         assert_eq!(
             notice.safe_download_url(),
             "https://codingirlsclub.com/releases"
@@ -169,7 +162,6 @@ mod tests {
             code: "client_upgrade_required".to_string(),
             message: "upgrade".to_string(),
             min_version: None,
-            latest_version: None,
             download_url: Some(url.to_string()),
         };
 
@@ -217,10 +209,8 @@ mod tests {
             code: "client_version_blocked".to_string(),
             message: "已停用".to_string(),
             min_version: Some("0.2.0".to_string()),
-            latest_version: Some("0.3.0".to_string()),
             download_url: None,
         };
-        assert!(sample.is_blocked());
         record_upgrade_notice(sample.clone());
         assert_eq!(upgrade_notice(), Some(sample));
 

@@ -187,9 +187,8 @@ pub(crate) fn classify_turn_error(
     }
 }
 
-/// 当 CGC Cloud 托管网关返回 HTTP 426 时记录进程级 `UpgradeNotice` Latch；
-/// BYOK provider 返回 426 不触碰平台升级 Latch。
-pub(crate) fn record_managed_upgrade_notice(error: &AgentError, managed_provider: bool) {
+/// 仅当 CGC Cloud 托管 provider 返回 HTTP `426` 时置位全局升级提示 Latch（不误伤 BYOK）。
+pub(crate) fn maybe_record_upgrade_notice(error: &AgentError, managed_provider: bool) {
     if !managed_provider {
         return;
     }
@@ -199,8 +198,11 @@ pub(crate) fn record_managed_upgrade_notice(error: &AgentError, managed_provider
         ..
     }) = error
     {
-        let notice = cgc_platform::api::upgrade::parse_upgrade_notice(message);
-        cgc_platform::api::upgrade::record_upgrade_notice(notice);
+        if cgc_platform::api::upgrade_notice().is_none() {
+            cgc_platform::api::record_upgrade_notice(cgc_platform::api::parse_upgrade_notice(
+                message,
+            ));
+        }
     }
 }
 
@@ -601,7 +603,9 @@ impl Drop for NativeRuntimeConnection {
 
 #[cfg(test)]
 mod model_setup_tests {
-    use super::{classify_turn_error, ModelSetup, NativeTurnErrorKind};
+    use super::{
+        classify_turn_error, maybe_record_upgrade_notice, ModelSetup, NativeTurnErrorKind,
+    };
     use cgc_agent_core::AgentError;
     use cgc_agent_provider::{ProviderError, ProviderErrorCategory};
 
@@ -673,20 +677,32 @@ mod model_setup_tests {
     }
 
     #[test]
-    fn managed_426_records_upgrade_notice_while_byok_426_does_not() {
-        cgc_platform::api::upgrade::clear_upgrade_notice();
-        let err = AgentError::Provider(ProviderError::api(426, "桌面端维护中"));
+    fn maybe_record_upgrade_notice_only_latches_for_managed_provider_426() {
+        let _guard = crate::root_view::upgrade_latch_test_lock();
+        cgc_platform::api::clear_upgrade_notice();
 
-        super::record_managed_upgrade_notice(&err, false);
-        assert_eq!(cgc_platform::api::upgrade::upgrade_notice(), None);
-
-        super::record_managed_upgrade_notice(&err, true);
-        assert_eq!(
-            cgc_platform::api::upgrade::upgrade_notice()
-                .as_ref()
-                .map(|n| n.message.as_str()),
-            Some("桌面端维护中")
+        // BYOK 426 不应触发平台全局升级覆盖层
+        maybe_record_upgrade_notice(
+            &AgentError::Provider(ProviderError::api(426, "byok 426")),
+            false,
         );
-        cgc_platform::api::upgrade::clear_upgrade_notice();
+        assert_eq!(cgc_platform::api::upgrade_notice(), None);
+
+        // CGC Cloud 426 应触发全局升级覆盖层并保留结构化载荷（code / min_version / download_url）
+        let structured_426 = r#"{"error":{"code":"desktop_client_disabled","message":"临时维护中","min_version":"0.2.0","download_url":"https://codingirlsclub.com/releases"}}"#;
+        maybe_record_upgrade_notice(
+            &AgentError::Provider(ProviderError::api(426, structured_426)),
+            true,
+        );
+        let notice = cgc_platform::api::upgrade_notice().expect("managed 426 latches notice");
+        assert_eq!(notice.code, "desktop_client_disabled");
+        assert!(notice.is_kill_switch());
+        assert_eq!(notice.message, "临时维护中");
+        assert_eq!(notice.min_version.as_deref(), Some("0.2.0"));
+        assert_eq!(
+            notice.safe_download_url(),
+            "https://codingirlsclub.com/releases"
+        );
+        cgc_platform::api::clear_upgrade_notice();
     }
 }

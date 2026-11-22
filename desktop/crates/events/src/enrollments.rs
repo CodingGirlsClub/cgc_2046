@@ -1,6 +1,6 @@
 //! 我的报名列表（story 3.7）：myEnrollments 查询与行模型。
 
-use cgc_platform::api::GraphqlClient;
+use cgc_platform::api::{ApiError, GraphqlClient};
 use serde_json::Value;
 
 /// `myEnrollments` 后端单页上限（schema：Maximum 250）。
@@ -274,7 +274,17 @@ impl EnrollmentsApi for HttpEnrollmentsApi {
                 MY_ENROLLMENTS_QUERY,
                 serde_json::json!({ "first": MY_ENROLLMENTS_PAGE_SIZE, "after": after }),
             )
-            .map_err(crate::list::EventsError::from)?;
+            .map_err(|error: ApiError| match error {
+                ApiError::Transport(reason) => crate::list::EventsError::Transport(reason),
+                ApiError::Timeout(reason) => {
+                    crate::list::EventsError::Transport(format!("timeout: {reason}"))
+                }
+                ApiError::Unauthorized => crate::list::EventsError::Unauthorized,
+                ApiError::UpgradeRequired(notice) => {
+                    crate::list::EventsError::Server(notice.message)
+                }
+                ApiError::Graphql { message, .. } => crate::list::EventsError::Server(message),
+            })?;
         let page = payload
             .get("data")
             .and_then(|data| data.get("myEnrollments"))
@@ -317,7 +327,17 @@ impl EnrollmentsApi for HttpEnrollmentsApi {
                 MY_ENROLLMENT_FOR_COURSE_QUERY,
                 serde_json::json!({ "offeringId": course_id }),
             )
-            .map_err(crate::list::EventsError::from)?;
+            .map_err(|error: ApiError| match error {
+                ApiError::Transport(reason) => crate::list::EventsError::Transport(reason),
+                ApiError::Timeout(reason) => {
+                    crate::list::EventsError::Transport(format!("timeout: {reason}"))
+                }
+                ApiError::Unauthorized => crate::list::EventsError::Unauthorized,
+                ApiError::UpgradeRequired(notice) => {
+                    crate::list::EventsError::Server(notice.message)
+                }
+                ApiError::Graphql { message, .. } => crate::list::EventsError::Server(message),
+            })?;
         Ok(payload
             .get("data")
             .and_then(|data| data.get("myEnrollment"))
@@ -332,7 +352,17 @@ impl EnrollmentsApi for HttpEnrollmentsApi {
         let payload = self
             .client
             .post(token, MY_LEARNING_RUNS_QUERY, serde_json::json!({}))
-            .map_err(crate::list::EventsError::from)?;
+            .map_err(|error: ApiError| match error {
+                ApiError::Transport(reason) => crate::list::EventsError::Transport(reason),
+                ApiError::Timeout(reason) => {
+                    crate::list::EventsError::Transport(format!("timeout: {reason}"))
+                }
+                ApiError::Unauthorized => crate::list::EventsError::Unauthorized,
+                ApiError::UpgradeRequired(notice) => {
+                    crate::list::EventsError::Server(notice.message)
+                }
+                ApiError::Graphql { message, .. } => crate::list::EventsError::Server(message),
+            })?;
         let rows = payload
             .get("data")
             .and_then(|data| data.get("myLearningRuns"))

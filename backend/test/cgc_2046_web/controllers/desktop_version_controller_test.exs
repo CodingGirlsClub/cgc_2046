@@ -8,16 +8,24 @@ defmodule Cgc2046Web.DesktopVersionControllerTest do
   use Cgc2046Web.ConnCase, async: false
 
   setup do
-    previous = Application.get_env(:cgc_2046, :desktop_release)
+    previous_gate = Application.get_env(:cgc_2046, :desktop_client_gate)
+    previous_release = Application.get_env(:cgc_2046, :desktop_release)
 
     on_exit(fn ->
-      if is_nil(previous) do
+      if is_nil(previous_gate) do
+        Application.delete_env(:cgc_2046, :desktop_client_gate)
+      else
+        Application.put_env(:cgc_2046, :desktop_client_gate, previous_gate)
+      end
+
+      if is_nil(previous_release) do
         Application.delete_env(:cgc_2046, :desktop_release)
       else
-        Application.put_env(:cgc_2046, :desktop_release, previous)
+        Application.put_env(:cgc_2046, :desktop_release, previous_release)
       end
     end)
 
+    Application.delete_env(:cgc_2046, :desktop_client_gate)
     Application.delete_env(:cgc_2046, :desktop_release)
     :ok
   end
@@ -34,7 +42,7 @@ defmodule Cgc2046Web.DesktopVersionControllerTest do
     assert json_response(conn, 200) == %{
              "latest_version" => nil,
              "min_supported_version" => nil,
-             "download_url" => "https://github.com/CodingGirlsClub/cgc_2046/releases/latest",
+             "download_url" => "https://github.com/CodingGirlsClub/cgc_2046/releases",
              "release_notes" => nil,
              "kill_switch" => false,
              "update_available" => false,

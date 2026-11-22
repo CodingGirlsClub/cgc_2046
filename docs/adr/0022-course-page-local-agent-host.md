@@ -1,17 +1,18 @@
 ---
-status: accepted
+status: superseded
+superseded_by: ADR-0028
 date: 2026-10-14
 ---
 
 # ADR-0022：课程学习页经 CGC 本机 Host 驱动学员自己的 agent
 
-> **Superseded（2026-10-26）：Web 端学习搭子与 cgc-host 已移除，本 ADR 仅作历史记录。**
+> **Superseded（2026-10-26）：Web 端学习搭子与 `cgc-host` 已移除，本 ADR 的浏览器 ↔ 本机 Host 桥接方案已退役。但本 ADR 确立的 `learning_host` 连接凭证类型（`cgch_` 前缀、domain-separated hash、5 个学习工具白名单）仍在线上服役，由桌面客户端（ADR-0025 / ADR-0028）承接消费。**
 >
-> **2026-10-29 补记：本 ADR 引用的 `cgc-host/**` 与 `omp-plugin/**` 文件均已删除（Host 2026-10-26、OMP 插件 2026-10-29），文中路径只作历史追溯，不再指向现存代码。**
+> **2026-10-29 补记：本 ADR 引用的 `cgc-host/**`、`omp-plugin/**` 与 `web/lib/host-connection.test.ts` 文件均已删除（Host 2026-10-26、OMP 插件 2026-10-29），文中上述路径只作历史追溯，不再指向现存代码。**
 
-> 日期：2026-10-14 ｜ 状态：**已接受（Accepted）**
+> 日期：2026-10-14 ｜ 状态：**已取代（Superseded，2026-10-26；学习凭证 learning_host 决策由后端与桌面端 ADR-0028 承接）**
 
-BYO（ADR-0001）让学员用自己电脑上的 agent 和模型额度学习，但学习发生在终端里，课程内容与掌握进度却在网页上，学员只能在两边来回切换。本 ADR 让课程学习页内嵌一个对话栏，对话仍在学员电脑上执行：学员电脑上常驻一个 CGC 本机 Host，替网页启动并驱动学员的 OMP。平台仍不运行模型（D1、D3 不变）。完整设计、需求与验收见 `docs/plans/2026-10-14-1446-feat-course-page-local-agent-chat-plan.md`，下文的 KTD 编号均指该计划。
+BYO（ADR-0001）让学员用自己电脑上的 agent 和模型额度学习，但学习发生在终端里，课程内容与掌握进度却在网页上，学员只能在两边来回切换。本 ADR 让课程学习页内嵌一个对话栏，对话仍在学员电脑上执行：学员电脑上常驻一个 CGC 本机 Host，替网页启动并驱动学员的 OMP。平台仍不运行模型（D1、D3 不变）。完整设计、需求与验收见 `docs/plans/2026-10-14-1446-feat-course-page-local-agent-chat-plan.md`（历史计划，已归档于 git 历史），下文的 KTD 编号均指该计划。
 
 决定：
 
@@ -53,3 +54,9 @@ BYO（ADR-0001）让学员用自己电脑上的 agent 和模型额度学习，�
 **2026-10-19 修订（发送前可选模型与推理强度）：** `chat.attach` 在课程还没有会话指针时不再返回空历史，而是先 `session/new` 建一条空会话（指针落盘），`history` 随即可带 `settings`——ACP 的 config options 只在会话上返回，页面要在首条消息之前就能选模型/思考等级（Codex 为 `reasoning_effort`「推理强度」）没有别的通道。代价：打开对话栏会拉起该 agent 的进程，且学员自己 agent 的历史里会多一条空会话（`chat.new` 已有同类先例）；agent 的启动/登录错误（`chat_unavailable` / `auth_required`）也提前到打开面板时出现，页面用与发消息时同一套错误面展示。KTD13 的空闲回收不变——指针在状态文件里，回收后下次 attach 走 `session/load`。会话设置白名单在 OMP 的 `thinking` 之外增加 Codex 的 `reasoning_effort`；因入口体验依赖新 Host 行为，`MIN_HOST_VERSION` 抬到 `0.2.3`（与 ADR-0023 抬 `0.2.0` 同一口径）：旧 Host 在新页面被版本门挡在「Host 需要更新」，整块学习搭子不可用直到重跑安装命令——有意的取舍，入口级体验若静默降级等于对绝大多数存量学员不可见；本次 deploy 必须与 Host 包 `0.2.3` 产物同批发布，否则提示更新也装不到新版。凭证在 `session/new` 的 `mcpServers` 里下发的时点也随之前移到「打开面板」——ADR-0023 的「会话存储是否落学习凭证」真机扫描要把「只打开面板、不发消息」也纳入。
 
 回滚：按 PR 还原。`kind` 与审计 `token_kind` 两列的 down 迁移先撤销全部 `learning_host` 凭证再删列。只回滚后端镜像、不跑 down 迁移时，`learning_host` 凭证因独立前缀与域分隔哈希而校验失败，不会获得更宽的权限；重新部署新版后恢复。学员侧用 Host 自带的卸载命令移除 Host，课程工作目录（作业）保留。
+
+## 参考（现存承接源码）
+
+- 历史计划：`docs/plans/2026-10-14-1446-feat-course-page-local-agent-chat-plan.md`（已归档于 git 历史）
+- 后端 `learning_host` 凭证与白名单强制：`backend/lib/cgc_2046/mcp/token.ex`、`backend/lib/cgc_2046/mcp/scopes.ex`、`backend/lib/cgc_2046/mcp/wrapper.ex`
+- 桌面端 `learning_host` 签发与续租：`desktop/crates/platform/src/mcp/credential.rs`

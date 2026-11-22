@@ -1,7 +1,6 @@
-//! 构建可追溯信息（story 1.7）：版本号与 commit SHA 由 build.rs 注入。
+//! 构建可追溯信息（story 1.7）：版本号与 commit SHA 统一复用 `cgc_platform::runtime` 真源。
 
-pub const VERSION: &str = env!("CGC_BUILD_VERSION");
-pub const COMMIT: &str = env!("CGC_BUILD_COMMIT");
+pub use cgc_platform::runtime::{BUILD_COMMIT as COMMIT, BUILD_VERSION as VERSION};
 
 /// 关于页/产物同名信息：`0.0.1 (abc1234)`。
 pub fn about_line() -> String {
@@ -23,9 +22,10 @@ mod tests {
         assert!(!COMMIT.trim().is_empty());
         assert_eq!(VERSION, env!("CGC_BUILD_VERSION"));
         assert_eq!(COMMIT, env!("CGC_BUILD_COMMIT"));
+        assert_eq!(VERSION, cgc_platform::runtime::client_version());
+        assert_eq!(COMMIT, cgc_platform::runtime::client_commit());
         assert_eq!(about_line(), format!("{VERSION} ({COMMIT})"));
         assert!(artifact_stem().starts_with("cgc2046-"));
         assert!(artifact_stem().contains(COMMIT));
-        assert_eq!(VERSION, cgc_platform::runtime::client_version());
     }
 }

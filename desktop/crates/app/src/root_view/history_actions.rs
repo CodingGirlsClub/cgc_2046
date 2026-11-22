@@ -245,3 +245,27 @@ pub(crate) fn notify_history_changed(cx: &mut App) {
         cx.notify();
     });
 }
+
+/// 子视图（如 NativeAgentView）在后台请求命中 HTTP 426 置位全局 Latch 后调用：
+/// 立即把 `upgrade_notice()` 同步到主窗口 `RootView` 并触发父级重绘，不依赖后续用户交互。
+pub(crate) fn notify_upgrade_notice(cx: &mut App) {
+    let Some(notice) = cgc_platform::api::upgrade_notice() else {
+        return;
+    };
+    if let Some(weak) = root_weak() {
+        let _ = weak.update(cx, |this, cx| {
+            if this.apply_upgrade_notice(notice.clone()) {
+                cx.notify();
+            }
+        });
+    }
+    for window in cx.windows() {
+        if let Some(root) = window.downcast::<RootView>() {
+            let _ = root.update(cx, |this, _window, cx| {
+                if this.apply_upgrade_notice(notice.clone()) {
+                    cx.notify();
+                }
+            });
+        }
+    }
+}

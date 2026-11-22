@@ -43,6 +43,9 @@ impl RootView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.is_upgrade_gate_active() {
+            return;
+        }
         if event.keystroke.key == "escape" && self.chat.session.is_busy() {
             self.stop_chat_turn(cx);
             return;

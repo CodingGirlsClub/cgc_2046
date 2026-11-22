@@ -12,6 +12,11 @@ use crate::workspace::{OfferingScope, WorkspaceScope};
 pub mod media;
 pub mod upgrade;
 
+pub use upgrade::{
+    clear_upgrade_notice, parse_upgrade_notice, record_upgrade_notice, upgrade_notice,
+    UpgradeNotice, DEFAULT_DOWNLOAD_URL,
+};
+
 /// 2.5：当前需要注入 workspace 作用域的 operation 清单（新增 operation 必须登记）。
 pub const WORKSPACE_SCOPED_OPERATIONS: &[&str] = &["ListEvents", "ListCourses"];
 
@@ -23,8 +28,8 @@ pub enum ApiError {
     Timeout(String),
     /// 未认证/登录失效（HTTP 401 或 GraphQL unauthorized 类 code）：统一登出。
     Unauthorized,
-    /// 客户端版本已过旧/被停用/处于止损窗口（HTTP 426）：不登出，引导更新。
-    UpgradeRequired(upgrade::UpgradeNotice),
+    /// 客户端版本过旧、被拉黑或桌面端临时停服（HTTP 426）：不登出，弹全局阻断引导 UI。
+    UpgradeRequired(UpgradeNotice),
     /// GraphQL errors 非空（带可选业务 code）。
     Graphql {
         code: Option<String>,
@@ -33,13 +38,17 @@ pub enum ApiError {
 }
 
 impl ApiError {
+    pub fn is_upgrade_required(&self) -> bool {
+        matches!(self, ApiError::UpgradeRequired(_))
+    }
+
     pub fn diagnostic(&self) -> String {
         match self {
             ApiError::Transport(reason) => format!("transport error: {reason}"),
             ApiError::Timeout(reason) => format!("timeout: {reason}"),
             ApiError::Unauthorized => "unauthorized".to_string(),
             ApiError::UpgradeRequired(notice) => {
-                format!("upgrade required {}: {}", notice.code, notice.message)
+                format!("upgrade required ({}): {}", notice.code, notice.message)
             }
             ApiError::Graphql { code, message } => match code {
                 Some(code) => format!("graphql error {code}: {message}"),
@@ -54,7 +63,7 @@ impl ApiError {
             ApiError::Transport(_) => "client.transport".to_string(),
             ApiError::Timeout(_) => "client.timeout".to_string(),
             ApiError::Unauthorized => "client.unauthorized".to_string(),
-            ApiError::UpgradeRequired(notice) => format!("client.{}", notice.code),
+            ApiError::UpgradeRequired(_) => "client.upgrade_required".to_string(),
             ApiError::Graphql { code, .. } => match code {
                 Some(code) => format!("client.{code}"),
                 None => "client.graphql".to_string(),
@@ -212,7 +221,7 @@ impl GraphqlClient {
             .post(&self.endpoint)
             .header("content-type", "application/json");
         for (name, value) in crate::runtime::client_headers() {
-            request = request.header(name, value);
+            request = request.header(&name, &value);
         }
         if let Some(token) = token {
             request = request.header("authorization", format!("Bearer {token}"));
@@ -221,7 +230,10 @@ impl GraphqlClient {
         let body = serde_json::json!({ "query": query, "variables": variables });
         let mut response = request.send_json(&body).map_err(|error| {
             let reason = error.to_string();
-            if reason.contains("timeout") || reason.contains("timed out") {
+            if matches!(&error, ureq::Error::Timeout(_))
+                || reason.contains("timeout")
+                || reason.contains("timed out")
+            {
                 ApiError::Timeout(reason)
             } else {
                 ApiError::Transport(reason)
@@ -232,13 +244,13 @@ impl GraphqlClient {
             return Err(ApiError::Unauthorized);
         }
         if status == 426 {
-            let raw = response.body_mut().read_to_string().unwrap_or_default();
-            let notice = upgrade::parse_upgrade_notice(&raw);
-            upgrade::record_upgrade_notice(notice.clone());
+            let text = response.body_mut().read_to_string().unwrap_or_default();
+            let notice = parse_upgrade_notice(&text);
+            record_upgrade_notice(notice.clone());
             return Err(ApiError::UpgradeRequired(notice));
         }
         if !(200..300).contains(&status) {
-            return Err(ApiError::Transport(format!("http status {status}")));
+            return Err(ApiError::Transport(format!("http status: {status}")));
         }
         let payload = response
             .body_mut()
@@ -333,45 +345,70 @@ mod tests {
             .expect("post ok");
 
         assert_eq!(value["data"]["ok"], true);
-        let request = received.recv().expect("request").to_ascii_lowercase();
-        assert!(request.contains("authorization: bearer jwt.token"));
-        assert!(request.contains("x-cgc-client: desktop"));
-        assert!(request.contains(&format!(
-            "x-cgc-client-version: {}",
+        let request = received.recv().expect("request");
+        assert!(
+            request.contains("authorization: Bearer jwt.token")
+                || request
+                    .to_ascii_lowercase()
+                    .contains("authorization: bearer jwt.token")
+        );
+        let lower = request.to_ascii_lowercase();
+        assert!(lower.contains(&format!(
+            "{}: {}",
+            crate::runtime::CLIENT_HEADER_NAME,
+            crate::runtime::CLIENT_HEADER_VALUE
+        )));
+        assert!(lower.contains(&format!(
+            "{}: {}",
+            crate::runtime::CLIENT_VERSION_HEADER,
             crate::runtime::client_version().to_ascii_lowercase()
         )));
-        assert!(request.contains(&format!(
-            "x-cgc-client-platform: {}",
+        assert!(lower.contains(&format!(
+            "{}: {}",
+            crate::runtime::CLIENT_PLATFORM_HEADER,
             crate::runtime::client_platform().to_ascii_lowercase()
         )));
     }
 
     #[test]
-    fn http_426_maps_to_upgrade_required_and_records_latch() {
+    fn http_426_records_latch_and_never_maps_to_unauthorized() {
         let _guard = upgrade::LATCH_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        upgrade::clear_upgrade_notice();
-
+        clear_upgrade_notice();
         let (endpoint, _rx) = spawn_mock(
             426,
-            r#"{"error":{"code":"client_upgrade_required","message":"请升级版本","min_version":"0.2.0","download_url":"https://codingirlsclub.com/releases"}}"#,
+            r#"{"error":{"code":"client_upgrade_required","message":"请升级版本","min_version":"0.2.0","download_url":"https://codingirlsclub.com/dl"}}"#,
         );
         let client = GraphqlClient::new(endpoint);
         let error = client
-            .post(Some("jwt"), "query { me { id } }", serde_json::json!({}))
+            .post(None, "query { ok }", serde_json::json!({}))
             .unwrap_err();
-        match error {
-            ApiError::UpgradeRequired(notice) => {
-                assert_eq!(notice.code, "client_upgrade_required");
-                assert_eq!(notice.message, "请升级版本");
-                assert_eq!(notice.min_version.as_deref(), Some("0.2.0"));
-                assert_eq!(upgrade::upgrade_notice(), Some(notice));
-            }
-            other => panic!("expected UpgradeRequired, got {other:?}"),
-        }
+        assert!(!matches!(error, ApiError::Unauthorized));
+        assert!(error.is_upgrade_required());
+        assert_eq!(error.client_key(), "client.upgrade_required");
+        let latched = upgrade_notice().expect("latch set");
+        assert_eq!(latched.code, "client_upgrade_required");
+        assert_eq!(latched.min_version.as_deref(), Some("0.2.0"));
+        clear_upgrade_notice();
+    }
 
-        upgrade::clear_upgrade_notice();
+    #[test]
+    fn http_426_with_non_json_body_falls_back_safely() {
+        let _guard = upgrade::LATCH_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        clear_upgrade_notice();
+        let (endpoint, _rx) = spawn_mock(426, "Upgrade Required");
+        let client = GraphqlClient::new(endpoint);
+        let error = client
+            .post(None, "query { ok }", serde_json::json!({}))
+            .unwrap_err();
+        assert!(
+            matches!(error, ApiError::UpgradeRequired(ref n) if n.message == "Upgrade Required")
+        );
+        assert!(upgrade_notice().is_some());
+        clear_upgrade_notice();
     }
 
     #[test]
@@ -556,6 +593,11 @@ mod tests {
         );
         assert_eq!(ApiError::Timeout("x".into()).client_key(), "client.timeout");
         assert_eq!(ApiError::Unauthorized.client_key(), "client.unauthorized");
+        assert_eq!(
+            ApiError::UpgradeRequired(UpgradeNotice::fallback_from_message("x".into()))
+                .client_key(),
+            "client.upgrade_required"
+        );
         assert_eq!(
             ApiError::Graphql {
                 code: Some("order_deposit_consent_required".into()),

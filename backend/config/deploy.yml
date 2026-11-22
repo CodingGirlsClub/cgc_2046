@@ -88,6 +88,15 @@ env:
     # 静默回落（#934 评审指正）。
     LANG: C.UTF-8
     LC_ALL: C.UTF-8
+    # 桌面客户端版本门控与止损开关（ADR-0027）：全空时默认放行；部署时由
+    # GitHub Repository Variables（vars.DESKTOP_*）按需覆写 deploy.ci.yml
+    DESKTOP_KILL_SWITCH: ""
+    DESKTOP_KILL_SWITCH_MESSAGE: ""
+    DESKTOP_MIN_SUPPORTED_VERSION: ""
+    DESKTOP_BLOCKED_VERSIONS: ""
+    DESKTOP_LATEST_VERSION: ""
+    DESKTOP_DOWNLOAD_URL: ""
+    DESKTOP_RELEASE_NOTES: ""
   secret:
     - DATABASE_URL
     - SECRET_KEY_BASE
@@ -125,15 +134,6 @@ env:
     # 微信扫码登录（可选门禁：缺省 wechat_login_unavailable）
     - WECHAT_WEB_APPID
     - WECHAT_WEB_SECRET
-    # 桌面端版本门控与轻量版本检查（可选运维开关：缺省即放行且提示无更新；
-    # deploy workflow 为未配置的键写空值以满足 Kamal env.secret 存在性校验）
-    - DESKTOP_KILL_SWITCH
-    - DESKTOP_KILL_SWITCH_MESSAGE
-    - DESKTOP_MIN_SUPPORTED_VERSION
-    - DESKTOP_BLOCKED_VERSIONS
-    - DESKTOP_LATEST_VERSION
-    - DESKTOP_DOWNLOAD_URL
-    - DESKTOP_RELEASE_NOTES
     # 微信小程序凭证（可选门禁：缺值 platform_not_configured，boot 不崩；
     # runtime.exs 注释见 issue #264——web 先行部署、小程序上架时补齐）
     - WECHAT_MP_APPID
