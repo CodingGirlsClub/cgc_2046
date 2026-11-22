@@ -185,6 +185,16 @@ defmodule Cgc2046Web.GraphqlSchema.Offering do
         end)
       end)
     end
+
+    field :offering_readiness, :offering_readiness_payload do
+      arg(:id, non_null(:id))
+
+      resolve(fn _, %{id: id}, %{context: context} ->
+        with_actor(context, fn actor ->
+          resolve_readiness(id, actor)
+        end)
+      end)
+    end
   end
 
   object :offering_mutations do
