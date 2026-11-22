@@ -47,7 +47,7 @@ Initiative 侧已有先例（`update :cancel` 接受 draft，注释「误建的�
 
 - **级联清单（逐一核查，#688 按事实重写为三类；迁移侧无需改动）**：
   - **结构性不存在**：`enrollments` / `attendances`（报名需 offering open；attendances 为 RESTRICT，异常存在即 DELETE 被 FK 拒绝——fail-closed 不静默丢数据）、`curriculum_course_revisions`（RESTRICT，revision 生成即发布）、Event 的教研 curriculum run（launch 后由 Instantiator 创建）；
-  - **FK 承接（`on_delete: delete_all`）**：`event_moderators` / `sponsorships` / `speaker_invitations` / `invite_batches`（event + course 维度）——speaker_invitations 与 invite_batches 对 draft **并非结构性不存在**（邀请在 draft 合法、批次创建无状态门），MCP 摘要须披露连带删除；
+  - **FK 承接（`on_delete: delete_all` / `on_delete: nilify_all`）**：`event_moderators` / `sponsorships` / `speaker_invitations` / `invite_batches`（event + course 维度）——speaker_invitations 与 invite_batches 对 draft **并非结构性不存在**（邀请在 draft 合法、批次创建无状态门），MCP 摘要须披露连带删除；（**2026-11-22 补记**：后续迁移新增两条指向 `events`/`courses` 的外键——`volunteer_applications.assigned_event_id -> events(id)` 为 `on_delete: :nilify_all` `backend/priv/repo/migrations/20260918083457_create_recruitment_tables.exs`，`learning_course_notes.course_id -> courses(id)` 为 `on_delete: :delete_all` `backend/priv/repo/migrations/20261111092110_add_course_notes.exs`；）
   - **显式收口**：`curriculum_outputs` 对 course 无 FK（`key` 文本约定；#745 起表上有 workflow_run_id FK，但 run 只 cancel 不 destroy，不触及本路径），由 `Output.delete_for_course/2` 删除；`workflow_runs` 无指向 events/courses 的 FK——Course 侧非终态 prep run 由 `Prep.stop_active_runs/1` 收口、Event 侧非终态讲者邀请 run 由 `SpeakerInvitation.stop_event_runs/1` 收口（#688 补；终态 run 与 facts 作为历史痕迹保留——run facts 含教研 issues 镜像与讲者 materials 镜像，「不可恢复」仅指业务行，留痕按审计保留）；`admission_capacity_ledgers.offering_id` 多态无 FK，由 `CapacityLedger.delete_for_offering/2` 删除（#688 补——draft 期可经 `offering.capacity_changed` 信号 / Initiative 规则传播建行）。
 - **正面**：错建 draft 有官方出口（MCP 与 web 同源同语义）；slug 释放使「重来一遍」不必换公开 URL；行锁使删除与发布互斥，不会出现「删掉已发布课程」。
 - **代价/风险**：
@@ -61,3 +61,15 @@ Initiative 侧已有先例（`update :cancel` 接受 draft，注释「误建的�
 ## 修订记录
 
 - **2026-09-17（#688）**：PR #678 deep 评审证伪「Event 无级联」论证——讲者邀请 run 在**邀请创建时**实例化（draft 合法，`ensure_event_eligible_status` 放行 `:draft`），非 launch 后；`workflow_runs` 无指向 events 的 FK，`speaker_invitations_event_id_fkey` 的 delete_all 级联不到 run，且 `approval_timeout: nil`（永不超时）/ Reaper（event-only + curriculum-only）/ 对账规则（无宿主判据）三路兜底均扫不中 → 永久孤儿。决策 3 与级联清单按事实重写为三类；Event `:delete` 补 `SpeakerInvitation.stop_event_runs/1`，两侧补 `CapacityLedger.delete_for_offering/2`（账本 `offering_id` 多态无 FK，draft 期可建行——capacity_changed 信号无状态门 + Initiative 规则传播直连建行）。MCP 摘要补连带披露与留痕措辞（「记录删除、留痕保留」——run facts 按审计保留，「不可恢复」仅指业务行）。（#688 实施中曾误记「GraphQL delete mutation 未暴露」——实为 resource graphql 声明的 destroy mutation（`event.ex` / `course.ex` 的 `destroy(:delete_event/:delete_course, :delete)`），`schema.graphql` 已暴露 deleteEvent / deleteCourse；连带披露因此只需改 MCP 摘要，GraphQL mutation 无摘要面。误记源于只 grep 了手写 resolver 文件 graphql_schema.ex，未查 resource 声明——留此存照防复发。）存量普查（本 PR 前置，dev + 生产只读）：孤儿 run 与孤儿账本均为 0，无存量清理需求。
+- **2026-11-22 补记**：记录后续新增的 2 条外键策略——`volunteer_applications.assigned_event_id -> events(id)`（`on_delete: :nilify_all`，`backend/priv/repo/migrations/20260918083457_create_recruitment_tables.exs`）与 `learning_course_notes.course_id -> courses(id)`（`on_delete: :delete_all`，`backend/priv/repo/migrations/20261111092110_add_course_notes.exs`）。
+
+## 参考
+
+- `backend/lib/cgc_2046/courses/course.ex`
+- `backend/lib/cgc_2046/events/event.ex`
+- `backend/lib/cgc_2046/events/speaker_invitation.ex`
+- `backend/lib/cgc_2046/curriculum/output.ex`
+- `backend/lib/cgc_2046/curriculum/prep.ex`
+- `backend/lib/cgc_2046/admission/capacity_ledger.ex`
+- `backend/lib/cgc_2046/mcp/tools/delete_course.ex`
+- `backend/lib/cgc_2046/mcp/tools/delete_event.ex`

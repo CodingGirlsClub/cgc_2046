@@ -1,7 +1,7 @@
 # ADR-0006: member 退出 Role 枚举，成员资格即 membership
 
 > 日期：2026-08-15 ｜ 状态：**已接受（Accepted）** ｜ 决策者：用户（product owner）
-> 关联：#147 D3、#151（B2）、#161（B6）、#71（自定义角色地基）、plan `docs/plans/2026-08-15-017-refactor-member-semantics-plan.md`
+> 关联：#147 D3、#151（B2）、#161（B6）、#71（自定义角色地基）、plan `docs/plans/2026-08-15-017-refactor-member-semantics-plan.md`（历史计划，已归档于 git 历史）
 > 触发：`/join open` 挂 `learner`、注册入 2046 挂 `member`，两条路径给同权普通成员挂了不同词汇；权限映射页把四个同权角色展示为四行。
 
 ---
@@ -32,6 +32,16 @@
 
 - **正面：** 入座词汇单一；权限页不再把同权角色画成四行；#71 自定义角色的地基铺平。
 - **代价/风险：**
-  - 已手配 `StepRole.allowed_roles` 含 member 的步骤会失效；当前无生产 seed，空配置 = 不限制。
+  - 已手配 `StepRole.allowed_roles` 含 member 的步骤会失效（2026-11-22 补记：实际落地模型 `Cgc2046.Workflows.StepRole` 为 `step_id` + `role_id` 多对多关联资源 `backend/lib/cgc_2046/workflows/step_role.ex`，而非 `allowed_roles` 字段）；当前无生产 seed，空配置 = 不限制。
   - 读到历史 member 行时属性 `one_of` 含 `retired_role_names`，迁移后库内为零。
   - ADR-0004「注册入 2046 挂 member」被本决策取代；2046 历史迁移 SQL 保持原样。
+
+## 参考
+
+- `backend/lib/cgc_2046/accounts/role.ex`
+- `backend/lib/cgc_2046/accounts/rbac.ex`
+- `backend/lib/cgc_2046/accounts/workspace.ex`
+- `backend/lib/cgc_2046/accounts/join_request.ex`
+- `backend/lib/cgc_2046/accounts/invitation.ex`
+- `backend/lib/cgc_2046/workflows/step_role.ex`
+- `web/app/[locale]/w/[slug]/settings/permissions/page.tsx`
