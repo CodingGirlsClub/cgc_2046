@@ -313,7 +313,7 @@ fn native_composer_uses_shared_editor_growth_and_preserves_draft(cx: &mut TestAp
 
 #[gpui_kit::test]
 fn native_composer_shows_and_removes_pending_agent_call(cx: &mut TestAppContext) {
-    use cgc_courses::content::{AgentActionSpec, AgentIntent};
+    use cgc_courses::content::{AgentActionIntent, AgentActionSpec, AgentIntent};
 
     cx.update(gpui_kit::init);
     let (handle, probe) = cx.update(|cx| {
@@ -334,7 +334,7 @@ fn native_composer_shows_and_removes_pending_agent_call(cx: &mut TestAppContext)
         &AgentActionSpec {
             id: "a-answer".into(),
             label: "Answer".into(),
-            intent: AgentIntent::Answer,
+            intent: AgentActionIntent::Known(AgentIntent::Answer),
             primary: true,
         },
         crate::agent_call::LearningTarget::Objective {
@@ -343,7 +343,8 @@ fn native_composer_shows_and_removes_pending_agent_call(cx: &mut TestAppContext)
             issue_id: "issue-1".into(),
             objective_id: "obj-1".into(),
         },
-    );
+    )
+    .expect("known action");
     cx.update_window(handle, |_, window, cx| {
         let view = probe.read(cx).view.clone();
         view.update(cx, |view, cx| {
@@ -384,9 +385,68 @@ fn native_composer_shows_and_removes_pending_agent_call(cx: &mut TestAppContext)
 }
 
 #[gpui_kit::test]
+fn native_composer_compose_plain_prompt_clears_pending_and_sets_status(cx: &mut TestAppContext) {
+    use crate::agent_call::{AgentCall, LearningTarget, PendingAgentCall};
+    use cgc_courses::content::{AgentActionIntent, AgentActionSpec, AgentIntent};
+
+    cx.update(gpui_kit::init);
+    let (handle, probe) = cx.update(|cx| {
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds {
+                    origin: Default::default(),
+                    size: size(px(420.0), px(600.0)),
+                })),
+                ..Default::default()
+            },
+            cx,
+            |window, cx| cx.new(|cx| NativeComposerProbe::new(window, cx)),
+        )
+        .unwrap()
+    });
+    let existing = AgentCall::from_action(
+        &AgentActionSpec {
+            id: "a-hint".into(),
+            label: "Hint".into(),
+            intent: AgentActionIntent::Known(AgentIntent::Hint),
+            primary: false,
+        },
+        LearningTarget::Objective {
+            course_id: "crs-1".into(),
+            revision: Some(1),
+            issue_id: "issue-1".into(),
+            objective_id: "obj-1".into(),
+        },
+    )
+    .expect("known action");
+    cx.update_window(handle, |_, window, cx| {
+        let view = probe.read(cx).view.clone();
+        view.update(cx, |view, cx| {
+            view.pending_agent_call =
+                Some(PendingAgentCall::new(existing, "Hint", "old hint prompt"));
+            view.compose_plain_prompt(
+                "请结合当前学习目标，围绕「模拟面试」为我提供文字说明与引导。".into(),
+                "当前客户端版本暂不支持该学习动作，已转为纯文本输入（发送前可编辑）；请升级客户端获取完整体验。",
+                window,
+                cx,
+            );
+        });
+        window.render_frame(cx);
+        assert!(window.try_find("native-agent-call-chip").is_none());
+        assert!(view.read(cx).pending_agent_call.is_none());
+        assert_eq!(
+            view.read(cx).input.read(cx).value(),
+            "请结合当前学习目标，围绕「模拟面试」为我提供文字说明与引导。"
+        );
+        assert!(view.read(cx).status.contains("请升级客户端"));
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
 fn native_auto_send_keeps_composer_draft(cx: &mut TestAppContext) {
     use crate::agent_call::{AgentCall, LearningTarget};
-    use cgc_courses::content::{AgentActionSpec, AgentIntent};
+    use cgc_courses::content::{AgentActionIntent, AgentActionSpec, AgentIntent};
 
     cx.update(gpui_kit::init);
     let (handle, probe) = cx.update(|cx| {
@@ -411,7 +471,7 @@ fn native_auto_send_keeps_composer_draft(cx: &mut TestAppContext) {
             &AgentActionSpec {
                 id: "a-hint".into(),
                 label: "Hint".into(),
-                intent: AgentIntent::Hint,
+                intent: AgentActionIntent::Known(AgentIntent::Hint),
                 primary: false,
             },
             LearningTarget::Objective {
@@ -420,7 +480,8 @@ fn native_auto_send_keeps_composer_draft(cx: &mut TestAppContext) {
                 issue_id: "issue-1".into(),
                 objective_id: "obj-1".into(),
             },
-        );
+        )
+        .expect("known action");
         view.update(cx, |view, cx| {
             assert!(view.send_agent_call(call, "automatic hint".into(), cx));
             assert_eq!(view.input.read(cx).value(), "draft answer");
@@ -439,7 +500,7 @@ fn native_auto_send_keeps_composer_draft(cx: &mut TestAppContext) {
 fn native_auto_send_sends_page_context(cx: &mut TestAppContext) {
     use crate::agent_call::{AgentCall, LearningTarget};
     use crate::page_context::{CourseContext, PageBody, PageContext};
-    use cgc_courses::content::{AgentActionSpec, AgentIntent};
+    use cgc_courses::content::{AgentActionIntent, AgentActionSpec, AgentIntent};
 
     cx.update(gpui_kit::init);
     let (handle, probe) = cx.update(|cx| {
@@ -478,7 +539,7 @@ fn native_auto_send_sends_page_context(cx: &mut TestAppContext) {
             &AgentActionSpec {
                 id: "a-hint".into(),
                 label: "Hint".into(),
-                intent: AgentIntent::Hint,
+                intent: AgentActionIntent::Known(AgentIntent::Hint),
                 primary: false,
             },
             LearningTarget::Objective {
@@ -487,7 +548,8 @@ fn native_auto_send_sends_page_context(cx: &mut TestAppContext) {
                 issue_id: "issue-1".into(),
                 objective_id: "obj-1".into(),
             },
-        );
+        )
+        .expect("known action");
         view.update(cx, |view, cx| {
             assert!(view.send_agent_call(call, "automatic hint".into(), cx));
         });
@@ -544,7 +606,7 @@ fn native_auto_send_sends_page_context(cx: &mut TestAppContext) {
 fn native_pending_agent_call_clears_when_page_leaves_target(cx: &mut TestAppContext) {
     use crate::agent_call::{AgentCall, LearningTarget, PendingAgentCall};
     use crate::page_context::{CourseContext, PageBody, PageContext, PageUnit};
-    use cgc_courses::content::{AgentActionSpec, AgentIntent};
+    use cgc_courses::content::{AgentActionIntent, AgentActionSpec, AgentIntent};
 
     cx.update(gpui_kit::init);
     let (handle, probe) = cx.update(|cx| {
@@ -567,7 +629,7 @@ fn native_pending_agent_call_clears_when_page_leaves_target(cx: &mut TestAppCont
             &AgentActionSpec {
                 id: "a-hint".into(),
                 label: "Hint".into(),
-                intent: AgentIntent::Hint,
+                intent: AgentActionIntent::Known(AgentIntent::Hint),
                 primary: false,
             },
             LearningTarget::Objective {
@@ -576,7 +638,8 @@ fn native_pending_agent_call_clears_when_page_leaves_target(cx: &mut TestAppCont
                 issue_id: "issue-1".into(),
                 objective_id: "obj-1".into(),
             },
-        );
+        )
+        .expect("known action");
         view.update(cx, |view, _| {
             view.pending_agent_call = Some(PendingAgentCall::new(call, "Hint", "hint prompt"));
             view.page_context.set_current(Some(PageContext {

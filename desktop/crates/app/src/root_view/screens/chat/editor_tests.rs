@@ -111,7 +111,7 @@ fn acp_composer_uses_shared_editor_growth_and_preserves_draft(cx: &mut TestAppCo
 #[gpui_kit::test]
 fn acp_composer_renders_pending_agent_call_chip(cx: &mut TestAppContext) {
     use crate::agent_call::{AgentCall, LearningTarget, PendingAgentCall};
-    use cgc_courses::content::{AgentActionSpec, AgentIntent};
+    use cgc_courses::content::{AgentActionIntent, AgentActionSpec, AgentIntent};
 
     cx.update(gpui_kit::init);
     let (handle, probe) = cx.update(|cx| {
@@ -151,7 +151,7 @@ fn acp_composer_renders_pending_agent_call_chip(cx: &mut TestAppContext) {
             &AgentActionSpec {
                 id: "a-hint".into(),
                 label: "Hint".into(),
-                intent: AgentIntent::Hint,
+                intent: AgentActionIntent::Known(AgentIntent::Hint),
                 primary: false,
             },
             LearningTarget::Objective {
@@ -160,7 +160,8 @@ fn acp_composer_renders_pending_agent_call_chip(cx: &mut TestAppContext) {
                 issue_id: "issue-1".into(),
                 objective_id: "obj-1".into(),
             },
-        );
+        )
+        .expect("known action");
         root.update(cx, |root, cx| {
             root.state.chat.pending_agent_call =
                 Some(PendingAgentCall::new(call, "Hint", "Give me a hint"));
@@ -490,7 +491,7 @@ fn open_acp_auto_send_window(
 #[gpui_kit::test]
 fn acp_auto_send_sends_page_context(cx: &mut TestAppContext) {
     use crate::agent_call::{AgentCall, LearningTarget};
-    use cgc_courses::content::{AgentActionSpec, AgentIntent};
+    use cgc_courses::content::{AgentActionIntent, AgentActionSpec, AgentIntent};
     use std::time::{Duration, Instant};
 
     cx.update(gpui_kit::init);
@@ -502,7 +503,7 @@ fn acp_auto_send_sends_page_context(cx: &mut TestAppContext) {
                 &AgentActionSpec {
                     id: "a-hint".into(),
                     label: "Hint".into(),
-                    intent: AgentIntent::Hint,
+                    intent: AgentActionIntent::Known(AgentIntent::Hint),
                     primary: false,
                 },
                 LearningTarget::Objective {
@@ -511,7 +512,8 @@ fn acp_auto_send_sends_page_context(cx: &mut TestAppContext) {
                     issue_id: "issue-1".into(),
                     objective_id: "obj-1".into(),
                 },
-            );
+            )
+            .expect("known action");
             assert!(root.send_chat_agent_call(call, "automatic hint".into(), cx));
         });
         window.render_frame(cx);
@@ -556,7 +558,7 @@ fn acp_auto_send_sends_page_context(cx: &mut TestAppContext) {
 #[gpui_kit::test]
 fn acp_auto_send_busy_falls_back_to_pending(cx: &mut TestAppContext) {
     use crate::agent_call::{AgentCall, DeliveryMode, LearningTarget};
-    use cgc_courses::content::{AgentActionSpec, AgentIntent};
+    use cgc_courses::content::{AgentActionIntent, AgentActionSpec, AgentIntent};
     use std::time::{Duration, Instant};
 
     cx.update(gpui_kit::init);
@@ -600,7 +602,7 @@ fn acp_auto_send_busy_falls_back_to_pending(cx: &mut TestAppContext) {
                 &AgentActionSpec {
                     id: "a-hint".into(),
                     label: "Hint".into(),
-                    intent: AgentIntent::Hint,
+                    intent: AgentActionIntent::Known(AgentIntent::Hint),
                     primary: false,
                 },
                 LearningTarget::Objective {
@@ -609,7 +611,8 @@ fn acp_auto_send_busy_falls_back_to_pending(cx: &mut TestAppContext) {
                     issue_id: "issue-1".into(),
                     objective_id: "obj-1".into(),
                 },
-            );
+            )
+            .expect("known action");
             root.apply_agent_call(call, "automatic hint".into(), "Hint".into(), window, cx);
         });
         window.render_frame(cx);
