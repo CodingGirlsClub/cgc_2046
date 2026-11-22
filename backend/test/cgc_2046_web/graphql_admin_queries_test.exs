@@ -34,14 +34,6 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
   @password Fixtures.password()
 
   setup do
-    Cgc2046.Workflows.StepHandlerRegistry.register(Cgc2046.Workflows.TestActions.Uppercase)
-
-    Cgc2046.Workflows.StepHandlerRegistry.register(
-      Cgc2046.Workflows.TestActions.AppendExclamation
-    )
-
-    Cgc2046.Workflows.StepHandlerRegistry.register(Cgc2046.Workflows.TestActions.AlwaysFail)
-
     # demote 的 ≥1 admin 约束依赖全局 admin 计数：清掉先前测试（sandbox 外）
     # 残留的 is_platform_admin 标记，保证每个测试从无 admin 状态开始（否则
     # 历史遗留 admin 会让"最后一个 admin"断言失真）。
@@ -178,9 +170,8 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
       node_def: %{
         "steps" => [
           %{
-            "id" => "uppercase",
-            "type" => "auto",
-            "action" => "Elixir.Cgc2046.Workflows.TestActions.Uppercase"
+            "id" => "approval",
+            "type" => "manual"
           }
         ]
       },

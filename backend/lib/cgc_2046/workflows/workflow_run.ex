@@ -17,7 +17,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
 
   - `pending`：run 已创建（快照 input + 绑定 definition_version），未开始执行
   - `running`：引擎执行中
-  - `waiting`：执行到人工步骤，挂起等外部信号（阶段 4 接 hibernate/thaw）
+  - `waiting`：执行到人工步骤，挂起等外部信号（纯数据推导门控进度）
   - `succeeded` / `failed` / `cancelled` / `expired`：终态
 
   ## ADR-0003 纪律
@@ -26,13 +26,11 @@ defmodule Cgc2046.Workflows.WorkflowRun do
     引擎（`Cgc2046.Workflows.Engine`）是无状态纯函数，不持有任何状态。
   - **审计走事件订阅**：引擎只发 telemetry 事件（`[:cgc, :workflow, :run, ...]`），
     产品层按需订阅记录，不嵌入引擎核心。
-  - **checkpoint 生命周期在产品层**：waiting→hibernate、终态→delete 经
-    `Cgc2046.Workflows.CheckpointLifecycle` 接线（架构评审候选 #2），引擎只执行。
 
   ## 多租户
 
   multitenancy attribute :workspace_id；`partition_id` 与 workspace_id 同值
-  （ADR-0002 决策 6：每 workspace = 一个 Jido partition），供 JidoAdapter 做运行时隔离。
+  （历史租户分区字段，保留列与赋值兼容）。
 
   ## 并发
 
@@ -49,7 +47,6 @@ defmodule Cgc2046.Workflows.WorkflowRun do
   require Ash.Query
 
   alias Cgc2046.Workflows.{
-    CheckpointLifecycle,
     Engine,
     SignalLog,
     StepAuthorization,
@@ -323,8 +320,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
     end
 
     # pending → running/succeeded/waiting/failed：一步启动 + 执行闭环（阶段 4 #37）。
-    # 与纯状态机 :start 不同：本 action 调 Engine.run 执行 node_def，
-    # 按结果流转——succeeded 直接终态，waiting 自动 hibernate 后挂起。
+    # 与纯状态机 :start 不同：本 action 调 Engine.run 执行 node_def 校验，按结果流转。
     update :start_run do
       description("启动并执行：pending → running → succeeded | waiting | failed")
       require_atomic?(false)
@@ -342,12 +338,6 @@ defmodule Cgc2046.Workflows.WorkflowRun do
               |> Ash.Changeset.force_change_attribute(:started_at, DateTime.utc_now())
 
             case start_run_execute(run_started) do
-              {:ok, run_started, facts} ->
-                run_started
-                |> Ash.Changeset.force_change_attribute(:status, :succeeded)
-                |> Ash.Changeset.force_change_attribute(:facts, facts)
-                |> Ash.Changeset.force_change_attribute(:finished_at, DateTime.utc_now())
-
               {:waiting, run_started, facts} ->
                 run_started
                 |> Ash.Changeset.force_change_attribute(:status, :waiting)
@@ -386,7 +376,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
     end
 
     # waiting → running/succeeded/failed：信号放行 + 恢复执行闭环（阶段 4 #37）。
-    # 写 SignalLog 审计 → Engine.resume（thaw → feed_signal）→ 按结果流转。
+    # 读已有 SignalLog → 写本次 SignalLog → Engine.resume 纯数据推导 → 按结果流转。
     update :resume_signal do
       description("信号放行恢复执行：waiting → running → succeeded | waiting | failed")
       require_atomic?(false)
@@ -413,13 +403,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       change(optimistic_lock(:version))
       accept([:facts])
 
-      # PR-G：checkpoint 清理从隐藏 invariant 变结构保证（D3）——complete 可自
-      # waiting 达终态，终态后 checkpoint 无消费方（ADR-0002），须清理（此前缺失，
-      # 由 speaker 外部补偿兜着，PR-G D4 收编后补偿删除）。
-      change(
-        {Cgc2046.Workflows.Changes.Transition,
-         from: [:running, :waiting], to: :succeeded, cleanup_checkpoint: true}
-      )
+      change({Cgc2046.Workflows.Changes.Transition, from: [:running, :waiting], to: :succeeded})
 
       change(set_attribute(:finished_at, &DateTime.utc_now/0))
     end
@@ -431,12 +415,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       accept([])
       change(optimistic_lock(:version))
 
-      # PR-G D4：fail 补 cleanup_checkpoint（此前由 speaker_invitation.ex 外部补偿
-      # 清理；Transition 内建后补偿删除，fail 路径 checkpoint 清理由本 action 承担）。
-      change(
-        {Cgc2046.Workflows.Changes.Transition,
-         from: [:running, :waiting], to: :failed, cleanup_checkpoint: true}
-      )
+      change({Cgc2046.Workflows.Changes.Transition, from: [:running, :waiting], to: :failed})
 
       change(set_attribute(:finished_at, &DateTime.utc_now/0))
     end
@@ -448,12 +427,9 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       accept([])
       change(optimistic_lock(:version))
 
-      # #16：waiting → cancelled 时删除 jido_checkpoints（不删则 checkpoint 行永久残留）。
-      # cleanup_checkpoint: true 内建 after_transaction 清理（Transition D3 收编原
-      # 逐字拷贝；失败记日志不阻塞，策略单源在 CheckpointLifecycle，候选 #2）。
       change(
         {Cgc2046.Workflows.Changes.Transition,
-         from: [:pending, :running, :waiting], to: :cancelled, cleanup_checkpoint: true}
+         from: [:pending, :running, :waiting], to: :cancelled}
       )
 
       change(set_attribute(:finished_at, &DateTime.utc_now/0))
@@ -466,11 +442,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       accept([])
       change(optimistic_lock(:version))
 
-      # #16：waiting → expired 时删除 jido_checkpoints（同 cancel 的 checkpoint 清理）。
-      change(
-        {Cgc2046.Workflows.Changes.Transition,
-         from: [:pending, :waiting], to: :expired, cleanup_checkpoint: true}
-      )
+      change({Cgc2046.Workflows.Changes.Transition, from: [:pending, :waiting], to: :expired})
 
       change(set_attribute(:finished_at, &DateTime.utc_now/0))
     end
@@ -592,24 +564,18 @@ defmodule Cgc2046.Workflows.WorkflowRun do
 
   # --- 产品层执行闭环辅助（阶段 4 #37） ---------------------------------------
 
-  # start_run：从 definition 读 node_def，调 Engine.run；waiting 时经
-  # CheckpointLifecycle hibernate（架构评审候选 #2，checkpoint 生命周期收拢）。
-  # 返回 {status, changeset[, facts]}——status ∈ :ok | :waiting | :error
+  # start_run：从 definition 读 node_def，调 Engine.run；
+  # 返回 {status, changeset[, facts]}——status ∈ :waiting | :error
   defp start_run_execute(changeset) do
     tenant = changeset.tenant
-    run_id = Ash.Changeset.get_data(changeset, :id)
     definition_id = Ash.Changeset.get_data(changeset, :definition_id)
-    partition = Ash.Changeset.get_data(changeset, :partition_id)
     input = Ash.Changeset.get_data(changeset, :input_snapshot)
 
     case Ash.get(WorkflowDefinition, definition_id, tenant: tenant, authorize?: false) do
       {:ok, defn} ->
-        case Engine.run(defn.node_def, input, tenant: tenant) do
-          {:ok, facts, _workflow} ->
-            {:ok, changeset, facts}
-
-          {:waiting, facts, workflow} ->
-            apply_waiting_result(changeset, run_id, partition, workflow, facts)
+        case Engine.run(defn.node_def, input) do
+          {:waiting, facts} ->
+            {:waiting, changeset, facts}
 
           {:error, reason} ->
             {:error, changeset, reason}
@@ -620,24 +586,10 @@ defmodule Cgc2046.Workflows.WorkflowRun do
     end
   end
 
-  # waiting → hibernate checkpoint。hibernate 失败 = waiting 但无 checkpoint =
-  # 下次信号 thaw 死路（#2 bug class）→ 上抛 error（start_run action 转 :failed，
-  # 与 Engine.run 旧路径 #2 语义一致）。
-  defp apply_waiting_result(changeset, run_id, partition, workflow, facts) do
-    case CheckpointLifecycle.on_status(:waiting, run_id, partition, workflow) do
-      :ok ->
-        {:waiting, changeset, facts}
-
-      {:error, reason} ->
-        {:error, changeset, {:hibernate_failed, reason}}
-    end
-  end
-
-  # resume_signal：授权（#38）→ 写 SignalLog → Engine.resume（thaw → feed_signal）→ 按结果流转。
+  # resume_signal：授权（#38）→ 读历史 SignalLog → 写本次 SignalLog → Engine.resume → 按结果流转。
   defp resume_signal_execute(changeset) do
     tenant = changeset.tenant
     run_id = Ash.Changeset.get_data(changeset, :id)
-    partition = Ash.Changeset.get_data(changeset, :partition_id)
     definition_id = Ash.Changeset.get_data(changeset, :definition_id)
     signal_type = Ash.Changeset.get_argument(changeset, :signal_type)
     payload = Ash.Changeset.get_argument(changeset, :payload) || %{}
@@ -665,7 +617,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
               changeset,
               tenant,
               run_id,
-              partition,
+              definition_id,
               signal_type,
               payload,
               actor.id
@@ -681,62 +633,50 @@ defmodule Cgc2046.Workflows.WorkflowRun do
          changeset,
          tenant,
          run_id,
-         partition,
+         definition_id,
          signal_type,
          payload,
          actor_id
        ) do
-    case write_signal_log(tenant, run_id, signal_type, payload, actor_id) do
-      :ok ->
-        # 信号 payload 并入 workflow 上下文（下游步骤可读 approved_by 等）
-        signal = Map.put(payload, "signal_type", signal_type)
+    case Ash.get(WorkflowDefinition, definition_id, tenant: tenant, authorize?: false) do
+      {:ok, defn} ->
+        with {:ok, prior_signals} <- list_prior_signal_types(tenant, run_id),
+             :ok <- write_signal_log(tenant, run_id, signal_type, payload, actor_id) do
+          signal = Map.put(payload, "signal_type", signal_type)
 
-        case Engine.resume(run_id, partition, signal) do
-          {:ok, engine_facts, workflow} ->
-            facts = merge_persisted_facts(changeset, engine_facts)
+          case Engine.resume(defn.node_def, prior_signals, signal) do
+            {:ok, engine_facts} ->
+              facts = merge_persisted_facts(changeset, engine_facts)
 
-            # 终态删除 checkpoint（宽松：失败记日志不阻塞；策略单源在 CheckpointLifecycle）
-            :ok = CheckpointLifecycle.on_status(:succeeded, run_id, partition, workflow)
+              changeset
+              |> Ash.Changeset.force_change_attribute(:status, :succeeded)
+              |> Ash.Changeset.force_change_attribute(:facts, facts)
+              |> Ash.Changeset.force_change_attribute(:finished_at, DateTime.utc_now())
 
-            changeset
-            |> Ash.Changeset.force_change_attribute(:status, :succeeded)
-            |> Ash.Changeset.force_change_attribute(:facts, facts)
-            |> Ash.Changeset.force_change_attribute(:finished_at, DateTime.utc_now())
+            {:waiting, engine_facts} ->
+              facts = merge_persisted_facts(changeset, engine_facts)
 
-          {:waiting, engine_facts, workflow} ->
-            facts = merge_persisted_facts(changeset, engine_facts)
+              changeset
+              |> Ash.Changeset.force_change_attribute(:status, :waiting)
+              |> Ash.Changeset.force_change_attribute(:facts, facts)
 
-            # 续传 hibernate（严格：失败 → failed。行为变化点：原 `:ok =` raise
-            # 崩溃 → 受控失败，与 start_run 路径 #2 语义一致）。
-            case CheckpointLifecycle.on_status(:waiting, run_id, partition, workflow) do
-              :ok ->
-                changeset
-                |> Ash.Changeset.force_change_attribute(:status, :waiting)
-                |> Ash.Changeset.force_change_attribute(:facts, facts)
+            {:error, _reason} ->
+              changeset
+              |> Ash.Changeset.force_change_attribute(:status, :failed)
+              |> Ash.Changeset.force_change_attribute(:finished_at, DateTime.utc_now())
+          end
+        else
+          {:error, :signal_log_read_failed} ->
+            Ash.Changeset.add_error(changeset, "failed to read signal log")
 
-              {:error, _reason} ->
-                # hibernate 失败 → failed；清掉旧 checkpoint（thaw 时读出的那份仍在
-                # 存储中，不删即孤儿残留；delete 幂等宽松，策略单源在
-                # CheckpointLifecycle，与 {:error, _reason} 分支一致）
-                :ok = CheckpointLifecycle.on_status(:failed, run_id, partition, nil)
-
-                changeset
-                |> Ash.Changeset.force_change_attribute(:status, :failed)
-                |> Ash.Changeset.force_change_attribute(:finished_at, DateTime.utc_now())
-            end
-
-          {:error, _reason} ->
-            # 执行失败（:step_failed / thaw / feed_signal 失败）→ failed；
-            # 清 checkpoint（delete 幂等，thaw 失败时无害）
-            :ok = CheckpointLifecycle.on_status(:failed, run_id, partition, nil)
-
-            changeset
-            |> Ash.Changeset.force_change_attribute(:status, :failed)
-            |> Ash.Changeset.force_change_attribute(:finished_at, DateTime.utc_now())
+          {:error, :signal_log_failed} ->
+            Ash.Changeset.add_error(changeset, "failed to record signal log")
         end
 
       {:error, _} ->
-        Ash.Changeset.add_error(changeset, "failed to record signal log")
+        changeset
+        |> Ash.Changeset.force_change_attribute(:status, :failed)
+        |> Ash.Changeset.force_change_attribute(:finished_at, DateTime.utc_now())
     end
   end
 
@@ -752,10 +692,21 @@ defmodule Cgc2046.Workflows.WorkflowRun do
 
   defp ensure_learning_subject(changeset, _definition), do: changeset
 
-  # Engine.resume thaws an older checkpoint; persisted facts win over stale engine facts.
+  # Preserved persisted facts (e.g. MCP outputs) win over engine facts.
   defp merge_persisted_facts(changeset, engine_facts) do
     persisted_facts = Ash.Changeset.get_data(changeset, :facts) || %{}
     Map.merge(engine_facts, persisted_facts)
+  end
+
+  defp list_prior_signal_types(tenant, run_id) do
+    SignalLog
+    |> Ash.Query.filter(run_id == ^run_id)
+    |> Ash.Query.sort(received_at: :asc, inserted_at: :asc, id: :asc)
+    |> Ash.read(tenant: tenant, authorize?: false)
+    |> case do
+      {:ok, logs} -> {:ok, Enum.map(logs, & &1.signal_type)}
+      {:error, _} -> {:error, :signal_log_read_failed}
+    end
   end
 
   defp write_signal_log(tenant, run_id, signal_type, payload, actor_id) do

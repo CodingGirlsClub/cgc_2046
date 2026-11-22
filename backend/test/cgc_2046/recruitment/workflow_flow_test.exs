@@ -88,7 +88,7 @@ defmodule Cgc2046.Recruitment.WorkflowFlowTest do
       assert run.input_snapshot["user_id"] == applicant.id
 
       # 定义按 workspace find_or_create：type=recruitment_application、published、
-      # 四个人工门控（manual-only，无需 StepHandlerRegistry）
+      # 四个人工门控（manual-only）
       definition =
         Ash.get!(WorkflowDefinition, run.definition_id, tenant: ws.id, authorize?: false)
 

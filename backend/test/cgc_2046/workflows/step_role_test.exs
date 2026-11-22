@@ -8,17 +8,8 @@ defmodule Cgc2046.Workflows.StepRoleTest do
   alias Cgc2046.Workflows.SignalLog
   alias Cgc2046.Workflows.Step
   alias Cgc2046.Workflows.StepRole
-  alias Cgc2046.Workflows.StepHandlerRegistry
-  alias Cgc2046.Workflows.TestActions
 
   require Ash.Query
-
-  setup do
-    # 注册测试 step handlers（ADR-0003 两阶段初始化）
-    StepHandlerRegistry.register(TestActions.Uppercase)
-    StepHandlerRegistry.register(TestActions.AppendExclamation)
-    :ok
-  end
 
   # workspace create 时已 seed 六角色（workspace.ex after_action），按 name 取 role_id
   defp role_by_name(workspace, name) do
@@ -107,21 +98,11 @@ defmodule Cgc2046.Workflows.StepRoleTest do
     end
   end
 
-  # 自动步骤 + 人工步骤门控：uppercase → (manual approval) → append_exclamation
+  # 纯人工步骤门控：manual approval
   defp gated_node_def do
     %{
       "steps" => [
-        %{
-          "id" => "uppercase",
-          "type" => "auto",
-          "action" => "Elixir.Cgc2046.Workflows.TestActions.Uppercase"
-        },
-        %{"id" => "approval", "type" => "manual"},
-        %{
-          "id" => "append_exclamation",
-          "type" => "auto",
-          "action" => "Elixir.Cgc2046.Workflows.TestActions.AppendExclamation"
-        }
+        %{"id" => "approval", "type" => "manual"}
       ]
     }
   end
@@ -136,7 +117,7 @@ defmodule Cgc2046.Workflows.StepRoleTest do
     {run, step}
   end
 
-  # start_run 到 waiting（auto 步骤不授权，正常执行）
+  # start_run 到 waiting
   defp start_to_waiting(run, workspace, actor) do
     {:ok, waiting} =
       run
@@ -264,7 +245,6 @@ defmodule Cgc2046.Workflows.StepRoleTest do
         |> Ash.update(tenant: workspace.id, actor: volunteer)
 
       assert succeeded.status == :succeeded
-      assert succeeded.facts["append_exclamation"] == %{"text" => "HI!"}
 
       # 放行信号已写 SignalLog（审计）
       assert {:ok, logs} =
@@ -323,37 +303,6 @@ defmodule Cgc2046.Workflows.StepRoleTest do
         |> Ash.update(tenant: workspace.id, actor: member)
 
       assert succeeded.status == :succeeded
-    end
-
-    test "auto 步骤不授权：引擎执行不受 StepRole 限制" do
-      admin = Fixtures.platform_admin("srole")
-      workspace = Fixtures.create_workspace(admin)
-      volunteer = Fixtures.register_user("srole-volunteer3")
-      Fixtures.add_member(workspace, volunteer, [:volunteer])
-
-      {:ok, defn} = create_definition(workspace, admin, %{node_def: gated_node_def()})
-      {:ok, published} = publish_definition(defn, workspace, admin)
-
-      # uppercase（auto）仅授权 :owner——引擎执行不授权（§4.3），volunteer 仍可跑
-      {:ok, step} =
-        create_step(workspace, admin, defn, %{
-          step_key: "uppercase",
-          title: "大写",
-          type: :auto,
-          action: "Elixir.Cgc2046.Workflows.TestActions.Uppercase"
-        })
-
-      create_step_role(workspace, admin, step, [:owner])
-
-      {:ok, run} = create_run(workspace, admin, published, %{input_snapshot: %{"text" => "hi"}})
-
-      {:ok, waiting} =
-        run
-        |> Ash.Changeset.for_update(:start_run, %{}, actor: volunteer)
-        |> Ash.update(tenant: workspace.id, actor: volunteer)
-
-      assert waiting.status == :waiting
-      assert waiting.facts["uppercase"] == %{"text" => "HI"}
     end
   end
 end

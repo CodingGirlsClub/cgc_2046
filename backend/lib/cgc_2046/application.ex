@@ -21,12 +21,8 @@ defmodule Cgc2046.Application do
       # {Cgc2046.Worker, arg},
       # ETS 限流器（signIn/signUp 5 次/15 分钟，零依赖）
       Cgc2046Web.Plugs.RateLimit,
-      # Workflow 信号总线（Slice C #35，JidoAdapter.publish/subscribe 前置；
-      # 阶段 2 用内存总线，Postgres journal 适配器阶段 4）
+      # Workflow 信号总线（Slice C #35，JidoAdapter.publish/subscribe 前置）
       {Jido.Signal.Bus, name: Cgc2046.Workflows.JidoAdapter.bus_name()},
-      # Step handler 注册表（Slice C #35，ADR-0003 两阶段初始化；长命进程持有 ETS 表，
-      # 注册不随短命调用进程丢失——SC2-011）
-      Cgc2046.Workflows.StepHandlerRegistry,
       # 教研 workflow 实例化（#39 阶段 6：订阅 event/course.launched 信号 → 创建教研 run）
       Cgc2046.Curriculum.Instantiator,
       # 课程教研流程实例化（role-agent-journeys-v2 S5 R22：订阅 course.created →

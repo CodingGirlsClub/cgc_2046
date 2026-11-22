@@ -3,7 +3,7 @@ defmodule Cgc2046.Workflows.SpeakerInvitationInstantiator do
   SpeakerInvitation 的 workflow run 实例化（E-4 #49）。
 
   一个邀请 = 一个 run（邀请设计 §2.3）：run 持 decision/materials 两个人工
-  信号门控（manual-only 定义，无需 StepHandlerRegistry），镜像邀请生命周期：
+  信号门控（manual-only 定义），镜像邀请生命周期：
 
   - 创建 → start_run → waiting（decision 门控，等 Speaker 决策）
   - 接受 → resume decision → waiting（materials 门控，等材料产出）
