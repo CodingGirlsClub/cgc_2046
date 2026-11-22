@@ -108,7 +108,8 @@ fn upgrade_overlay_renders_over_signed_out_and_signed_in_views_without_sign_out(
     });
     assert_eq!(upgrade_notice(), None);
 
-    // 3. 子视图 NativeAgentView 在 turn 失败命中 CGC Cloud 426 时，必须主动同步并通知父级 RootView
+    // 3. 子视图 NativeAgentView 在 turn 失败命中 CGC Cloud 426 时，必须主动同步并通知父级 RootView，
+    //    同时接管窗口键盘焦点并拦截 composer 提交（不清空草稿、不入队发送）
     let native_view = cx
         .update_window(handle, |_, window, cx| {
             let model = cgc_agent_provider::Model::new(
@@ -143,7 +144,7 @@ fn upgrade_overlay_renders_over_signed_out_and_signed_in_views_without_sign_out(
                 None,
             );
             let _ = futures::executor::block_on(runtime.inspect()).expect("runtime ready");
-            cx.new(|cx| {
+            let view = cx.new(|cx| {
                 crate::native_agent_view::NativeAgentView::new(
                     window,
                     cx,
@@ -152,7 +153,15 @@ fn upgrade_overlay_renders_over_signed_out_and_signed_in_views_without_sign_out(
                     Language::Zh,
                     None,
                 )
-            })
+            });
+            view.update(cx, |this, cx| {
+                this.compose_plain_prompt("待发送的草稿消息".to_string(), "草稿", window, cx);
+            });
+            assert!(
+                view.read(cx).composer_focus_handle(cx).is_focused(window),
+                "触发 426 前，聊天输入框应处于聚焦状态"
+            );
+            view
         })
         .expect("init native agent view");
 
@@ -188,6 +197,26 @@ fn upgrade_overlay_renders_over_signed_out_and_signed_in_views_without_sign_out(
     vcx.update(|window, cx| {
         window.render_frame(cx);
         assert!(window.find_by_label(&download_label).visible());
+        assert!(
+            !native_view
+                .read(cx)
+                .composer_focus_handle(cx)
+                .is_focused(window),
+            "升级阻断覆盖层激活后必须夺取焦点，底层 composer 不得继续持有键盘焦点"
+        );
+        native_view.update(cx, |view, cx| {
+            view.send_for_test(window, cx);
+        });
+        assert_eq!(
+            native_view.read(cx).composer_value(cx),
+            "待发送的草稿消息",
+            "升级阻断期间底层 send() 必须被拦截且保留用户草稿"
+        );
+        assert_eq!(
+            native_view.read(cx).queued_submission_count(),
+            0,
+            "升级阻断期间不得向会话队列推入任何新消息"
+        );
     });
     clear_upgrade_notice();
 }

@@ -329,6 +329,9 @@ impl NativeAgentView {
         self.state.session.host.is_some()
     }
     pub(super) fn dispatch_queued(&mut self, cx: &mut Context<Self>) {
+        if cgc_platform::api::upgrade_notice().is_some() {
+            return;
+        }
         let idle = self
             .snapshot
             .as_ref()
@@ -388,6 +391,9 @@ impl NativeAgentView {
         .detach();
     }
     pub(super) fn steer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if cgc_platform::api::upgrade_notice().is_some() {
+            return;
+        }
         if self.pending_agent_call.is_some() {
             // steer_with_context has no Submission/agent_call channel. Queue via
             // send instead of silently dropping the structured action.

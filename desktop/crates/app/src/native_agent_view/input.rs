@@ -85,6 +85,9 @@ impl NativeAgentView {
         prompt: String,
         cx: &mut Context<Self>,
     ) -> bool {
+        if cgc_platform::api::upgrade_notice().is_some() {
+            return false;
+        }
         if !self.ensure_model_configured(true, cx) {
             return false;
         }
@@ -412,6 +415,9 @@ impl NativeAgentView {
 
     /// Rewind succeeds in the owner before the edited message is submitted.
     pub(super) fn restart_from_user_message(&mut self, index: usize, cx: &mut Context<Self>) {
+        if cgc_platform::api::upgrade_notice().is_some() {
+            return;
+        }
         if self.is_generating() {
             self.status = "生成中，稍后再试".into();
             cx.notify();

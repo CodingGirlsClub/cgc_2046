@@ -2179,7 +2179,7 @@ impl RootView {
     }
 
     pub(in crate::root_view) fn send_chat(&mut self, cx: &mut Context<Self>) -> bool {
-        if !self.chat.session.can_submit() {
+        if self.is_upgrade_gate_active() || !self.chat.session.can_submit() {
             return false;
         }
         let text = self
@@ -2203,6 +2203,9 @@ impl RootView {
         text: String,
         cx: &mut Context<Self>,
     ) -> bool {
+        if self.is_upgrade_gate_active() {
+            return false;
+        }
         self.refresh_page_context();
         if !self.chat.session.can_submit() || self.chat.session.session_id.is_none() {
             return false;
@@ -2256,6 +2259,9 @@ impl RootView {
         prompt: String,
         cx: &mut Context<Self>,
     ) -> bool {
+        if self.is_upgrade_gate_active() {
+            return false;
+        }
         self.refresh_page_context();
         if !self.chat.session.can_submit() || self.chat.session.session_id.is_none() {
             return false;
@@ -3742,6 +3748,19 @@ impl RootView {
             .clone()
     }
 
+    pub(in crate::root_view) fn ensure_upgrade_overlay_focus(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> FocusHandle {
+        self.upgrade_overlay_focus
+            .get_or_insert_with(|| cx.focus_handle())
+            .clone()
+    }
+
+    pub(in crate::root_view) fn is_upgrade_gate_active(&self) -> bool {
+        self.upgrade_notice.is_some() || cgc_platform::api::upgrade_notice().is_some()
+    }
+
     pub(in crate::root_view) fn submit_login(&mut self, cx: &mut Context<Self>) {
         if self.signing_in {
             return;
@@ -3849,6 +3868,9 @@ impl RootView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.is_upgrade_gate_active() {
+            return;
+        }
         // 登录页是自绘输入框，没有 InputState 的剪贴板处理；显式支持
         // Cmd/Ctrl+V，否则从密码管理器复制的邮箱/密码只能手工重敲。
         if (event.keystroke.modifiers.platform || event.keystroke.modifiers.control)

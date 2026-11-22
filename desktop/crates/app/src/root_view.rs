@@ -866,10 +866,15 @@ impl Render for RootView {
         if self.key_interceptor.is_none() {
             let root = cx.entity().downgrade();
             let subscription = cx.intercept_keystrokes(move |event, window, cx| {
+                if cgc_platform::api::upgrade_notice().is_some() {
+                    cx.stop_propagation();
+                    return;
+                }
                 let keystroke = event.keystroke.clone();
                 let handled = root
                     .update(cx, |this, cx| {
-                        this.handle_title_edit_escape(&keystroke, window, cx)
+                        this.is_upgrade_gate_active()
+                            || this.handle_title_edit_escape(&keystroke, window, cx)
                             || this.handle_slash_keystroke(&keystroke, window, cx)
                     })
                     .unwrap_or(false);
@@ -884,33 +889,39 @@ impl Render for RootView {
                 let subscription = cx.subscribe_in(
                     &input,
                     window,
-                    |this, state, event: &InputEvent, window, cx| match event {
-                        InputEvent::Change => {
-                            this.chat.focused = true;
-                            this.chat.input =
-                                crate::composer_context::command_text(&state.read(cx).content());
-                            this.chat.slash_selection = 0;
-                            this.chat.slash_dismissed = false;
-                            this.chat_input_pending_clear = false;
-                            cx.notify();
+                    |this, state, event: &InputEvent, window, cx| {
+                        if this.is_upgrade_gate_active() {
+                            return;
                         }
-                        InputEvent::PressEnter { shift, .. } if !shift => {
-                            this.chat.input =
-                                crate::composer_context::user_text(&state.read(cx).content());
-                            if this.send_chat(cx) {
-                                state.update(cx, |state, cx| state.set_value("", window, cx));
+                        match event {
+                            InputEvent::Change => {
+                                this.chat.focused = true;
+                                this.chat.input = crate::composer_context::command_text(
+                                    &state.read(cx).content(),
+                                );
+                                this.chat.slash_selection = 0;
+                                this.chat.slash_dismissed = false;
+                                this.chat_input_pending_clear = false;
+                                cx.notify();
                             }
-                            cx.notify();
+                            InputEvent::PressEnter { shift, .. } if !shift => {
+                                this.chat.input =
+                                    crate::composer_context::user_text(&state.read(cx).content());
+                                if this.send_chat(cx) {
+                                    state.update(cx, |state, cx| state.set_value("", window, cx));
+                                }
+                                cx.notify();
+                            }
+                            InputEvent::Focus => {
+                                this.chat.focused = true;
+                                cx.notify();
+                            }
+                            InputEvent::Blur => {
+                                this.chat.focused = false;
+                                cx.notify();
+                            }
+                            _ => {}
                         }
-                        InputEvent::Focus => {
-                            this.chat.focused = true;
-                            cx.notify();
-                        }
-                        InputEvent::Blur => {
-                            this.chat.focused = false;
-                            cx.notify();
-                        }
-                        _ => {}
                     },
                 );
                 self.chat_input_subscription = Some(subscription);
@@ -1228,7 +1239,8 @@ impl Render for RootView {
                 .clone()
                 .or_else(cgc_platform::api::upgrade_notice)
             {
-                root = root.child(self.render_upgrade_overlay(&notice, language, &palette, cx));
+                root = root
+                    .child(self.render_upgrade_overlay(&notice, language, &palette, window, cx));
             }
             root
         } else {
@@ -1652,7 +1664,8 @@ impl Render for RootView {
                 .clone()
                 .or_else(cgc_platform::api::upgrade_notice)
             {
-                root = root.child(self.render_upgrade_overlay(&notice, language, &palette, cx));
+                root = root
+                    .child(self.render_upgrade_overlay(&notice, language, &palette, window, cx));
             }
             root
         }
@@ -3179,13 +3192,18 @@ fn upgrade_overlay_message(
 
 impl RootView {
     fn render_upgrade_overlay(
-        &self,
+        &mut self,
         notice: &cgc_platform::api::UpgradeNotice,
         language: Language,
         palette: &theme::Palette,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         use gpui_kit::component::button::ButtonVariants as _;
+        let overlay_focus = self.ensure_upgrade_overlay_focus(cx);
+        if !overlay_focus.is_focused(window) {
+            window.focus(&overlay_focus, cx);
+        }
         let title = translate(language, upgrade_overlay_title_key(notice));
         let message = upgrade_overlay_message(notice, language);
         let current_line = format!(
@@ -3205,6 +3223,10 @@ impl RootView {
         div()
             .id("upgrade-gate-overlay")
             .test_support()
+            .track_focus(&overlay_focus)
+            .on_key_down(|_, _, cx| {
+                cx.stop_propagation();
+            })
             .absolute()
             .top(px(TITLEBAR_HEIGHT))
             .left_0()
