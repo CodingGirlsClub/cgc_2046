@@ -382,6 +382,10 @@ impl CheckpointManager {
                 self.git(["-c", "gc.autoDetach=false", "gc", "--prune=now", "--quiet"])?
             }
         };
+        // `git gc` 不感知私有 `cgc-checkpoint.index`，可能清理仅被 `diff()` / `changed_files()`
+        // 暂存进该私有索引、尚未写入任何 checkpoint commit 的 blob；GC 后移除该私有索引，
+        // 迫使下次 `populate_index()` 从工作区重新建树，避免 `write-tree` 命中已删对象报错。
+        let _ = std::fs::remove_file(&self.index_path);
         if !output.status.success() {
             return Err(CheckpointError::Git(stderr(&output)));
         }

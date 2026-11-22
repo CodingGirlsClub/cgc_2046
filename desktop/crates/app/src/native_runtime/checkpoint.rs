@@ -244,15 +244,21 @@ impl Owner {
             .is_some_and(|manager| manager.repo() == repo);
         if same_repo {
             self.last_checkpoint_gc_at = Some(std::time::Instant::now());
-            match outcome {
-                CheckpointGcOutcome::Auto { result } => {
+        }
+        match outcome {
+            CheckpointGcOutcome::Auto { result } => {
+                if same_repo {
                     if let Err(error) = result {
                         log::warn!(target: "native", "background checkpoint gc failed: {error}");
                     }
                 }
-                CheckpointGcOutcome::Reclaim { result } => match result {
-                    Ok(reclaim) => {
-                        self.apply_pruned_refs(&reclaim.pruned);
+            }
+            CheckpointGcOutcome::Reclaim { result } => match result {
+                Ok(reclaim) => {
+                    // SQLite 会话库跨 scope 共享且按 thread_id 唯一定位：即便 GC 期间切了 scope，
+                    // 也必须把已删除的 Git ref 在 SQLite 中标为 invalid，避免切回旧工作区后暴露悬空恢复入口。
+                    self.apply_pruned_refs(&reclaim.pruned);
+                    if same_repo {
                         if reclaim.within_budget {
                             self.checkpoint_budget_exceeded = false;
                             self.checkpoint_budget_notice_reported = false;
@@ -269,11 +275,13 @@ impl Owner {
                             }
                         }
                     }
-                    Err(error) => {
+                }
+                Err(error) => {
+                    if same_repo {
                         log::warn!(target: "native", "background checkpoint reclaim failed: {error}");
                     }
-                },
-            }
+                }
+            },
         }
         self.maybe_start_checkpoint_gc();
     }
@@ -453,9 +461,9 @@ impl Owner {
             .is_some_and(|manager| manager.repo() == repo);
         let mapped = match result {
             Ok(report) => {
+                self.apply_pruned_refs(&report.pruned);
                 if same_repo {
                     self.last_checkpoint_gc_at = Some(std::time::Instant::now());
-                    self.apply_pruned_refs(&report.pruned);
                     if report.within_budget {
                         self.checkpoint_budget_exceeded = false;
                         self.checkpoint_budget_notice_reported = false;

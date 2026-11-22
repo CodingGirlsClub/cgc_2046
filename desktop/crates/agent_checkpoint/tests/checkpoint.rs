@@ -734,3 +734,68 @@ fn manual_purge_history_checkpoints_prunes_unreachable_objects_now_and_keeps_lat
     assert_eq!(after.total_refs, 1);
     let _ = std::fs::remove_dir_all(workspace);
 }
+
+#[test]
+fn gc_prune_now_after_changed_files_does_not_corrupt_private_index_for_next_snapshot() {
+    let workspace = temp_workspace("gc-index-rebuild");
+    let manager = CheckpointManager::initialize(&workspace).expect("init");
+    std::fs::write(workspace.join("a.txt"), "v1\n").unwrap();
+    let cp1 = manager.snapshot("thread-1", 1).expect("cp1");
+
+    // 模拟 turn 结束修改了文件但尚未创建下一轮 checkpoint：
+    // 先跨过 1 秒避免 racy-git 让索引把该条目记为 smudge，再调 `changed_files()` 把 `v2` 的
+    // blob 与非 racy stat 缓存写入私有 `cgc-checkpoint.index`。
+    std::fs::write(workspace.join("a.txt"), "v2-unreferenced-by-any-ref\n").unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    let changes = manager
+        .changed_files(&cp1)
+        .expect("changed_files before gc");
+    assert_eq!(changes.len(), 1);
+
+    manager
+        .purge_history_checkpoints(Some("thread-1"), 1)
+        .expect("purge now");
+
+    let changes_after = manager.changed_files(&cp1).expect("changed_files after gc");
+    assert_eq!(changes_after.len(), 1);
+    let cp2 = manager
+        .snapshot("thread-1", 2)
+        .expect("snapshot after gc must rebuild private index and succeed");
+    assert_eq!(tree_files(&workspace, &cp2.sha), vec!["a.txt"]);
+    let _ = std::fs::remove_dir_all(workspace);
+}
+
+#[test]
+fn file_growing_past_size_limit_when_staged_differs_from_head_is_force_removed_from_index() {
+    let workspace = temp_workspace("force-rm-oversized");
+    let manager = CheckpointManager::initialize(&workspace).expect("init");
+    let tracked = workspace.join("grow.txt");
+    std::fs::write(&tracked, "head-version\n").unwrap();
+    std::fs::write(workspace.join("keep.txt"), "keep\n").unwrap();
+    assert!(run_git(&workspace, &["add", "--all"]).status.success());
+    assert!(run_git(&workspace, &["commit", "-m", "head"])
+        .status
+        .success());
+
+    // 第 1 轮修改 `grow.txt`（仍小于 2 MiB），使私有索引中的 staged 版本与 HEAD 不同。
+    std::fs::write(&tracked, "turn-1-small-modified\n").unwrap();
+    let cp1 = manager.snapshot("thread-1", 1).expect("snapshot 1");
+    assert_eq!(
+        tree_files(&workspace, &cp1.sha),
+        vec!["grow.txt", "keep.txt"]
+    );
+
+    // 第 2 轮 `grow.txt` 增长超过 2 MiB：工作区版本既不同于私有索引，私有索引又不同于 HEAD。
+    // `git rm --force --cached` 必须强制从私有索引移除，不能报 up-to-date 检查错误。
+    std::fs::write(&tracked, vec![b'X'; 3 * 1024 * 1024]).unwrap();
+    let cp2 = manager
+        .snapshot("thread-1", 2)
+        .expect("snapshot 2 must force-remove oversized entry from private index");
+    assert_eq!(tree_files(&workspace, &cp2.sha), vec!["keep.txt"]);
+    assert_eq!(
+        std::fs::metadata(&tracked).unwrap().len(),
+        3 * 1024 * 1024,
+        "working tree file must remain untouched"
+    );
+    let _ = std::fs::remove_dir_all(workspace);
+}

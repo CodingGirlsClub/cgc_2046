@@ -1298,3 +1298,70 @@ fn manual_checkpoint_cleanup_purges_history_syncs_sqlite_clears_budget_and_rejec
 
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn manual_cleanup_and_reclaim_invalidate_sqlite_records_even_after_scope_switch() {
+    use futures::StreamExt as _;
+
+    let root_a = std::env::temp_dir().join(format!("cgc-rt-scope-a-{}", std::process::id()));
+    let root_b = std::env::temp_dir().join(format!("cgc-rt-scope-b-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root_a);
+    let _ = std::fs::remove_dir_all(&root_b);
+    std::fs::create_dir_all(&root_a).unwrap();
+    std::fs::create_dir_all(&root_b).unwrap();
+
+    let mut owner = configured_owner(&root_a);
+    owner.store = Some(SessionStore::open_in_memory().unwrap());
+
+    let (sw_a_tx, sw_a_rx) = oneshot::channel();
+    owner.command(Command::SwitchScope(
+        AgentScope {
+            key: "scope-a".into(),
+            root: root_a.clone(),
+        },
+        sw_a_tx,
+    ));
+    let snap_a = block_on(sw_a_rx).unwrap().unwrap();
+    let thread_a = snap_a.thread.id.clone();
+
+    std::fs::write(root_a.join("a.txt"), "v1").unwrap();
+    owner.capture_checkpoint(&thread_a, 1);
+    std::fs::write(root_a.join("a.txt"), "v2").unwrap();
+    owner.capture_checkpoint(&thread_a, 2);
+
+    // 在 scope-a 发起手动清理，在后台任务完成前切换到 scope-b。
+    let (purge_tx, purge_rx) = oneshot::channel();
+    owner.command(Command::PurgeCheckpointHistory(purge_tx));
+    assert!(owner.checkpoint_gc_running);
+
+    let (sw_b_tx, sw_b_rx) = oneshot::channel();
+    owner.command(Command::SwitchScope(
+        AgentScope {
+            key: "scope-b".into(),
+            root: root_b.clone(),
+        },
+        sw_b_tx,
+    ));
+    let _ = block_on(sw_b_rx).unwrap().unwrap();
+
+    let job = block_on(owner.jobs.next()).expect("manual cleanup job");
+    owner.completed(job);
+    let report = block_on(purge_rx).unwrap().expect("purge report");
+    assert_eq!(report.pruned.len(), 1);
+    assert_eq!(report.pruned[0].thread_id, thread_a);
+    assert_eq!(report.pruned[0].seq, 1);
+
+    // 即使完成时已不在 scope-a，SQLite 中 scope-a 被清理掉的 ordinal=1 也必须被标为 invalid。
+    let records_a = owner
+        .store
+        .as_ref()
+        .unwrap()
+        .list_checkpoints(&thread_a)
+        .unwrap();
+    assert_eq!(records_a.len(), 2);
+    assert_eq!(records_a[0].state, "invalid");
+    assert_eq!(records_a[1].state, "active");
+
+    let _ = std::fs::remove_dir_all(root_a);
+    let _ = std::fs::remove_dir_all(root_b);
+}

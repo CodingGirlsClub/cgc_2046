@@ -67,6 +67,7 @@ impl CheckpointManager {
                 &self.index_path,
                 &[
                     "rm",
+                    "--force",
                     "--cached",
                     "--ignore-unmatch",
                     "--quiet",
