@@ -187,6 +187,25 @@ pub(crate) fn classify_turn_error(
     }
 }
 
+/// 仅当 CGC Cloud 托管 provider 返回 HTTP `426` 时置位全局升级提示 Latch（不误伤 BYOK）。
+pub(crate) fn maybe_record_upgrade_notice(error: &AgentError, managed_provider: bool) {
+    if !managed_provider {
+        return;
+    }
+    if let AgentError::Provider(cgc_agent_provider::ProviderError::Api {
+        status: Some(426),
+        message,
+        ..
+    }) = error
+    {
+        if cgc_platform::api::upgrade_notice().is_none() {
+            cgc_platform::api::record_upgrade_notice(
+                cgc_platform::api::UpgradeNotice::fallback_from_message(message.clone()),
+            );
+        }
+    }
+}
+
 pub enum NativeRuntimeEvent {
     Snapshot {
         change: RuntimeChange,
@@ -584,7 +603,9 @@ impl Drop for NativeRuntimeConnection {
 
 #[cfg(test)]
 mod model_setup_tests {
-    use super::{classify_turn_error, ModelSetup, NativeTurnErrorKind};
+    use super::{
+        classify_turn_error, maybe_record_upgrade_notice, ModelSetup, NativeTurnErrorKind,
+    };
     use cgc_agent_core::AgentError;
     use cgc_agent_provider::{ProviderError, ProviderErrorCategory};
 
@@ -653,5 +674,27 @@ mod model_setup_tests {
             classify_turn_error(&AgentError::RuntimeBusy, true),
             NativeTurnErrorKind::Other
         );
+    }
+
+    #[test]
+    fn maybe_record_upgrade_notice_only_latches_for_managed_provider_426() {
+        let _guard = crate::root_view::upgrade_latch_test_lock();
+        cgc_platform::api::clear_upgrade_notice();
+
+        // BYOK 426 不应触发平台全局升级覆盖层
+        maybe_record_upgrade_notice(
+            &AgentError::Provider(ProviderError::api(426, "byok 426")),
+            false,
+        );
+        assert_eq!(cgc_platform::api::upgrade_notice(), None);
+
+        // CGC Cloud 426 应触发全局升级覆盖层
+        maybe_record_upgrade_notice(
+            &AgentError::Provider(ProviderError::api(426, "请升级桌面端")),
+            true,
+        );
+        let notice = cgc_platform::api::upgrade_notice().expect("managed 426 latches notice");
+        assert_eq!(notice.message, "请升级桌面端");
+        cgc_platform::api::clear_upgrade_notice();
     }
 }

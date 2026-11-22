@@ -99,6 +99,7 @@ impl From<ApiError> for EventsError {
             ApiError::Transport(reason) => EventsError::Transport(reason),
             ApiError::Timeout(reason) => EventsError::Transport(format!("timeout: {reason}")),
             ApiError::Unauthorized => EventsError::Unauthorized,
+            ApiError::UpgradeRequired(notice) => EventsError::Server(notice.message),
             ApiError::Graphql { message, .. } => EventsError::Server(message),
         }
     }

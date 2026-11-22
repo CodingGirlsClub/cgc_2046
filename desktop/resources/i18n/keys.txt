@@ -477,6 +477,15 @@ platform.notice.unreachable
 platform.notice.credential
 platform.notice.credential_limit
 platform.notice.retry
+platform.upgrade.title
+platform.upgrade.blocked_title
+platform.upgrade.disabled_title
+platform.upgrade.current_version
+platform.upgrade.min_version
+platform.upgrade.download
+platform.upgrade.retry
+platform.upgrade.default_message
+platform.upgrade.disabled_message
 agent_chat.auth.required
 agent_chat.auth.hint
 agent_chat.auth.methods

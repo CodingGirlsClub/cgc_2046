@@ -280,6 +280,9 @@ impl EnrollmentsApi for HttpEnrollmentsApi {
                     crate::list::EventsError::Transport(format!("timeout: {reason}"))
                 }
                 ApiError::Unauthorized => crate::list::EventsError::Unauthorized,
+                ApiError::UpgradeRequired(notice) => {
+                    crate::list::EventsError::Server(notice.message)
+                }
                 ApiError::Graphql { message, .. } => crate::list::EventsError::Server(message),
             })?;
         let page = payload
@@ -330,6 +333,9 @@ impl EnrollmentsApi for HttpEnrollmentsApi {
                     crate::list::EventsError::Transport(format!("timeout: {reason}"))
                 }
                 ApiError::Unauthorized => crate::list::EventsError::Unauthorized,
+                ApiError::UpgradeRequired(notice) => {
+                    crate::list::EventsError::Server(notice.message)
+                }
                 ApiError::Graphql { message, .. } => crate::list::EventsError::Server(message),
             })?;
         Ok(payload
@@ -352,6 +358,9 @@ impl EnrollmentsApi for HttpEnrollmentsApi {
                     crate::list::EventsError::Transport(format!("timeout: {reason}"))
                 }
                 ApiError::Unauthorized => crate::list::EventsError::Unauthorized,
+                ApiError::UpgradeRequired(notice) => {
+                    crate::list::EventsError::Server(notice.message)
+                }
                 ApiError::Graphql { message, .. } => crate::list::EventsError::Server(message),
             })?;
         let rows = payload

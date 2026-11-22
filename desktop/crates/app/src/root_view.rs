@@ -105,6 +105,8 @@ mod footer_tests;
 mod panel_memory_tests;
 #[cfg(all(test, cgc_ui_tests))]
 mod titlebar_tests;
+#[cfg(all(test, cgc_ui_tests))]
+mod upgrade_overlay_ui_tests;
 
 /// UI 测试夹具：以演示账号进入 `SignedIn`（内存凭证存储，不碰 keychain）。
 ///
@@ -1180,6 +1182,7 @@ impl Render for RootView {
                 ),
             };
             root = root
+                .relative()
                 .size_full()
                 .flex()
                 .flex_col()
@@ -1218,9 +1221,17 @@ impl Render for RootView {
                     &palette,
                     cx,
                 ));
+            if let Some(notice) = self
+                .upgrade_notice
+                .clone()
+                .or_else(cgc_platform::api::upgrade_notice)
+            {
+                root = root.child(self.render_upgrade_overlay(&notice, language, &palette, cx));
+            }
             root
         } else {
             root = root
+                .relative()
                 .size_full()
                 .flex()
                 .flex_col()
@@ -1633,6 +1644,13 @@ impl Render for RootView {
                 ));
             if let Some(popover) = self.selection_popover.clone() {
                 root = root.child(self.render_selection_popover(popover, window, cx));
+            }
+            if let Some(notice) = self
+                .upgrade_notice
+                .clone()
+                .or_else(cgc_platform::api::upgrade_notice)
+            {
+                root = root.child(self.render_upgrade_overlay(&notice, language, &palette, cx));
             }
             root
         }
@@ -3128,8 +3146,162 @@ fn render_loading_state(language: Language, key: Key, palette: &theme::Palette) 
         .into_any_element()
 }
 
+fn upgrade_overlay_title_key(notice: &cgc_platform::api::UpgradeNotice) -> Key {
+    if notice.is_kill_switch() {
+        Key::PlatformUpgradeDisabledTitle
+    } else if notice.is_blocked() {
+        Key::PlatformUpgradeBlockedTitle
+    } else {
+        Key::PlatformUpgradeTitle
+    }
+}
+
+fn upgrade_overlay_message(
+    notice: &cgc_platform::api::UpgradeNotice,
+    language: Language,
+) -> String {
+    let trimmed = notice.message.trim();
+    if !trimmed.is_empty() {
+        return trimmed.to_string();
+    }
+    translate(
+        language,
+        if notice.is_kill_switch() {
+            Key::PlatformUpgradeDisabledMessage
+        } else {
+            Key::PlatformUpgradeDefaultMessage
+        },
+    )
+    .to_string()
+}
+
+impl RootView {
+    fn render_upgrade_overlay(
+        &self,
+        notice: &cgc_platform::api::UpgradeNotice,
+        language: Language,
+        palette: &theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        use gpui_kit::component::button::ButtonVariants as _;
+        let title = translate(language, upgrade_overlay_title_key(notice));
+        let message = upgrade_overlay_message(notice, language);
+        let current_line = format!(
+            "{}: {}",
+            translate(language, Key::PlatformUpgradeCurrentVersion),
+            cgc_platform::runtime::client_version()
+        );
+        let min_line = notice.min_version.as_deref().map(|version| {
+            format!(
+                "{}: {version}",
+                translate(language, Key::PlatformUpgradeMinVersion)
+            )
+        });
+        let download_url = notice.safe_download_url();
+        let retry_root = cx.entity().downgrade();
+
+        div()
+            .id("upgrade-gate-overlay")
+            .test_support()
+            .absolute()
+            .top(px(TITLEBAR_HEIGHT))
+            .left_0()
+            .right_0()
+            .bottom_0()
+            .bg(Hsla {
+                h: 0.0,
+                s: 0.0,
+                l: 0.0,
+                a: 0.52,
+            })
+            .flex()
+            .items_center()
+            .justify_center()
+            .px(px(24.0))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                cx.stop_propagation();
+            })
+            .child(
+                div()
+                    .id("upgrade-gate-card")
+                    .test_support()
+                    .w(px(440.0))
+                    .max_w_full()
+                    .p(px(24.0))
+                    .rounded(px(RADIUS_MEDIUM))
+                    .border_1()
+                    .border_color(palette.line)
+                    .bg(palette.card)
+                    .shadow_sm()
+                    .flex()
+                    .flex_col()
+                    .gap(px(14.0))
+                    .child(
+                        div()
+                            .text_size(px(16.0))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(palette.ink)
+                            .child(title),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(13.0))
+                            .text_color(palette.ink_3)
+                            .child(message),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(4.0))
+                            .p(px(10.0))
+                            .rounded(px(RADIUS_SMALL))
+                            .bg(palette.canvas)
+                            .border_1()
+                            .border_color(palette.line)
+                            .text_size(px(12.0))
+                            .text_color(palette.ink_3)
+                            .child(current_line)
+                            .children(min_line),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .justify_end()
+                            .gap(px(8.0))
+                            .child(
+                                Button::new("upgrade-gate-retry")
+                                    .ghost()
+                                    .label(translate(language, Key::PlatformUpgradeRetry))
+                                    .on_click(move |_, _, cx| {
+                                        let _ = retry_root
+                                            .update(cx, |this, cx| this.retry_upgrade_gate(cx));
+                                    }),
+                            )
+                            .child(
+                                Button::new("upgrade-gate-download")
+                                    .primary()
+                                    .label(translate(language, Key::PlatformUpgradeDownload))
+                                    .on_click(move |_, _, cx| {
+                                        cx.open_url(&download_url);
+                                    }),
+                            ),
+                    ),
+            )
+            .into_any_element()
+    }
+}
+
 fn shortcut_kbd(stroke: &'static str) -> Kbd {
     Kbd::new(gpui_kit::Keystroke::parse(stroke).expect("valid shortcut"))
+}
+
+#[cfg(test)]
+pub(crate) fn upgrade_latch_test_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 #[cfg(test)]
@@ -4714,5 +4886,82 @@ mod tests {
 
         std::env::remove_var("CGC_CHAT_STATE_FILE");
         let _ = std::fs::remove_file(&state_file);
+    }
+
+    #[test]
+    fn upgrade_overlay_selects_expected_title_and_fallback_message() {
+        let upgrade = cgc_platform::api::UpgradeNotice {
+            code: "client_upgrade_required".into(),
+            message: "".into(),
+            min_version: Some("0.2.0".into()),
+            download_url: None,
+        };
+        assert_eq!(
+            super::upgrade_overlay_title_key(&upgrade),
+            Key::PlatformUpgradeTitle
+        );
+        assert_eq!(
+            super::upgrade_overlay_message(&upgrade, Language::Zh),
+            translate(Language::Zh, Key::PlatformUpgradeDefaultMessage)
+        );
+
+        let blocked = cgc_platform::api::UpgradeNotice {
+            code: "client_version_blocked".into(),
+            message: "已停用".into(),
+            min_version: None,
+            download_url: None,
+        };
+        assert_eq!(
+            super::upgrade_overlay_title_key(&blocked),
+            Key::PlatformUpgradeBlockedTitle
+        );
+
+        let disabled = cgc_platform::api::UpgradeNotice {
+            code: "desktop_client_disabled".into(),
+            message: "".into(),
+            min_version: None,
+            download_url: None,
+        };
+        assert_eq!(
+            super::upgrade_overlay_title_key(&disabled),
+            Key::PlatformUpgradeDisabledTitle
+        );
+        assert_eq!(
+            super::upgrade_overlay_message(&disabled, Language::En),
+            translate(Language::En, Key::PlatformUpgradeDisabledMessage)
+        );
+    }
+
+    #[test]
+    fn upgrade_overlay_state_preserves_signed_in_session_and_resets_validation_on_retry() {
+        let _guard = super::upgrade_latch_test_lock();
+        cgc_platform::api::clear_upgrade_notice();
+        let _isolation = isolate_workspace_state();
+
+        let mut root = view();
+        root.finish_login(Ok(fake_signed_in()));
+        root.session_checked = true;
+
+        let notice = cgc_platform::api::UpgradeNotice {
+            code: "desktop_client_disabled".into(),
+            message: "临时维护中".into(),
+            min_version: Some("0.2.0".into()),
+            download_url: Some("https://codingirlsclub.com/releases".into()),
+        };
+        cgc_platform::api::record_upgrade_notice(notice.clone());
+
+        assert!(root.apply_upgrade_notice(notice.clone()));
+        assert!(!root.apply_upgrade_notice(notice.clone()));
+        assert!(
+            root.is_signed_in(),
+            "426 upgrade/kill-switch 绝不可触发 force_sign_out"
+        );
+        assert_eq!(root.upgrade_notice.as_ref(), Some(&notice));
+
+        root.clear_upgrade_overlay_state();
+        assert!(root.is_signed_in(), "点击重试后仍应保持原登录会话");
+        assert_eq!(root.upgrade_notice, None);
+        assert!(!root.session_checked, "登录后重试应重新校验 session");
+        assert_eq!(cgc_platform::api::upgrade_notice(), None);
     }
 }
