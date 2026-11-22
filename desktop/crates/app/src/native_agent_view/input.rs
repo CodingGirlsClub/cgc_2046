@@ -29,9 +29,10 @@ impl NativeAgentView {
         cx.notify();
     }
 
-    pub(crate) fn compose_note(
+    pub(crate) fn compose_plain_prompt(
         &mut self,
         prompt: String,
+        status: impl Into<String>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -41,8 +42,18 @@ impl NativeAgentView {
             state.set_value(prompt, window, cx);
             state.focus(window, cx);
         });
-        self.status = translate(self.language, Key::CoursesLearningNotesAgentStatus).to_string();
+        self.status = status.into();
         cx.notify();
+    }
+
+    pub(crate) fn compose_note(
+        &mut self,
+        prompt: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let status = translate(self.language, Key::CoursesLearningNotesAgentStatus).to_string();
+        self.compose_plain_prompt(prompt, status, window, cx);
     }
 
     pub(crate) fn clear_pending_agent_call(&mut self, cx: &mut Context<Self>) {

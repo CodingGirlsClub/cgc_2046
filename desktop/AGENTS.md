@@ -13,7 +13,7 @@ GPUI + gpui-kit 的原生桌面客户端。组织方式对齐 Zed：`crates/` �
 
 ## 硬约束
 
-- **依赖方向（AD-1）**：`app → 各 domain crate → platform`、`platform-{macos,windows,linux} → platform`；domain crate 之间零依赖。OS 集成按 Zed 的 `gpui_platform` + `gpui_macos/linux/windows` 同构拆分，按 target 选择。
+- **依赖方向（AD-1）**：`app → 各 domain crate → platform`；domain crate 之间零依赖，`platform` 不得反向依赖 domain 或 `app`。OS 适配（keychain、托盘、单实例、路径、进程窗口隐藏）统一留在 `crates/platform` 内按 `#[cfg(target_os = ...)]` 条件编译隔离，不拆独立 `platform-{macos,windows,linux}` crate（ADR-0024 2026-11-22 修订）。
 - **加功能规则**：默认加进已有 domain crate 的 module；只有「独立依赖面 / 被两个以上 crate 复用 / 需要并行隔离或独立发布」之一才新建 crate（Zed 的 `agent` 裂成 `agent_ui`/`agent_servers` 即此标准）。不要按功能清单建 crate。
 - **工具链与版本**：Rust 1.98+；`gpui-kit` =0.9.1（精确钉，补丁版会连带升级 `gpui-pre` 快照与 wgpu/taffy：0.9.1 带入 `gpui-pre 0.3.12`，上层仅新增 GridLayout / ColumnFixed::Right / TextView::on_task_toggle 等 API）、`gpui-pre` 由 kit 钉死；**禁止直接依赖 crates.io 的 `gpui`**（会引入两份 GPUI）。
 - **UI 尽量使用 GPUI Kit 组件**：具体有哪些、怎么用，去 `gpui_kit` 依赖源码里找，自己决定。
