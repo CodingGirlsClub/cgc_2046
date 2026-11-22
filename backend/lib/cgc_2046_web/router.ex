@@ -129,6 +129,13 @@ defmodule Cgc2046Web.Router do
     post("/:provider", PaymentWebhookController, :handle)
   end
 
+  # 桌面端版本检查（ADR-0027）：免鉴权、零 DB、豁免 DesktopClientGatePlug
+  scope "/api/desktop", Cgc2046Web do
+    pipe_through(:api)
+
+    get("/version", DesktopVersionController, :show)
+  end
+
   scope "/api", Cgc2046Web do
     pipe_through([:api, :graphql])
 

@@ -99,6 +99,7 @@ mod history_sidebar;
 mod screens;
 mod state;
 mod terminal_panel;
+mod update_banner;
 
 #[cfg(all(test, cgc_ui_tests))]
 mod footer_tests;
@@ -113,7 +114,7 @@ mod upgrade_overlay_ui_tests;
 ///
 /// 凭据取自 `FakeAuthApi::demo()` 自身，调用点因此不出现密码字面量——密码实参
 /// 写成字面量会被 CodeQL `rust/hard-coded-cryptographic-value` 判成硬编码凭证。
-#[cfg(all(test, cgc_ui_tests))]
+#[cfg(test)]
 pub(in crate::root_view) fn demo_signed_in() -> SessionService {
     let api = cgc_platform::session::FakeAuthApi::demo();
     let session = api.demo_session().expect("fake demo session");
@@ -992,6 +993,7 @@ impl Render for RootView {
         let signed_in_as = translate(language, Key::AppAuthSignedInAs);
 
         let language_icon = AssetIcon::Languages;
+        self.maybe_start_update_check(cx);
 
         if is_signed_in {
             if !self.session_checked {
@@ -1216,6 +1218,7 @@ impl Render for RootView {
                         .bg(palette.canvas)
                         .border_color(palette.canvas),
                 )
+                .children(self.render_update_banner(language, &palette, cx))
                 .child(
                     div()
                         .flex_1()
@@ -1325,125 +1328,128 @@ impl Render for RootView {
                             account_tooltip,
                             cx,
                         )),
-                )
-                .child({
-                    let agent_on_left =
-                        self.agent_panel_side == crate::preferences::PanelSide::Left;
-                    let dock_on_left = self.dock_side == crate::preferences::PanelSide::Left;
-                    let left_agent_group: Option<AnyElement> = agent_on_left.then(|| {
-                        div()
-                            .flex()
-                            .flex_row()
-                            .min_h(px(0.0))
-                            .children(self.history_sidebar.is_some().then(|| {
-                                self.render_history_sidebar(
-                                    crate::preferences::PanelSide::Left,
-                                    window,
-                                    cx,
-                                )
-                            }))
-                            .children(self.agent_panel_open.then(|| {
-                                screens::render_agent_panel(
-                                    &mut screens::ScreenContext::new(&mut self.state),
-                                    language,
-                                    &palette,
-                                    window,
-                                    cx,
-                                )
-                            }))
-                            .children(self.agent_panel_open.then(|| {
-                                render_panel_resize_handle(
-                                    ResizeSide::Left,
-                                    crate::preferences::PanelSide::Left,
-                                    &palette,
-                                    pane_header_visible,
-                                    cx,
-                                )
-                            }))
-                            .into_any_element()
-                    });
-                    let left_dock_group: Option<AnyElement> = dock_on_left.then(|| {
-                        div()
-                            .flex()
-                            .flex_row()
-                            .min_h(px(0.0))
-                            .children(self.right_panel_open.then(|| {
-                                screens::render_right_dock(
-                                    &mut screens::ScreenContext::new(&mut self.state),
-                                    language,
-                                    &palette,
-                                    window,
-                                    cx,
-                                )
-                            }))
-                            .children(self.right_panel_open.then(|| {
-                                render_panel_resize_handle(
-                                    ResizeSide::Right,
-                                    crate::preferences::PanelSide::Left,
-                                    &palette,
-                                    pane_header_visible && right_header_visible,
-                                    cx,
-                                )
-                            }))
-                            .into_any_element()
-                    });
-                    let right_dock_group: Option<AnyElement> = (!dock_on_left).then(|| {
-                        div()
-                            .flex()
-                            .flex_row()
-                            .min_h(px(0.0))
-                            .children(self.right_panel_open.then(|| {
-                                render_panel_resize_handle(
-                                    ResizeSide::Right,
-                                    crate::preferences::PanelSide::Right,
-                                    &palette,
-                                    pane_header_visible && right_header_visible,
-                                    cx,
-                                )
-                            }))
-                            .children(self.right_panel_open.then(|| {
-                                screens::render_right_dock(
-                                    &mut screens::ScreenContext::new(&mut self.state),
-                                    language,
-                                    &palette,
-                                    window,
-                                    cx,
-                                )
-                            }))
-                            .into_any_element()
-                    });
-                    let right_agent_group: Option<AnyElement> = (!agent_on_left).then(|| {
-                        div()
-                            .flex()
-                            .flex_row()
-                            .min_h(px(0.0))
-                            .children(self.agent_panel_open.then(|| {
-                                render_panel_resize_handle(
-                                    ResizeSide::Left,
-                                    crate::preferences::PanelSide::Right,
-                                    &palette,
-                                    pane_header_visible,
-                                    cx,
-                                )
-                            }))
-                            .children(self.agent_panel_open.then(|| {
-                                screens::render_agent_panel(
-                                    &mut screens::ScreenContext::new(&mut self.state),
-                                    language,
-                                    &palette,
-                                    window,
-                                    cx,
-                                )
-                            }))
-                            .children(self.history_sidebar.is_some().then(|| {
-                                self.render_history_sidebar(
-                                    crate::preferences::PanelSide::Right,
-                                    window,
-                                    cx,
-                                )
-                            }))
-                            .into_any_element()
-                    });
+                );
+            if let Some(banner) = self.render_update_banner(language, &palette, cx) {
+                root = root.child(banner);
+            }
+            {
+                let agent_on_left = self.agent_panel_side == crate::preferences::PanelSide::Left;
+                let dock_on_left = self.dock_side == crate::preferences::PanelSide::Left;
+                let left_agent_group: Option<AnyElement> = agent_on_left.then(|| {
+                    div()
+                        .flex()
+                        .flex_row()
+                        .min_h(px(0.0))
+                        .children(self.history_sidebar.is_some().then(|| {
+                            self.render_history_sidebar(
+                                crate::preferences::PanelSide::Left,
+                                window,
+                                cx,
+                            )
+                        }))
+                        .children(self.agent_panel_open.then(|| {
+                            screens::render_agent_panel(
+                                &mut screens::ScreenContext::new(&mut self.state),
+                                language,
+                                &palette,
+                                window,
+                                cx,
+                            )
+                        }))
+                        .children(self.agent_panel_open.then(|| {
+                            render_panel_resize_handle(
+                                ResizeSide::Left,
+                                crate::preferences::PanelSide::Left,
+                                &palette,
+                                pane_header_visible,
+                                cx,
+                            )
+                        }))
+                        .into_any_element()
+                });
+                let left_dock_group: Option<AnyElement> = dock_on_left.then(|| {
+                    div()
+                        .flex()
+                        .flex_row()
+                        .min_h(px(0.0))
+                        .children(self.right_panel_open.then(|| {
+                            screens::render_right_dock(
+                                &mut screens::ScreenContext::new(&mut self.state),
+                                language,
+                                &palette,
+                                window,
+                                cx,
+                            )
+                        }))
+                        .children(self.right_panel_open.then(|| {
+                            render_panel_resize_handle(
+                                ResizeSide::Right,
+                                crate::preferences::PanelSide::Left,
+                                &palette,
+                                pane_header_visible && right_header_visible,
+                                cx,
+                            )
+                        }))
+                        .into_any_element()
+                });
+                let right_dock_group: Option<AnyElement> = (!dock_on_left).then(|| {
+                    div()
+                        .flex()
+                        .flex_row()
+                        .min_h(px(0.0))
+                        .children(self.right_panel_open.then(|| {
+                            render_panel_resize_handle(
+                                ResizeSide::Right,
+                                crate::preferences::PanelSide::Right,
+                                &palette,
+                                pane_header_visible && right_header_visible,
+                                cx,
+                            )
+                        }))
+                        .children(self.right_panel_open.then(|| {
+                            screens::render_right_dock(
+                                &mut screens::ScreenContext::new(&mut self.state),
+                                language,
+                                &palette,
+                                window,
+                                cx,
+                            )
+                        }))
+                        .into_any_element()
+                });
+                let right_agent_group: Option<AnyElement> = (!agent_on_left).then(|| {
+                    div()
+                        .flex()
+                        .flex_row()
+                        .min_h(px(0.0))
+                        .children(self.agent_panel_open.then(|| {
+                            render_panel_resize_handle(
+                                ResizeSide::Left,
+                                crate::preferences::PanelSide::Right,
+                                &palette,
+                                pane_header_visible,
+                                cx,
+                            )
+                        }))
+                        .children(self.agent_panel_open.then(|| {
+                            screens::render_agent_panel(
+                                &mut screens::ScreenContext::new(&mut self.state),
+                                language,
+                                &palette,
+                                window,
+                                cx,
+                            )
+                        }))
+                        .children(self.history_sidebar.is_some().then(|| {
+                            self.render_history_sidebar(
+                                crate::preferences::PanelSide::Right,
+                                window,
+                                cx,
+                            )
+                        }))
+                        .into_any_element()
+                });
+                root = root.child(
                     div()
                         .flex()
                         .flex_row()
@@ -1645,17 +1651,18 @@ impl Render for RootView {
                                 ),
                         )
                         .children(right_dock_group)
-                        .children(right_agent_group)
-                })
-                .child(self.render_footer(
-                    language,
-                    true,
-                    language_icon,
-                    language_label,
-                    language_tooltip,
-                    &palette,
-                    cx,
-                ));
+                        .children(right_agent_group),
+                );
+            }
+            root = root.child(self.render_footer(
+                language,
+                true,
+                language_icon,
+                language_label,
+                language_tooltip,
+                &palette,
+                cx,
+            ));
             if let Some(popover) = self.selection_popover.clone() {
                 root = root.child(self.render_selection_popover(popover, window, cx));
             }

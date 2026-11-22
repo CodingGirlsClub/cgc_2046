@@ -263,22 +263,23 @@ CI 在 1.13 建立后由依赖边界检查兜底。
 ## CI 与打包（story 1.13）
 
 - CI：`.github/workflows/ci.yml` 的 `desktop` job，三平台 matrix（`macos-15` / `windows-2022` / `ubuntu-24.04`），跑 `fmt` / `clippy -D warnings` / `test` / release build / cargo-packager。
-- 打包格式：macOS `dmg`，Windows `wix`（产物 `.msi`），Linux `deb,appimage`；产物在 `desktop/dist/`。
+- 打包格式：macOS `dmg`，Windows `wix`（产物 `.msi`）及便携 `.zip`，Linux `deb` 及由 `.deb` 解包生成的便携 `.tar.gz`（含 `register-protocol.sh`，已放弃 AppImage）；产物在 `desktop/dist/`。
 - 本地复现：
 
 ```bash
 cd desktop
 cargo install cargo-packager --locked --version =0.11.8
-cargo packager -p cgc-desktop-app --release -f dmg     # macOS（单架构）；Windows 用 -f wix，Linux 用 -f deb,appimage
+cargo packager -p cgc-desktop-app --release -f dmg     # macOS（单架构）；Windows 用 -f wix，Linux 用 -f deb
 # macOS universal（发版用）见下节「内测分发（无证书）」
 bash scripts/name-artifacts.sh                          # 重命名为 cgc2046_<version>_<commit>_<platform>-<arch>.*
-bash scripts/verify-package.sh                          # hdiutil / dpkg-deb / AppImage 结构校验
+bash scripts/verify-package.sh                          # hdiutil / dpkg-deb / tar.gz 结构与端点白名单校验
 bash scripts/smoke-package-runtime.sh                   # macOS：从 dmg 启动 release 二进制并确认存活
 CGC_DESKTOP_TOKEN=<jwt> bash scripts/verify-m0-backend.sh  # 真实后端 M0 冒烟（工作台/场次/课程/投影）
 bash scripts/verify-package.sh                          # Windows: pwsh scripts/verify-package.ps1
 ```
 
-- 产物未签名：证书暂无（ADR-0027 决策 2/3），签名、公证与自动更新归 epic-6（`epic-distribution-integration`）。
+- 版本门控与更新检查（ADR-0027 Phase 1，已落地）：所有第一方出口请求携带 `x-cgc-client: desktop`、`x-cgc-client-version`（取 `CGC_BUILD_VERSION`）与 `x-cgc-client-platform`；后端 `DesktopClientGatePlug` 支持 `DESKTOP_MIN_SUPPORTED_VERSION` / `DESKTOP_BLOCKED_VERSIONS` / `DESKTOP_KILL_SWITCH` 热控并返回 HTTP `426`；启动期通过 `GET /api/desktop/version` 做轻量版本检查与安全下载跳转。
+- 产物未签名：证书暂无（ADR-0027 决策 2/3），macOS Developer ID 签名公证、Windows 代码签名、`BUILTIN_PUBLIC_KEY` 生产公钥轮换与自动更新器 Phase 2 统一跟踪于 #1324（`epic-6`）。
 - macOS 产物为 **universal（arm64 + x86_64）**：CI 交叉编译两个架构再 `lipo -create`，Intel 机器不用另选包；本地单架构仍可直接 `cargo packager`。
 
 ## 内测分发（无证书）
