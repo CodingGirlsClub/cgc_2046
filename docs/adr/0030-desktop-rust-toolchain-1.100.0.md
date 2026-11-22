@@ -20,7 +20,7 @@ Rust **1.100.0** 于 2026-11-09 发布，成为 stable 通道当前版本（本�
 
 1. `desktop/rust-toolchain.toml` 的 `channel` 由 `1.98.1` 改为 **`1.100.0`**；`.github/workflows/ci.yml`、`.github/workflows/desktop-release.yml` 的 `toolchain` 输入、`desktop/scripts/smoke.sh` 的默认 `RUSTUP_TOOLCHAIN`、`desktop/README.md` 的版本说明同步更新。
 2. **`desktop/Cargo.toml` 的 `rust-version = "1.98"` 保持不变**。工具链升级不等于抬 MSRV：该字段参与 cargo resolver 的依赖版本筛选，抬高它会静默放宽可解析依赖的 MSRV，需单独的兼容性评估。
-3. **gpui-kit 保持 `=0.9.0`**（gpui-pre 0.3.11）。本次不混入任何依赖升级，保证失败可归因。
+3. **gpui-kit 保持 `=0.9.0`**（gpui-pre 0.3.11）。本次不混入任何依赖升级，保证失败可归因。（**2026-11-22 补记**：工具链升级合入后，后续独立分支已完成 `gpui-kit 0.9.0 → =0.9.1` 升级，底层 `gpui-pre 0.3.12`，见 `desktop/Cargo.toml`。）
 4. 本地前置不变：`cargo` 经 mbx 路由，按 `rust-toolchain.toml` 选 toolchain；`RUSTUP_TOOLCHAIN` 未设时 rustup 用 `default`（本机 1.98.1），进入本仓库即被 pin 覆盖为 1.100.0。
 
 ## 依据
@@ -37,7 +37,7 @@ Rust **1.100.0** 于 2026-11-09 发布，成为 stable 通道当前版本（本�
 | fmt | `cargo fmt --all -- --check` | **通过**（rustfmt 1.11.0-stable，无 diff） |
 | clippy | `cargo clippy --workspace --all-targets -- -D warnings` | **通过**：0 errors；13 条警告全部是 Cargo 1.100 新增的 `unused-dependencies`，不是 clippy lint，`-D warnings` 不作用于 Cargo lint |
 | test | `cargo test --workspace` | **通过**：82 个 test binary 全绿。首次运行有 1 个偶发失败（`restart_recovery_tests::instance_lock_rejects_a_second_holder`，断言"释放后可以接管"），单线程连跑 5 次全过、全量复跑全过 → 判定为 macOS 文件锁时序 flaky，与 1.100 无关（该测试由 `eaae57ae` 新引入，仓库已有 #1247 消除 flaky 门禁噪音的先例） |
-| 打包 | `cargo packager -p cgc-desktop-app --release -f dmg` | 待填 |
+| 打包 | `cargo packager -p cgc-desktop-app --release -f dmg` | **通过**（已随 Desktop Release workflow 与 `desktop-v0.1.0-dev.*` 内测发布验证） |
 
 三平台（macOS universal / Windows wix / Linux deb）由 CI 的 `desktop` job 覆盖。
 
@@ -63,5 +63,5 @@ Rust **1.100.0** 于 2026-11-09 发布，成为 stable 通道当前版本（本�
 
 ## 后续（不在本 ADR 范围）
 
-- **gpui-kit 0.9.0 → 0.9.1**：patch 级，但默认 backend 由 gpui-pre 0.3.11 换到 0.3.12（源码差 14 个文件，taffy 仍 0.15.0）。`desktop/Cargo.toml` 的注释要求补丁版升级也做三平台真机回归，需单独分支与窗口。
+- **gpui-kit 0.9.0 → 0.9.1**：patch 级，但默认 backend 由 gpui-pre 0.3.11 换到 0.3.12（源码差 14 个文件，taffy 仍 0.15.0）。`desktop/Cargo.toml` 的注释要求补丁版升级也做三平台真机回归，需单独分支与窗口。（**2026-11-22 补记**：已落地，`desktop/Cargo.toml` 现钉死 `gpui-kit = "=0.9.1"`，`desktop/Cargo.lock` 已切至 `gpui-pre 0.3.12`。）
 - **MSRV 是否抬到 1.100**：等确认没有需要回到 1.98 的场景后再评估。

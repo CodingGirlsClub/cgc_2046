@@ -36,9 +36,16 @@ Zed 已把 ACP 扩展在 v1.5.0 弃用，改为 ACP Registry（2026-01-28 上线
 - **代价/风险**：外部 registry 的供应链与元数据质量不在我们控制内，必须本地白名单 + checksum；Windows / Linux 的 npm / GitHub Release 安装路径需要分别验收；未来若做 WASM 扩展框架，清单形状可复用本 ADR 的条目结构。
 - **回滚**：停用外部 registry 来源，退回内置清单即可；不影响已安装 agent。
 
+## 现状补记（2026-11-22）
+
+1. **内置清单结构（决策 1 / 2）**：`desktop/crates/platform/resources/registry.json`（由 `desktop/crates/platform/src/registry/manifest.rs` 解析）当前收录 **4** 个外部 ACP Agent（`omp`、`codex 2.2.2`、`claude_code 0.94.0`、`deepseek 0.4.41`，见 ADR-0031）及 `node_runtime.required`；清单内不包含 MCP server 条目（CGC 学习 MCP server 由 `desktop/crates/platform/src/mcp/inject.rs` 直接注入）。
+2. **官方 Registry 在线发现（决策 3）**：`desktop/crates/platform/src/registry/discovery.rs` 已在平台库与 example 层实现，尚未接入 `desktop/crates/app/` 设置页 UI（UI 当前仅渲染内置签名清单）。
+3. **校验分层（决策 4）**：SHA-256 哈希校验（`desktop/crates/platform/src/registry/checksum.rs`）用于托管 Node.js 24 运行时归档（`desktop/crates/platform/src/agent/node_runtime.rs`）；npm 适配器包通过 `registry.sig`（Ed25519 签名）、`npm install --save-exact` 与安装后版本核对（`desktop/crates/platform/src/registry/install.rs`）保证完整性。
+
 ## 参考
 
 - ACP Registry：https://agentclientprotocol.com/get-started/registry
 - Zed ACP Registry 公告：https://zed.dev/blog/acp-registry
 - 官方 MCP Registry：https://registry.modelcontextprotocol.io
-- 架构脊柱：`_bmad-output/initiative-desktop/architecture-desktop/architecture-desktop.md`
+- 架构脊柱：`_bmad-output/initiative-desktop/architecture-desktop/architecture-desktop.md`（本地规划产物，`.git/info/exclude` 忽略）
+- 现存源码：`desktop/crates/platform/resources/registry.json`、`desktop/crates/platform/src/registry/manifest.rs`、`desktop/crates/platform/src/registry/install.rs`、`desktop/crates/platform/src/registry/checksum.rs`、`desktop/crates/platform/src/registry/discovery.rs`

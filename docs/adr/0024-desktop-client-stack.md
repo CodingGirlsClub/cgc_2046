@@ -37,9 +37,18 @@ date: 2026-10-19
 - **代价/风险**：引入 Rust 为项目第三种主语言，团队与招人成本上升；UI 零复用，需重建设计系统与组件；上游 `gpui` 发布停滞，供应链实际依赖 gpui-kit 维护方，须锁版并保留自建 patch 路径；Windows 平台有已知 TitleBar 类 bug，需真机验收。
 - **回滚**：本 ADR 只约束新代码；若未来放弃 GPUI，客户端可整体替换，不影响后端与 web。
 
+## 现状补记（2026-11-22）
+
+1. **工具链与 UI 依赖（决策 1）**：Rust 工具链已随 ADR-0030 升级并 pin 至 **`1.100.0`**（`desktop/rust-toolchain.toml`），workspace MSRV 保持 `rust-version = "1.98"`（`desktop/Cargo.toml`）；`gpui-kit` 已升级至 **`=0.9.1`**（启用 `syntect` feature，底层 `gpui-pre 0.3.12`）。
+2. **Workspace 成员（决策 2）**：`desktop/Cargo.toml` 当前共 **16** 个成员 crate（`app`、`account`、`events`、`courses`、`agent_ui`、`agent_conversation`、`agent_provider`、`agent_core`、`agent_tools`、`agent_demo`、`agent_store`、`agent_host`、`agent_checkpoint`、`terminal`、`terminal_view`、`platform`；无 `crates/companion`，`agent_demo` 另提供开发联调二进制 `cgc-agent-demo`）。
+3. **GraphQL 契约校验（决策 3）**：未采用 Rust GraphQL codegen，客户端手写查询并由 `desktop/scripts/check_release_schema.py` 在发布前与后端 schema 做静态兼容门禁。
+4. **数学公式渲染（决策 5）**：已定型采用 `ratex-gpui 0.4`（`0.4.1`，见 `desktop/crates/app/Cargo.toml` 与 `desktop/crates/app/src/formula.rs`）。
+5. **许可门禁（决策 7）**：由 `desktop/scripts/check_licenses.py` 在 CI 中扫描 `cargo metadata` 强制 AGPL-3.0 兼容。
+
 ## 参考
 
-- 架构脊柱：`_bmad-output/initiative-desktop/architecture-desktop/architecture-desktop.md`
+- 架构脊柱：`_bmad-output/initiative-desktop/architecture-desktop/architecture-desktop.md`（本地规划产物，`.git/info/exclude` 忽略）
 - gpui-kit：https://gpui-kit.com/zh-CN/docs
 - Zed Windows 支持：https://zed.dev/blog/zed-for-windows-is-here
 - 依赖规则：`docs/开源合规/依赖引入规则.md`
+- 现存源码：`desktop/Cargo.toml`、`desktop/rust-toolchain.toml`、`desktop/crates/app/src/formula.rs`、`desktop/scripts/check_release_schema.py`、`desktop/scripts/check_licenses.py`
