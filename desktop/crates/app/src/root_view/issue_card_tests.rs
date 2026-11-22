@@ -7,7 +7,8 @@ use crate::root_view::state::MediaState;
 use crate::theme::ThemePreference;
 use cgc_courses::catalog::{CourseCatalogService, CoursesApi, FakeCoursesApi};
 use cgc_courses::content::{
-    AgentActionSpec, AgentIntent, CourseChecklistItem, CourseObjective, MaterialKind, TypedMaterial,
+    AgentActionIntent, AgentActionSpec, AgentIntent, CourseChecklistItem, CourseObjective,
+    MaterialKind, TypedMaterial,
 };
 use cgc_courses::notes::{
     CourseNote, CourseNotesService, FakeNotesApi, NewCourseNote, NoteKind, NotesApi, NotesError,
@@ -815,13 +816,13 @@ fn issue_card_cta_dispatches_agent_call_to_composer(cx: &mut TestAppContext) {
             AgentActionSpec {
                 id: "a-answer".into(),
                 label: "回答当前问题".into(),
-                intent: AgentIntent::Answer,
+                intent: AgentActionIntent::Known(AgentIntent::Answer),
                 primary: true,
             },
             AgentActionSpec {
                 id: "a-hint".into(),
                 label: "给我一个提示".into(),
-                intent: AgentIntent::Hint,
+                intent: AgentActionIntent::Known(AgentIntent::Hint),
                 primary: false,
             },
         ];
@@ -856,7 +857,7 @@ fn issue_card_cta_does_not_flip_native_mode_when_initializing(cx: &mut TestAppCo
         content.document.issues[0].objectives[0].agent_actions = vec![AgentActionSpec {
             id: "a-hint".into(),
             label: "给我一个提示".into(),
-            intent: AgentIntent::Hint,
+            intent: AgentActionIntent::Known(AgentIntent::Hint),
             primary: false,
         }];
         root.content.adopt(content);
@@ -865,6 +866,7 @@ fn issue_card_cta_does_not_flip_native_mode_when_initializing(cx: &mut TestAppCo
         root.native_chat_mode = true;
         root.native_agent_view = None;
     });
+    let previous_native = std::env::var_os("CGC_NATIVE_AGENT");
     cx.update_window(handle, |_, window, cx| {
         std::env::set_var("CGC_NATIVE_AGENT", "1");
         window.render_frame(cx);
@@ -878,6 +880,148 @@ fn issue_card_cta_does_not_flip_native_mode_when_initializing(cx: &mut TestAppCo
         assert!(root.chat.input.is_empty(), "no ACP fallback prefill");
     })
     .unwrap();
+    match previous_native {
+        Some(value) => std::env::set_var("CGC_NATIVE_AGENT", value),
+        None => std::env::remove_var("CGC_NATIVE_AGENT"),
+    }
+}
+
+#[gpui_kit::test]
+fn issue_card_unknown_intent_degrades_to_plain_compose_with_upgrade_notice(
+    cx: &mut TestAppContext,
+) {
+    use crate::agent_call::{AgentCall, DeliveryMode, LearningTarget, PendingAgentCall};
+
+    let directory =
+        std::env::temp_dir().join(format!("cgc-unknown-intent-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&directory).expect("isolated data directory");
+    let previous_data_dir = std::env::var_os("CGC_DATA_DIR");
+    std::env::set_var("CGC_DATA_DIR", &directory);
+    crate::preferences::update(|prefs| {
+        prefs.course_action_delivery = DeliveryMode::AutoSend;
+    });
+
+    let (handle, root) = issue_card_window(cx);
+    let existing = AgentCall::from_action(
+        &AgentActionSpec {
+            id: "a-old".into(),
+            label: "给我一个提示".into(),
+            intent: AgentActionIntent::Known(AgentIntent::Hint),
+            primary: false,
+        },
+        LearningTarget::Objective {
+            course_id: "crs-000".into(),
+            revision: Some(1),
+            issue_id: "issue-1".into(),
+            objective_id: "obj-1".into(),
+        },
+    )
+    .expect("known action");
+    root.update(cx, |root, _| {
+        root.courses = CourseCatalogService::new(Arc::new(FakeCoursesApi::with_seed(5)));
+        let mut content = card_content();
+        content.document.issues[0].objectives[0].agent_actions = vec![
+            AgentActionSpec {
+                id: "a-unknown".into(),
+                label: "模拟面试".into(),
+                intent: AgentActionIntent::Unknown("mock_interview".into()),
+                primary: true,
+            },
+            AgentActionSpec {
+                id: "a-hint".into(),
+                label: "给我一个提示".into(),
+                intent: AgentActionIntent::Known(AgentIntent::Hint),
+                primary: false,
+            },
+        ];
+        root.content.adopt(content);
+        root.projection = LearningProjectionService::new(Arc::new(FakeCoursesApi::with_seed(5)));
+        root.projection.adopt(projection());
+        root.native_chat_mode = false;
+        root.chat.pending_agent_call = Some(PendingAgentCall::new(
+            existing,
+            "给我一个提示",
+            "old prompt",
+        ));
+    });
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window
+            .try_find("issue-agent-action-obj-1-a-unknown")
+            .is_some());
+        assert!(window.try_find("issue-agent-action-obj-1-a-hint").is_some());
+
+        window.click("issue-agent-action-obj-1-a-unknown", cx);
+        let root = root.read(cx);
+        assert!(root.agent_panel_open);
+        assert!(
+            root.chat.pending_agent_call.is_none(),
+            "unknown intent must clear any stale AgentCall and never create one"
+        );
+        assert!(root.chat.input.contains("模拟面试"));
+        assert!(
+            !root.chat.input.contains("mock_interview"),
+            "raw unknown intent must not be interpolated into the prompt: {}",
+            root.chat.input
+        );
+        let notice = root
+            .pane_notice
+            .as_deref()
+            .expect("unknown intent must show upgrade notice");
+        assert!(
+            notice.contains("升级客户端"),
+            "notice must remind user to upgrade client: {notice}"
+        );
+        assert!(
+            !root.chat.session.is_busy(),
+            "unknown intent must compose instead of auto-sending"
+        );
+    })
+    .unwrap();
+
+    match previous_data_dir {
+        Some(value) => std::env::set_var("CGC_DATA_DIR", value),
+        None => std::env::remove_var("CGC_DATA_DIR"),
+    }
+    let _ = std::fs::remove_dir_all(&directory);
+}
+
+#[gpui_kit::test]
+fn issue_card_unknown_intent_respects_native_initializing_state(cx: &mut TestAppContext) {
+    let (handle, root) = issue_card_window(cx);
+    root.update(cx, |root, _| {
+        root.courses = CourseCatalogService::new(Arc::new(FakeCoursesApi::with_seed(5)));
+        let mut content = card_content();
+        content.document.issues[0].objectives[0].agent_actions = vec![AgentActionSpec {
+            id: "a-unknown".into(),
+            label: "模拟面试".into(),
+            intent: AgentActionIntent::Unknown("mock_interview".into()),
+            primary: false,
+        }];
+        root.content.adopt(content);
+        root.projection = LearningProjectionService::new(Arc::new(FakeCoursesApi::with_seed(5)));
+        root.projection.adopt(projection());
+        root.native_chat_mode = true;
+        root.native_agent_view = None;
+    });
+    let previous_native = std::env::var_os("CGC_NATIVE_AGENT");
+    cx.update_window(handle, |_, window, cx| {
+        std::env::set_var("CGC_NATIVE_AGENT", "1");
+        window.render_frame(cx);
+        window.click("issue-agent-action-obj-1-a-unknown", cx);
+        let root = root.read(cx);
+        assert!(root.native_chat_mode, "mode must stay native");
+        assert!(
+            root.pane_notice.is_some(),
+            "user must see initializing notice"
+        );
+        assert!(root.chat.input.is_empty(), "no ACP fallback prefill");
+    })
+    .unwrap();
+    match previous_native {
+        Some(value) => std::env::set_var("CGC_NATIVE_AGENT", value),
+        None => std::env::remove_var("CGC_NATIVE_AGENT"),
+    }
 }
 
 #[gpui_kit::test]
