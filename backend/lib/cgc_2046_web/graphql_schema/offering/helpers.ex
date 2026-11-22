@@ -254,4 +254,20 @@ defmodule Cgc2046Web.GraphqlSchema.Offering.Helpers do
         nil
     end
   end
+
+  def resolve_readiness(id, actor) do
+    with {:ok, entity} <- fetch_offering_by_id(id, actor) do
+      {:ok, Cgc2046.Offering.Readiness.evaluate(entity)}
+    end
+  end
+
+  # offeringReadiness 目标可能是 Event 或 Course（原 event 优先、失败回退 course）。
+  # 读取唯一真源 = Offering；**必须显式 authorize?: true**（D2 风险：Offering 默认
+  # authorize?: false 会绕过 read policy，actor 感知读取退化为全量可见）。
+  defp fetch_offering_by_id(id, actor) do
+    case Cgc2046.Offering.fetch(:event, id, actor: actor, authorize?: true) do
+      {:ok, entity} -> {:ok, entity}
+      {:error, _} -> Cgc2046.Offering.fetch(:course, id, actor: actor, authorize?: true)
+    end
+  end
 end

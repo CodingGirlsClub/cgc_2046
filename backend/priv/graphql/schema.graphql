@@ -5036,6 +5036,39 @@ type RootQueryType {
 
   wechatMiniWebLoginPreview(requestId: String!): MiniWebLoginResult
 
+  "忘记密码页的固定小程序码（scene=pw，直达小程序密码页；匿名可读，生成失败返回 null）"
+  passwordCenterQr: String
+
+  "角色权限矩阵（#66 Rbac）：五角色 × 八能力，对齐前端权限表（需登录；#1 能力接口：abilities 为通用列表）"
+  permissionMatrix: PermissionMatrixPayload
+
+  "当前登录用户个人资料（#68 Profile API，需登录）：id\/email\/displayName\/isPlatformAdmin + memberNumber\/joinedAt（ADR-0004 收窄为全局身份）"
+  me: User
+
+  "当前登录用户的掩码手机号（仅本人；未绑定返回 null；前 6 后 4 中间 ****，明文不出 GraphQL 面）"
+  myPhone: String
+
+  "当前用户在某工作台的公开资料（ADR-0004 per-workspace；按 visibility 授权）"
+  workspaceProfile(workspaceId: ID!): WorkspaceProfile
+
+  "当前用户在某工作台的作品集条目列表（ADR-0004 per-workspace）"
+  myWorkspacePortfolio(workspaceId: ID!): [PortfolioItem]
+
+  "当前用户（申请人）的工作台创建申请列表（R7a；任何人可见自己的申请）"
+  myWorkspaceApplications: [AdminWorkspaceApplication!]!
+
+  "当前用户的 MCP 连接 token 列表（切片 D #44；不含明文，新→旧；policy 仅见本人）"
+  myMcpTokens: [McpToken]
+
+  "当前用户在某工作台的 MCP 工具调用活动流（plan 020 U2.1；policy：workspace 成员 + 仅本人；params 摘要级不返回）"
+  myWorkspaceToolCalls(workspaceId: ID!, first: Int): [WorkspaceToolCall!]!
+
+  "公开 Initiative 活动页投影；匿名可读，统一跨租户计数口径"
+  publicInitiative(slug: String!): PublicInitiative
+
+  "公开 Initiative 列表；匿名可读"
+  publicInitiatives: [PublicInitiativeCard!]!
+
   "闪念间圆梦线 CTA 两态（U4\/R9）：本城最近一场可报名公开场次；未命中时前端落 Initiative 公开页。匿名可读，仅指路字段"
   flashbackDreamTarget(city: String): FlashbackDreamTarget
 
@@ -5244,6 +5277,8 @@ type RootQueryType {
   "活动主理人列表；主理人或所属 Workspace Owner\/Admin 可读"
   eventModerators(workspaceId: ID!, eventId: ID!): [EventModerator!]!
 
+  offeringReadiness(id: ID!): OfferingReadinessPayload
+
   "当前 open 招募批次（公开申请页数据面，匿名可读；R10\/AE12）：批次区三态中的「有批次」与「无批次」由本字段 null 区分；draft\/closed 不因本字段露面"
   currentRecruitmentCohort(workspaceId: ID!): RecruitmentCohort
 
@@ -5332,49 +5367,14 @@ type RootQueryType {
   "Placeholder query until the first resource is added"
   ping: String
 
-  "忘记密码页的固定小程序码（scene=pw，直达小程序密码页；匿名可读，生成失败返回 null）"
-  passwordCenterQr: String
-
-  "角色权限矩阵（#66 Rbac）：五角色 × 八能力，对齐前端权限表（需登录；#1 能力接口：abilities 为通用列表）"
-  permissionMatrix: PermissionMatrixPayload
-
-  offeringReadiness(id: ID!): OfferingReadinessPayload
-
-  "当前登录用户个人资料（#68 Profile API，需登录）：id\/email\/displayName\/isPlatformAdmin + memberNumber\/joinedAt（ADR-0004 收窄为全局身份）"
-  me: User
-
-  "当前登录用户的掩码手机号（仅本人；未绑定返回 null；前 6 后 4 中间 ****，明文不出 GraphQL 面）"
-  myPhone: String
-
-  "当前用户在某工作台的公开资料（ADR-0004 per-workspace；按 visibility 授权）"
-  workspaceProfile(workspaceId: ID!): WorkspaceProfile
-
-  "当前用户在某工作台的作品集条目列表（ADR-0004 per-workspace）"
-  myWorkspacePortfolio(workspaceId: ID!): [PortfolioItem]
-
-  "当前用户的 MCP 连接 token 列表（切片 D #44；不含明文，新→旧；policy 仅见本人）"
-  myMcpTokens: [McpToken]
-
   "当前用户作为 Owner\/Admin 的跨工作台待审批项（Enrollment + JoinRequest + Sponsorship）；include_expired=true 时附带已过期行（只读展示，E-8 #123）"
   myPendingApprovals(includeExpired: Boolean): [PendingApproval!]!
 
   "当前用户作为 Owner\/Admin 的跨工作台可操作待办总数（Enrollment + JoinRequest + Sponsorship 的 pending 且未过审批截止）；已过期不计（KTD8 口径，与 \/approvals 展示含过期行存在有意差异）"
   pendingApprovalsCount: Int!
 
-  "公开 Initiative 活动页投影；匿名可读，统一跨租户计数口径"
-  publicInitiative(slug: String!): PublicInitiative
-
-  "公开 Initiative 列表；匿名可读"
-  publicInitiatives: [PublicInitiativeCard!]!
-
   "平台管理员：脱敏 workflow 运行元数据（不含 facts\/input snapshot）"
   platformWorkflowAudit(workspaceId: ID, status: String, startedAfter: DateTime, startedBefore: DateTime): [PlatformWorkflowAudit!]!
-
-  "当前用户在某工作台的 MCP 工具调用活动流（plan 020 U2.1；policy：workspace 成员 + 仅本人；params 摘要级不返回）"
-  myWorkspaceToolCalls(workspaceId: ID!, first: Int): [WorkspaceToolCall!]!
-
-  "当前用户（申请人）的工作台创建申请列表（R7a；任何人可见自己的申请）"
-  myWorkspaceApplications: [AdminWorkspaceApplication!]!
 
   sponsorships(
     "How to sort the records in the response"
@@ -5748,35 +5748,6 @@ type RootQueryType {
   ): KeysetPageOfInviteBatch
 }
 
-type AbilityGrant {
-  "能力名：view_workspace \/ access_invite_only \/ list_members \/ manage_members \/ assign_roles \/ create_workspace"
-  name: String!
-
-  allowed: Boolean!
-}
-
-type PermissionMatrixRow {
-  "角色名：owner \/ admin \/ tutor \/ volunteer \/ learner"
-  name: String!
-
-  abilities: [AbilityGrant!]!
-}
-
-type PermissionMatrixPayload {
-  roles: [PermissionMatrixRow!]!
-}
-
-type OfferingReadinessPayload {
-  ready: Boolean!
-  items: [OfferingReadinessItem!]!
-}
-
-type OfferingReadinessItem {
-  key: String!
-  label: String!
-  ok: Boolean!
-}
-
 type PendingApproval {
   id: ID!
   kind: String!
@@ -5808,217 +5779,6 @@ type PlatformWorkflowAudit {
   finishedAt: DateTime
   insertedAt: DateTime!
   errorSummary: String
-}
-
-type WorkspaceToolCall {
-  id: ID!
-  tool: String!
-  status: String!
-  latencyMs: Int
-  insertedAt: DateTime!
-  errorMessage: String
-}
-
-type MiniprogramCodeResult {
-  invitationId: ID!
-  platform: String!
-  scene: String!
-  codeBase64: String!
-  expiresAt: DateTime!
-}
-
-type WorkspaceProfile {
-  "per-workspace 成员公开资料（ADR-0004）"
-  id: ID!
-
-  workspaceId: ID!
-
-  userId: ID!
-
-  avatarUrl: String
-
-  location: String
-
-  about: String
-
-  skills: [String]
-
-  visibility: String
-
-  uiThemePreference: String!
-}
-
-type PortfolioItem {
-  "per-workspace 作品集条目（ADR-0004）"
-  id: ID!
-
-  workspaceId: ID!
-
-  title: String!
-
-  description: String
-
-  url: String
-
-  icon: String!
-}
-
-input UpdateWorkspaceProfileInput {
-  "updateWorkspaceProfile 输入（ADR-0004）：avatarUrl\/location\/about\/skills\/visibility 可选"
-  avatarUrl: String
-
-  location: String
-
-  about: String
-
-  skills: [String]
-
-  visibility: String
-}
-
-input SetWorkspaceThemeInput {
-  "setWorkspaceTheme 输入：uiThemePreference 必填，仅 dark | light"
-  uiThemePreference: String!
-}
-
-input CreatePortfolioItemInput {
-  "createPortfolioItem 输入：title 必填，description\/url\/icon 可选"
-  title: String!
-
-  description: String
-
-  url: String
-
-  icon: String
-}
-
-input UpdatePortfolioItemInput {
-  "updatePortfolioItem 输入：title\/description\/url\/icon 可选"
-  title: String
-
-  description: String
-
-  url: String
-
-  icon: String
-}
-
-"连接 token 类型（ADR-0022）：TERMINAL 用户自建，权限随角色；LEARNING_HOST 配对签发给本机 Host，只能调学习工具"
-enum McpTokenKind {
-  TERMINAL
-  LEARNING_HOST
-}
-
-type McpToken {
-  "MCP 连接 token（明文不可经此类型读回；hash 不落 GraphQL 面）"
-  id: ID!
-
-  name: String!
-
-  kind: McpTokenKind!
-
-  lastUsedAt: DateTime
-
-  revokedAt: DateTime
-
-  insertedAt: DateTime!
-}
-
-type CreateMcpTokenPayload {
-  "createMcpToken 返回：result 为 token 记录；plainToken 明文仅此一次"
-  result: McpToken
-
-  plainToken: String
-
-  errors: [MutationError]
-}
-
-input AcceptInvitationInput {
-  "acceptInvitation 输入：token 为明文邀请令牌（accept 须复验）"
-  token: String!
-}
-
-type AcceptInvitationResult {
-  "acceptInvitation 返回：result 为已接受邀请记录；errors 为业务错误"
-  result: Invitation
-
-  errors: [MutationError!]!
-}
-
-type AdminWorkspaceApplication {
-  id: ID!
-  applicantId: ID!
-  name: String!
-  slug: String!
-  purpose: String!
-  status: String!
-  rejectionReason: String
-  approvedBy: ID
-  approvedAt: DateTime
-  rejectedBy: ID
-  rejectedAt: DateTime
-  insertedAt: DateTime!
-}
-
-type PublicInitiative {
-  id: ID!
-  name: String!
-  slug: String!
-  hashtag: String
-  description: String
-  windowStartsAt: DateTime
-  windowEndsAt: DateTime
-  status: String!
-  cityCount: Int!
-  eventCount: Int!
-  confirmedCount: Int!
-  qualifiedEventCount: Int!
-  cities: [PublicInitiativeCity!]!
-}
-
-type PublicInitiativeCard {
-  id: ID!
-  name: String!
-  slug: String!
-  hashtag: String
-  description: String
-  windowStartsAt: DateTime
-  windowEndsAt: DateTime
-  status: String!
-}
-
-type PublicInitiativeCity {
-  city: String!
-  events: [PublicInitiativeEvent!]!
-}
-
-type PublicInitiativeEvent {
-  id: ID!
-  slug: String!
-  title: String!
-  status: String!
-  visibility: String!
-  startsAt: DateTime
-  endsAt: DateTime
-  registrationDeadline: DateTime
-  venue: JsonString
-  confirmedCount: Int!
-  minParticipants: Int
-  qualificationStatus: String
-  archived: Boolean!
-  qualificationBadge: String!
-  shortBy: Int
-  paymentMode: String!
-  deposit: PublicInitiativeDeposit!
-  minAge: Int
-  priceRangeMinCents: Int
-}
-
-"公开页押金明细（#627）：金额缺失\/非正时 amountCents 为 null，enabled 仍 true——绝不显示 ¥0"
-type PublicInitiativeDeposit {
-  enabled: Boolean!
-  amountCents: Int
-  refundableOnCheckIn: Boolean
 }
 
 type RootMutationType {
@@ -6100,6 +5860,48 @@ type RootMutationType {
 
   "桌面端撤销尚未消费的扫码请求"
   wechatMiniWebLoginCancelForDesktop(requestId: String!, proof: String!): MiniWebLoginDesktopResult
+
+  "Owner\/Admin 创建一次性工作台邀请小程序码"
+  generateMiniProgramCode(workspaceId: ID!, platform: String!): MiniprogramCodeResult
+
+  "使用一次性小程序 scene 接受工作台邀请"
+  admitMemberByToken(scene: String!): Invitation
+
+  "接受邀请→建 Membership + 预授权角色入座（#96：手写 resolver 绕过 read policy 记录加载）"
+  acceptInvitation(id: ID!, input: AcceptInvitationInput!): AcceptInvitationResult
+
+  "更新当前用户全局显示名（ADR-0004：displayName 保留全局身份字段）"
+  updateDisplayName(displayName: String!): User
+
+  "绑定\/换绑当前用户手机号（验证码 purpose=CHANGE_PHONE 验新号；仅本人；目标号已被他人占用即拒绝，不做自助合并）"
+  updateMyPhone(phone: String!, code: String!): User
+
+  "更新当前用户界面语言偏好（i18n Phase 1；zh-CN | en，仅本人）"
+  updateMyLocale(locale: String!): User
+
+  "拒绝首公里接入邀请（每次登录弹直到明确拒绝；幂等保留首次拒绝时间戳，仅本人）"
+  dismissOnboardingInvitation: User
+
+  "更新当前用户在某工作台的资料（ADR-0004 per-workspace）"
+  updateWorkspaceProfile(workspaceId: ID!, input: UpdateWorkspaceProfileInput!): WorkspaceProfile
+
+  "设置当前用户在某工作台的 UI 主题偏好（ADR-0004 per-workspace）"
+  setWorkspaceTheme(workspaceId: ID!, input: SetWorkspaceThemeInput!): WorkspaceProfile
+
+  "在某工作台创建作品集条目（ADR-0004；workspace_id 与 user_id 自动填充，防跨租户伪造）"
+  createPortfolioItem(workspaceId: ID!, input: CreatePortfolioItemInput!): PortfolioItem
+
+  "更新某工作台自己的作品集条目（ADR-0004；tenant 隔离）"
+  updatePortfolioItem(id: ID!, workspaceId: ID!, input: UpdatePortfolioItemInput!): PortfolioItem
+
+  "删除某工作台自己的作品集条目（ADR-0004；tenant 隔离）"
+  deletePortfolioItem(id: ID!, workspaceId: ID!): PortfolioItem
+
+  "签发 MCP 连接 token（切片 D #44；明文仅本次经 plainToken 返回一次，库中只存 SHA256 hash；kind 缺省 TERMINAL，LEARNING_HOST 签发学习凭证，ADR-0022）"
+  createMcpToken(name: String!, kind: McpTokenKind): CreateMcpTokenPayload
+
+  "撤销 MCP 连接 token（切片 D #44；仅本人，置 revokedAt 保留审计行；他人 token 一律 not_found 不泄露存在性）"
+  revokeMcpToken(id: ID!): McpToken
 
   "管理员单笔退款（R15）：第一段——建 pending 并返回后端生成的确认摘要（不落业务库）；confirmOperation 确认后真正执行"
   refundOrder(id: ID!): PendingOperationConfirmation
@@ -6508,50 +6310,8 @@ type RootMutationType {
   "PlatformAdmin 删除单个模型配置"
   adminDeleteLlmProviderModel(id: ID!): Boolean!
 
-  "Owner\/Admin 创建一次性工作台邀请小程序码"
-  generateMiniProgramCode(workspaceId: ID!, platform: String!): MiniprogramCodeResult
-
-  "使用一次性小程序 scene 接受工作台邀请"
-  admitMemberByToken(scene: String!): Invitation
-
-  "接受邀请→建 Membership + 预授权角色入座（#96：手写 resolver 绕过 read policy 记录加载）"
-  acceptInvitation(id: ID!, input: AcceptInvitationInput!): AcceptInvitationResult
-
   "记录一次小程序订阅消息授权并增加一个可用次数"
   grantMiniProgramNotificationConsent(platform: String!, templateKey: String!): Int
-
-  "更新当前用户全局显示名（ADR-0004：displayName 保留全局身份字段）"
-  updateDisplayName(displayName: String!): User
-
-  "绑定\/换绑当前用户手机号（验证码 purpose=CHANGE_PHONE 验新号；仅本人；目标号已被他人占用即拒绝，不做自助合并）"
-  updateMyPhone(phone: String!, code: String!): User
-
-  "更新当前用户界面语言偏好（i18n Phase 1；zh-CN | en，仅本人）"
-  updateMyLocale(locale: String!): User
-
-  "拒绝首公里接入邀请（每次登录弹直到明确拒绝；幂等保留首次拒绝时间戳，仅本人）"
-  dismissOnboardingInvitation: User
-
-  "更新当前用户在某工作台的资料（ADR-0004 per-workspace）"
-  updateWorkspaceProfile(workspaceId: ID!, input: UpdateWorkspaceProfileInput!): WorkspaceProfile
-
-  "设置当前用户在某工作台的 UI 主题偏好（ADR-0004 per-workspace）"
-  setWorkspaceTheme(workspaceId: ID!, input: SetWorkspaceThemeInput!): WorkspaceProfile
-
-  "在某工作台创建作品集条目（ADR-0004；workspace_id 与 user_id 自动填充，防跨租户伪造）"
-  createPortfolioItem(workspaceId: ID!, input: CreatePortfolioItemInput!): PortfolioItem
-
-  "更新某工作台自己的作品集条目（ADR-0004；tenant 隔离）"
-  updatePortfolioItem(id: ID!, workspaceId: ID!, input: UpdatePortfolioItemInput!): PortfolioItem
-
-  "删除某工作台自己的作品集条目（ADR-0004；tenant 隔离）"
-  deletePortfolioItem(id: ID!, workspaceId: ID!): PortfolioItem
-
-  "签发 MCP 连接 token（切片 D #44；明文仅本次经 plainToken 返回一次，库中只存 SHA256 hash；kind 缺省 TERMINAL，LEARNING_HOST 签发学习凭证，ADR-0022）"
-  createMcpToken(name: String!, kind: McpTokenKind): CreateMcpTokenPayload
-
-  "撤销 MCP 连接 token（切片 D #44；仅本人，置 revokedAt 保留审计行；他人 token 一律 not_found 不泄露存在性）"
-  revokeMcpToken(id: ID!): McpToken
 
   "提交赞助意向：校验后创建 pending（不生效权益，等审批）"
   createSponsorship(input: CreateSponsorshipInput!): CreateSponsorshipResult!
@@ -8897,6 +8657,17 @@ type CheckInEnrollmentPayload {
   errors: [MutationError]
 }
 
+type OfferingReadinessPayload {
+  ready: Boolean!
+  items: [OfferingReadinessItem!]!
+}
+
+type OfferingReadinessItem {
+  key: String!
+  label: String!
+  ok: Boolean!
+}
+
 type PendingOperationConfirmation {
   "refundOrder\/retryRefund\/waivePayment 第一段返回：pendingId + 后端生成的确认摘要；errors 为业务错误（未建 pending）"
   pendingId: ID
@@ -9077,4 +8848,233 @@ input UpdateRecruitmentCohortInput {
   startsAt: DateTime
 
   endsAt: DateTime
+}
+
+type PublicInitiative {
+  id: ID!
+  name: String!
+  slug: String!
+  hashtag: String
+  description: String
+  windowStartsAt: DateTime
+  windowEndsAt: DateTime
+  status: String!
+  cityCount: Int!
+  eventCount: Int!
+  confirmedCount: Int!
+  qualifiedEventCount: Int!
+  cities: [PublicInitiativeCity!]!
+}
+
+type PublicInitiativeCard {
+  id: ID!
+  name: String!
+  slug: String!
+  hashtag: String
+  description: String
+  windowStartsAt: DateTime
+  windowEndsAt: DateTime
+  status: String!
+}
+
+type PublicInitiativeCity {
+  city: String!
+  events: [PublicInitiativeEvent!]!
+}
+
+type PublicInitiativeEvent {
+  id: ID!
+  slug: String!
+  title: String!
+  status: String!
+  visibility: String!
+  startsAt: DateTime
+  endsAt: DateTime
+  registrationDeadline: DateTime
+  venue: JsonString
+  confirmedCount: Int!
+  minParticipants: Int
+  qualificationStatus: String
+  archived: Boolean!
+  qualificationBadge: String!
+  shortBy: Int
+  paymentMode: String!
+  deposit: PublicInitiativeDeposit!
+  minAge: Int
+  priceRangeMinCents: Int
+}
+
+"公开页押金明细（#627）：金额缺失\/非正时 amountCents 为 null，enabled 仍 true——绝不显示 ¥0"
+type PublicInitiativeDeposit {
+  enabled: Boolean!
+  amountCents: Int
+  refundableOnCheckIn: Boolean
+}
+
+type WorkspaceToolCall {
+  id: ID!
+  tool: String!
+  status: String!
+  latencyMs: Int
+  insertedAt: DateTime!
+  errorMessage: String
+}
+
+"连接 token 类型（ADR-0022）：TERMINAL 用户自建，权限随角色；LEARNING_HOST 配对签发给本机 Host，只能调学习工具"
+enum McpTokenKind {
+  TERMINAL
+  LEARNING_HOST
+}
+
+type McpToken {
+  "MCP 连接 token（明文不可经此类型读回；hash 不落 GraphQL 面）"
+  id: ID!
+
+  name: String!
+
+  kind: McpTokenKind!
+
+  lastUsedAt: DateTime
+
+  revokedAt: DateTime
+
+  insertedAt: DateTime!
+}
+
+type CreateMcpTokenPayload {
+  "createMcpToken 返回：result 为 token 记录；plainToken 明文仅此一次"
+  result: McpToken
+
+  plainToken: String
+
+  errors: [MutationError]
+}
+
+type MiniprogramCodeResult {
+  invitationId: ID!
+  platform: String!
+  scene: String!
+  codeBase64: String!
+  expiresAt: DateTime!
+}
+
+input AcceptInvitationInput {
+  "acceptInvitation 输入：token 为明文邀请令牌（accept 须复验）"
+  token: String!
+}
+
+type AcceptInvitationResult {
+  "acceptInvitation 返回：result 为已接受邀请记录；errors 为业务错误"
+  result: Invitation
+
+  errors: [MutationError!]!
+}
+
+type AbilityGrant {
+  "能力名：view_workspace \/ access_invite_only \/ list_members \/ manage_members \/ assign_roles \/ create_workspace"
+  name: String!
+
+  allowed: Boolean!
+}
+
+type PermissionMatrixRow {
+  "角色名：owner \/ admin \/ tutor \/ volunteer \/ learner"
+  name: String!
+
+  abilities: [AbilityGrant!]!
+}
+
+type PermissionMatrixPayload {
+  roles: [PermissionMatrixRow!]!
+}
+
+type WorkspaceProfile {
+  "per-workspace 成员公开资料（ADR-0004）"
+  id: ID!
+
+  workspaceId: ID!
+
+  userId: ID!
+
+  avatarUrl: String
+
+  location: String
+
+  about: String
+
+  skills: [String]
+
+  visibility: String
+
+  uiThemePreference: String!
+}
+
+type PortfolioItem {
+  "per-workspace 作品集条目（ADR-0004）"
+  id: ID!
+
+  workspaceId: ID!
+
+  title: String!
+
+  description: String
+
+  url: String
+
+  icon: String!
+}
+
+input UpdateWorkspaceProfileInput {
+  "updateWorkspaceProfile 输入（ADR-0004）：avatarUrl\/location\/about\/skills\/visibility 可选"
+  avatarUrl: String
+
+  location: String
+
+  about: String
+
+  skills: [String]
+
+  visibility: String
+}
+
+input SetWorkspaceThemeInput {
+  "setWorkspaceTheme 输入：uiThemePreference 必填，仅 dark | light"
+  uiThemePreference: String!
+}
+
+input CreatePortfolioItemInput {
+  "createPortfolioItem 输入：title 必填，description\/url\/icon 可选"
+  title: String!
+
+  description: String
+
+  url: String
+
+  icon: String
+}
+
+input UpdatePortfolioItemInput {
+  "updatePortfolioItem 输入：title\/description\/url\/icon 可选"
+  title: String
+
+  description: String
+
+  url: String
+
+  icon: String
+}
+
+type AdminWorkspaceApplication {
+  id: ID!
+  applicantId: ID!
+  name: String!
+  slug: String!
+  purpose: String!
+  status: String!
+  rejectionReason: String
+  approvedBy: ID
+  approvedAt: DateTime
+  rejectedBy: ID
+  rejectedAt: DateTime
+  insertedAt: DateTime!
 }

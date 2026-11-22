@@ -236,4 +236,15 @@ defmodule Cgc2046Web.GraphqlSchema.Offering.Types do
 
     field(:errors, list_of(:mutation_error))
   end
+
+  object :offering_readiness_payload do
+    field(:ready, non_null(:boolean))
+    field(:items, non_null(list_of(non_null(:offering_readiness_item))))
+  end
+
+  object :offering_readiness_item do
+    field(:key, non_null(:string))
+    field(:label, non_null(:string))
+    field(:ok, non_null(:boolean))
+  end
 end
