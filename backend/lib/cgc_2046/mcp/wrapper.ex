@@ -13,7 +13,7 @@ defmodule Cgc2046.Mcp.Wrapper do
      `meta: %{membership: :public}` 的工具（公开浏览族，KTD3）跳过 membership
      校验——任何持有效连接 token 的登录用户可用，匿名姿态读在工具层（KTD2）；
      `meta: %{membership: :platform_admin}` 的工具（平台治理族，S2）判定
-     `is_platform_admin` 全局标记——非平台管理员一律 Forbidden，无工作台作用域
+     `is_platform_admin` 全局标记——非平台管理员一律 Forbidden（跨租户全局工具另带 `workspace_id: :optional`，定向租户治理工具省略该键按默认规则必填 `workspace_id`）
   4. 执行业务 fun（`fn actor, workspace_id, params -> {:ok, result} | {:error, msg} end`）
   5. 落 ToolCallLog 审计（ok / error / forbidden；带 client_name / session_id 归因维度
      （#228）与 token_kind（ADR-0022），取不到时落 nil；失败不阻塞响应，记 Logger）。
@@ -33,11 +33,12 @@ defmodule Cgc2046.Mcp.Wrapper do
     非成员平台管理员调 member-only 工具（list_members / get_workflow /
     get_step_output 等）一律 Forbidden。MCP 是自动化 agent 代理面，取最小
     授权。
-  - **平台治理族（S2 显式门）**：`admin_` 前缀工具声明
-    `%{workspace_id: :optional, membership: :platform_admin}`，命中
-    `:platform_admin` 分支——`is_platform_admin` 全局标记判定（唯一真源
-    `Cgc2046.Accounts.Policies.PlatformAdmin`），fail-closed（非管理员一律
-    Forbidden），无工作台作用域（跨租户治理），每次调用落 ToolCallLog 审计。
+  - **平台治理族（S2 显式门）**：平台治理工具声明
+    `%{membership: :platform_admin}`（其中跨租户全局工具另声明 `workspace_id: :optional`，
+    定向租户治理工具如 `admin_reassign_workspace_owner` / `unforfeit_order` 省略该键以保留
+    `workspace_id` 必填校验），命中 `:platform_admin` 分支——`is_platform_admin` 全局标记
+    判定（唯一真源 `Cgc2046.Accounts.Policies.PlatformAdmin`），fail-closed（非管理员一律
+    Forbidden），每次调用落 ToolCallLog 审计。
     这是平台管理员的 agent 治理面——经独立显式族开放，**而非放宽
     member-only 门**：member-only 族的「无 admin 豁免」规则不变。
   - **policy / Rbac 面**：资源 read policy 放行 platform_admin 跨租户治理读取
@@ -207,7 +208,7 @@ defmodule Cgc2046.Mcp.Wrapper do
   # 门控家族判定（gate test 可观察面，KTD3）：map 模式是子集匹配，
   # `%{workspace_id: :optional, membership: :public}` 同时命中 :public 与
   # :optional 两个模式——`:public` 子句必须置于 `:optional` 之前，追加在后即为
-  # 永不命中的死子句。`:platform_admin` 同理必须先于 `:optional`（平台治理工具
+  # 永不命中的死子句。`:platform_admin` 同理必须先于 `:optional`（跨租户平台治理工具
   # 同时声明两键）。分支顺序 = 语义，由 wrapper_gate_test 钉死。
   @doc false
   @spec gate_family(String.t()) ::
@@ -216,7 +217,8 @@ defmodule Cgc2046.Mcp.Wrapper do
     case meta_for(tool_name) do
       # 公开浏览工具族：任何持连接 token 的登录用户可读公开面（KTD2/KTD3）
       %{membership: :public} -> :public
-      # 平台治理工具族（S2）：platform_admin 专属，跨租户治理面无工作台作用域
+      # 平台治理工具族（S2）：platform_admin 专属（跨租户全局工具另带 workspace_id: :optional；
+      # 定向租户工具仅标本键，保留 workspace_id 必填）
       %{membership: :platform_admin} -> :platform_admin
       # 确认流承载工具（鉴权在 Confirmation 内做，pending 归属校验即授权）+
       # actor 锚定跨工作台读（S1：list_my_workspaces / get_role_playbook
@@ -236,7 +238,7 @@ defmodule Cgc2046.Mcp.Wrapper do
         :ok
 
       # 平台治理工具族（S2）：is_platform_admin 全局标记判定（唯一真源委托
-      # Policies.PlatformAdmin），fail-closed，无工作台作用域
+      # Policies.PlatformAdmin），fail-closed（workspace_id 是否必填由 workspace_id: :optional 独立控制）
       :platform_admin ->
         if PlatformAdmin.platform_admin?(actor) do
           :ok
