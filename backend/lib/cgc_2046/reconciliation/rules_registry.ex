@@ -2,13 +2,14 @@ defmodule Cgc2046.Reconciliation.RulesRegistry do
   @moduledoc """
   对账规则统一注册表（#852 C9 Q4）——全部规则声明的单源。
 
-  收编四个生产方的全部规则（各 worker 仍是生产者，Finding 产出调用方式
-  均不变）：
+  收编全部生产方的对账规则（清单与条数以 `all/0` / `by_producer/1` 为唯一真源；
+  各 worker 仍是生产者，Finding 产出调用方式均不变）：
 
-  - `ReconciliationScanWorker` — Oban cron 每 10 分钟全量拍，16 条
-  - `DepositForfeitWorker` — 押金 no-show 结算链回调产出，2 条（KTD7/#545）
-  - `PaymentSettlementWorker` — 支付回调落账时单事件拍，1 条（R20）
-  - `PaymentReconciliationWorker` — Oban 夜间 T+1 渠道账单对账，1 条（U13）
+  - `ReconciliationScanWorker` — Oban cron 每 10 分钟全量拍
+  - `DepositForfeitWorker` — 押金 no-show 结算链回调产出（KTD7/#545）
+  - `PaymentSettlementWorker` — 报名/押金支付回调落账时单事件拍（R20）
+  - `PaymentReconciliationWorker` — Oban 夜间 T+1 渠道账单对账（U13）
+  - `LlmPaymentSettlementWorker` — LLM 独立收银台已关单收到渠道已付回调时单事件拍
 
   逐条 `%{id, desc, sweep, producer}`：
 
