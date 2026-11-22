@@ -71,7 +71,7 @@ fn strip_structured_error_notices(entries: &mut Vec<ConversationEntry>) {
 }
 
 impl NativeAgentView {
-    pub(super) fn apply_turn_error(
+    pub(crate) fn apply_turn_error(
         &mut self,
         kind: NativeTurnErrorKind,
         message: &str,
@@ -97,6 +97,7 @@ impl NativeAgentView {
             };
         }
         cx.notify();
+        crate::root_view::notify_upgrade_notice(cx);
     }
 
     pub(super) fn apply_runtime_event(
@@ -161,6 +162,7 @@ impl NativeAgentView {
             }
             _ => {}
         }
+        crate::root_view::notify_upgrade_notice(cx);
     }
     pub(super) fn connect_native(&mut self, cx: &mut Context<Self>) {
         self.state.session.phase = ConnectionPhase::Starting;

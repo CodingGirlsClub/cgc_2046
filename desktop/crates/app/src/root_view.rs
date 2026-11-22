@@ -92,6 +92,7 @@ mod offering_load;
 mod page_context_build;
 mod tab_lifecycle;
 pub(crate) use history_actions::notify_history_changed;
+pub(crate) use history_actions::notify_upgrade_notice;
 pub use history_actions::register_history_root;
 pub(crate) use history_actions::root_weak;
 mod history_sidebar;
@@ -834,6 +835,7 @@ impl Render for RootView {
             });
         }
         self.refresh_history_if_dirty(cx);
+        register_history_root(cx.entity().downgrade());
         if self.chat_input_pending_clear {
             self.chat_input_pending_clear = false;
             if let Some(input) = self.chat_input.clone() {

@@ -107,4 +107,80 @@ fn upgrade_overlay_renders_over_signed_out_and_signed_in_views_without_sign_out(
         assert_eq!(this.upgrade_notice, None);
     });
     assert_eq!(upgrade_notice(), None);
+
+    // 3. 子视图 NativeAgentView 在 turn 失败命中 CGC Cloud 426 时，必须主动同步并通知父级 RootView
+    let native_view = cx
+        .update_window(handle, |_, window, cx| {
+            let model = cgc_agent_provider::Model::new(
+                cgc_agent_provider::ProviderId::new("fake"),
+                "Test provider",
+                "test-model",
+                "Test model",
+                cgc_agent_provider::ModelLimits::new(8_000, 1_000),
+            );
+            let thread = cgc_agent_core::Thread::new(
+                "upgrade-test",
+                cgc_agent_core::SelectedModel::new(
+                    cgc_agent_provider::ProviderId::new("fake"),
+                    cgc_agent_provider::ModelId::new("test-model"),
+                ),
+            );
+            let runtime = crate::native_runtime::NativeRuntimeHandle::spawn(
+                thread,
+                None,
+                crate::native_runtime::NativeRuntimeConfig {
+                    provider: std::sync::Arc::new(cgc_agent_provider::FakeProvider::new(
+                        cgc_agent_provider::ProviderId::new("fake"),
+                        "Test provider",
+                        vec![model.clone()],
+                    )),
+                    model,
+                    registry: std::sync::Arc::new(cgc_agent_tools::ToolRegistry::new()),
+                    context: cgc_agent_tools::ToolContext::new(std::env::temp_dir()),
+                    context_size: 8_000,
+                    auto_approve: false,
+                },
+                None,
+            );
+            let _ = futures::executor::block_on(runtime.inspect()).expect("runtime ready");
+            cx.new(|cx| {
+                crate::native_agent_view::NativeAgentView::new(
+                    window,
+                    cx,
+                    runtime,
+                    crate::page_context::PageContextState::default(),
+                    Language::Zh,
+                    None,
+                )
+            })
+        })
+        .expect("init native agent view");
+
+    crate::native_runtime::maybe_record_upgrade_notice(
+        &cgc_agent_core::AgentError::Provider(cgc_agent_provider::ProviderError::api(
+            426,
+            "版本过旧，请升级客户端",
+        )),
+        true,
+    );
+    native_view.update(cx, |view, cx| {
+        view.apply_turn_error(
+            crate::native_runtime::NativeTurnErrorKind::Other,
+            "版本过旧，请升级客户端",
+            cx,
+        );
+    });
+
+    root.read_with(cx, |this, _| {
+        assert_eq!(
+            this.upgrade_notice.as_ref().map(|n| n.message.as_str()),
+            Some("版本过旧，请升级客户端"),
+            "子视图 426 turn error 必须立即同步到父级 RootView.upgrade_notice"
+        );
+    });
+    vcx.update(|window, cx| {
+        window.render_frame(cx);
+        assert!(window.find_by_label(&download_label).visible());
+    });
+    clear_upgrade_notice();
 }
