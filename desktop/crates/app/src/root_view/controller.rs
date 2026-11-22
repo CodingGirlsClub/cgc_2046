@@ -414,7 +414,19 @@ impl RootView {
                         this.handle_notification_response(response, cx)
                     });
                 }
-                let token = root.update(cx, |this, _| this.notification_token());
+                let upgrade_active = root.update(cx, |this, cx| {
+                    let latched = cgc_platform::api::upgrade_notice();
+                    if this.upgrade_notice != latched {
+                        this.upgrade_notice = latched;
+                        cx.notify();
+                    }
+                    this.upgrade_notice.is_some()
+                });
+                let token = if upgrade_active {
+                    None
+                } else {
+                    root.update(cx, |this, _| this.notification_token())
+                };
                 if let Some(token) = token {
                     let should_fetch = last_fetch
                         .map(|last| last.elapsed() >= std::time::Duration::from_secs(60))
@@ -444,13 +456,19 @@ impl RootView {
             .filter(|token| !token.is_empty())
     }
 
-    fn handle_notification_feed(
+    pub(in crate::root_view) fn handle_notification_feed(
         &mut self,
         result: Result<Vec<cgc_platform::notifications::Notification>, cgc_platform::api::ApiError>,
         cx: &mut Context<Self>,
     ) {
         let items = match result {
             Ok(items) => items,
+            Err(cgc_platform::api::ApiError::UpgradeRequired(notice)) => {
+                if self.apply_upgrade_notice(notice) {
+                    cx.notify();
+                }
+                return;
+            }
             Err(error) => {
                 if !matches!(error, cgc_platform::api::ApiError::Unauthorized) {
                     log::warn!(target: "notifications", "通知列表拉取失败：{error:?}");
@@ -940,9 +958,40 @@ impl RootView {
             let result = task.await;
             if let Ok(false) = result {
                 let _ = this.update(cx, |this, cx| this.force_sign_out(cx));
+            } else if result.is_err() {
+                if let Some(notice) = cgc_platform::api::upgrade_notice() {
+                    let _ = this.update(cx, |this, cx| {
+                        this.upgrade_notice = Some(notice);
+                        cx.notify();
+                    });
+                }
             }
         })
         .detach();
+    }
+
+    pub(in crate::root_view) fn apply_upgrade_notice(
+        &mut self,
+        notice: cgc_platform::api::UpgradeNotice,
+    ) -> bool {
+        if self.upgrade_notice.as_ref() == Some(&notice) {
+            return false;
+        }
+        self.upgrade_notice = Some(notice);
+        true
+    }
+
+    pub(in crate::root_view) fn clear_upgrade_overlay_state(&mut self) {
+        cgc_platform::api::clear_upgrade_notice();
+        self.upgrade_notice = None;
+        if self.is_signed_in() {
+            self.session_checked = false;
+        }
+    }
+
+    pub(in crate::root_view) fn retry_upgrade_gate(&mut self, cx: &mut Context<Self>) {
+        self.clear_upgrade_overlay_state();
+        cx.notify();
     }
 
     pub(in crate::root_view) fn start_workspace_load(&mut self, cx: &mut Context<Self>) {
@@ -2130,7 +2179,7 @@ impl RootView {
     }
 
     pub(in crate::root_view) fn send_chat(&mut self, cx: &mut Context<Self>) -> bool {
-        if !self.chat.session.can_submit() {
+        if self.is_upgrade_gate_active() || !self.chat.session.can_submit() {
             return false;
         }
         let text = self
@@ -2154,6 +2203,9 @@ impl RootView {
         text: String,
         cx: &mut Context<Self>,
     ) -> bool {
+        if self.is_upgrade_gate_active() {
+            return false;
+        }
         self.refresh_page_context();
         if !self.chat.session.can_submit() || self.chat.session.session_id.is_none() {
             return false;
@@ -2207,6 +2259,9 @@ impl RootView {
         prompt: String,
         cx: &mut Context<Self>,
     ) -> bool {
+        if self.is_upgrade_gate_active() {
+            return false;
+        }
         self.refresh_page_context();
         if !self.chat.session.can_submit() || self.chat.session.session_id.is_none() {
             return false;
@@ -3696,6 +3751,19 @@ impl RootView {
             .clone()
     }
 
+    pub(in crate::root_view) fn ensure_upgrade_overlay_focus(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> FocusHandle {
+        self.upgrade_overlay_focus
+            .get_or_insert_with(|| cx.focus_handle())
+            .clone()
+    }
+
+    pub(in crate::root_view) fn is_upgrade_gate_active(&self) -> bool {
+        self.upgrade_notice.is_some() || cgc_platform::api::upgrade_notice().is_some()
+    }
+
     pub(in crate::root_view) fn submit_login(&mut self, cx: &mut Context<Self>) {
         if self.signing_in {
             return;
@@ -3803,6 +3871,9 @@ impl RootView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.is_upgrade_gate_active() {
+            return;
+        }
         // 登录页是自绘输入框，没有 InputState 的剪贴板处理；显式支持
         // Cmd/Ctrl+V，否则从密码管理器复制的邮箱/密码只能手工重敲。
         if (event.keystroke.modifiers.platform || event.keystroke.modifiers.control)

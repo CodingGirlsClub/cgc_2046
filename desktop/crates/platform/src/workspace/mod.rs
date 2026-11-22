@@ -226,6 +226,7 @@ impl From<ApiError> for WorkspaceError {
             ApiError::Transport(reason) => WorkspaceError::Transport(reason),
             ApiError::Timeout(reason) => WorkspaceError::Transport(format!("timeout: {reason}")),
             ApiError::Unauthorized => WorkspaceError::Unauthorized,
+            ApiError::UpgradeRequired(notice) => WorkspaceError::Server(notice.message),
             ApiError::Graphql { message, .. } => WorkspaceError::Server(message),
         }
     }

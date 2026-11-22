@@ -18,6 +18,7 @@ date: 2026-10-19
 2. **签名双态**：证书到位时 macOS 使用 Developer ID 签名 + notarization、Windows 使用代码签名、Linux 产出 AppImage/deb；未到位时产出 ad-hoc / 未签名内部构建，并在发布说明记录正式发布阻塞。
 3. **首个对外版本双态**：证书到位则正式对外发布；未到位则交付内部测试版，正式对外发布挂在证书采购之后。**无证书的构建只能进内部通道，不得对外发布**。
 4. **兼容窗口**：后端 GraphQL 只增不删至 min-supported-version；桌面 operation 纳入 `pnpm check:release-schema`；整条 document 被拒时降级为可诊断错误页与更新提示，不得白屏；旧客户端通过版本头与 min-supported-version / kill switch 止损；发布前跑跨版本 fixture。
+   - **已落地（版本头与 426 门控）**：桌面端所有第一方出口（GraphQL、登录会话、MCP HTTP、ACP MCP 注入、`/mcp/token` 核验与 CGC Cloud `/v1/*` 网关；不含外部图片拉取与 BYOK provider）随请求发送 `x-cgc-client: desktop`、`x-cgc-client-version`（单一真源取 `CGC_BUILD_VERSION`）与 `x-cgc-client-platform`。后端无状态 `DesktopClientGatePlug` 挂载于 `:graphql`、`:mcp`（豁免 `DELETE /mcp/token` 登出撤销）与 `:llm_gateway`（开启 `kill_switch` 时连无头旧包一并拦截）最前端，通过 `DESKTOP_KILL_SWITCH` / `DESKTOP_MIN_SUPPORTED_VERSION` / `DESKTOP_BLOCKED_VERSIONS` / `DESKTOP_DOWNLOAD_URL` 热控，拒绝固定返回 HTTP `426 Upgrade Required`（不误用 `401`，不触发前端 `force_sign_out`）。桌面端触发 `426` 后置位进程级 `UpgradeNotice` Latch、暂停通知轮询并在 `RootView` 渲染不可关闭的全窗引导覆盖层（下载链接经官方 HTTPS 白名单校验）。自动更新器（`epic-6`）与跨版本 fixture 仍为后续交付。
 5. **通知策略**：应用在前台或托盘常驻时发本地系统通知，启动时拉取未读事件补发；离线提醒复用已有的微信订阅消息渠道，桌面端 v1 不做 APNs / WNS push；托盘常驻可由用户关闭。
 4. **通知与深链**：feature 只向事件总线发领域事件；OS 适配器消费事件生成系统通知与 `cgc://` 深链跳转；单实例与托盘同属 OS 适配器（AD-11）。**（2026-11-22 修订：单实例、托盘与 keychain 等 OS 适配均直接位于 `crates/platform` 内按 `#[cfg(target_os = ...)]` 条件编译隔离，不拆独立 `platform-{macos,windows,linux}` crate。）**
 5. **隐私与遥测**：崩溃遥测默认关闭、可随时关闭；日志与遥测不得含凭证与对话内容（AD-13）。

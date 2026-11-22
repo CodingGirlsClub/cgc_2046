@@ -88,6 +88,13 @@ env:
     # 静默回落（#934 评审指正）。
     LANG: C.UTF-8
     LC_ALL: C.UTF-8
+    # 桌面客户端版本门控与止损开关（ADR-0027）：全空时默认放行；部署时由
+    # GitHub Repository Variables（vars.DESKTOP_*）按需覆写 deploy.ci.yml
+    DESKTOP_KILL_SWITCH: ""
+    DESKTOP_KILL_SWITCH_MESSAGE: ""
+    DESKTOP_MIN_SUPPORTED_VERSION: ""
+    DESKTOP_BLOCKED_VERSIONS: ""
+    DESKTOP_DOWNLOAD_URL: ""
   secret:
     - DATABASE_URL
     - SECRET_KEY_BASE
