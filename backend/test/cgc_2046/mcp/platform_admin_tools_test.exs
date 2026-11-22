@@ -128,6 +128,27 @@ defmodule Cgc2046.Mcp.PlatformAdminToolsTest do
     Ash.get!(PendingOperation, pending_id, authorize?: false).status
   end
 
+  defp flush_repo_queries do
+    receive do
+      {:repo_query, _, _} -> flush_repo_queries()
+    after
+      0 -> :ok
+    end
+  end
+
+  defp collect_select_queries(table, acc \\ []) do
+    receive do
+      {:repo_query, ^table, query} when is_binary(query) ->
+        acc = if String.starts_with?(query, "SELECT"), do: [query | acc], else: acc
+        collect_select_queries(table, acc)
+
+      {:repo_query, _, _} ->
+        collect_select_queries(table, acc)
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
+
   # #588 用例专用：open 态 Initiative（`open` 要求四条共享规则齐备）。
   defp open_initiative(admin, slug) do
     initiative =
@@ -357,6 +378,58 @@ defmodule Cgc2046.Mcp.PlatformAdminToolsTest do
       for row <- aa["logs"] do
         refute Map.has_key?(row, "metadata")
         refute Map.has_key?(row, "params")
+      end
+    end
+
+    test "admin_list_audit_logs：三源 SQL 级列裁剪，SELECT 不读 params/summary/metadata 列" do
+      admin = Fixtures.platform_admin("pa-audit-sql-admin")
+      target = Fixtures.register_user("pa-audit-sql-target")
+
+      {:reply, _, _} = AdminListUsers.execute(%{}, frame_for(admin))
+
+      {:reply, _, _} =
+        promote_reply =
+        AdminPromoteUser.execute(%{"user_id" => target.id}, frame_for(admin))
+
+      %{"pending_id" => pending_id} = decode_reply(promote_reply)
+      {:reply, _, _} = ConfirmOperation.execute(%{"pending_id" => pending_id}, frame_for(admin))
+
+      handler_id = {__MODULE__, make_ref()}
+      test_pid = self()
+
+      :ok =
+        :telemetry.attach(
+          handler_id,
+          [:cgc2046, :repo, :query],
+          fn _event, _measurements, metadata, _config ->
+            send(test_pid, {:repo_query, metadata[:source], metadata[:query]})
+          end,
+          nil
+        )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      for {source, table, forbidden_pattern} <- [
+            {"tool_calls", "mcp_tool_call_logs", ~r/"params"/},
+            {"pending_operations", "mcp_pending_operations", ~r/"params"|"summary"/},
+            {"admin_actions", "admin_action_logs", ~r/"metadata"/}
+          ] do
+        flush_repo_queries()
+
+        {:reply, _, _} =
+          reply = AdminListAuditLogs.execute(%{"source" => source}, frame_for(admin))
+
+        assert %{"count" => count, "logs" => logs} = decode_reply(reply)
+        assert count >= 1
+        assert length(logs) == count
+
+        selects = collect_select_queries(table)
+        assert selects != [], "expected SELECT query telemetry for #{table}"
+
+        for sql <- selects do
+          refute sql =~ forbidden_pattern,
+                 "expected #{source} SELECT not to fetch #{inspect(forbidden_pattern)}, got: #{sql}"
+        end
       end
     end
 
