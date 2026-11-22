@@ -39,13 +39,13 @@
 
 ### 连接器扩展 cgc-2046（Connector Extension）
 
-- **定义**：用户侧 OpenClacky 的官方扩展，id/名称统一为 `cgc-2046`；安装后提供 CGC 助手、本地 Skill 同步、MCP 连接读取等能力（D14）。**负责自动配置 mcp.json**——安装后自动检查并安装 MCP（网站只生成 token，用户不再手动粘贴配置片段，D-A7）。
-- **架构位置**：用户侧入口。`openclacky ext install <zip URL>` 安装（D13 步骤 2 / D-A7）；扩展自动写入 `mcp.json` 的 `cgc-2046` 条目获取 URL + token，零额外配置。
+- **定义**：用户侧 OpenClacky 的官方扩展，id/名称统一为 `cgc-2046`（`openclacky-ext/cgc-2046/ext.yml`）；安装后提供 **3 个静态专用 Agent**（`cgc-assistant`、`cgc-tutor`、`cgc-admin`）、8 个侧边栏面板、3 个 hooks（含高风险工具 `before_tool_use.rb` 弹窗确认门禁）与 2 个静态打包 skill（`cgc2046-onboarding`、`cgc-quality-eval`）（D14）。**支持面板一键配置 `~/.clacky/mcp.json`**——用户通过面板「连接 CGC」触发一键 CDP 自动签发连接 token 并写入 `~/.clacky/mcp.json`（`POST /api/ext/cgc-2046/connect`，`openclacky-ext/cgc-2046/api/mcp_config.rb`），或经 `cgc2046-onboarding` skill 引导手动粘贴连接码写入（不在 `ext install` 时静默改写配置）。
+- **架构位置**：用户侧 OpenClacky 入口。`openclacky ext install <zip URL>` 安装（D13 步骤 2 / D-A7）；扩展向 `~/.clacky/mcp.json` 写入 `cgc-2046` 条目（URL + `Authorization: Bearer <token>`）。
 
 ### CGC 助手（CGC Assistant）
 
-- **定义**：连接器扩展静态内置的**通用** Agent。用户在 OpenClacky 中说"用教研 Agent"时，助手按任务指令模式拉取 Agent 定义并按定义工作（D10）。
-- **架构位置**：用户侧执行体，网站侧没有对应资源；它是"公共 Agent 分发"的执行载体。
+- **定义**：连接器扩展静态内置的默认 Agent（`cgc-assistant`，另有专职 `cgc-tutor` 与 `cgc-admin`，定义于 `openclacky-ext/cgc-2046/agents/*/system_prompt.md`）。当用户执行特定角色任务时，Agent 按任务指令模式调用 `get_role_playbook` 拉取平台角色 Playbook 并按指南工作（D10，role-agent-journeys-v2 S1）。
+- **架构位置**：用户侧执行体，网站侧当前以 `Cgc2046.Mcp.Playbooks` 提供四角色 Playbook（Agent 资源尚未建表，见 §5「Agent」与「角色 Playbook」词条）。
 
 ### CGC 本机 Host（Local Host）
 
@@ -61,7 +61,7 @@
 ### User（用户，全局资源）
 
 - **定义**：全局账号，一人多 Workspace。可带 `is_platform_admin` 平台管理员标记（可多人）。
-- **架构位置**：全局资源（不按租户隔离），认证经 `ash_authentication`（Password 策略 + TokenResource）。
+- **架构位置**：全局资源（`backend/lib/cgc_2046/accounts/user.ex`，不按租户隔离），认证经 `ash_authentication`（`:password` 邮箱+密码、`:password_phone` 手机号+密码、`Strategies.Miniprogram` 微信小程序登录三策略 + `TokenResource`）。
 
 ### Identity（认证身份，全局资源）
 
@@ -71,22 +71,22 @@
 
 ### Token（登录令牌，全局资源）
 
-- **定义**：网站 UI 登录用的短期 JWT，存 httpOnly cookie；与 MCP **连接 token** 是两种不同的 token（勿混）。
-- **架构位置**：全局资源，仅用于网站自身 GraphQL API 的认证。
+- **定义**：第一方登录会话用的 7 天 `AshAuthentication` JWT（Web 端存 httpOnly cookie，桌面客户端与小程序持 Bearer JWT）；与 MCP **连接 token**（`Cgc2046.Mcp.Token`）是两种不同的 token（勿混）。
+- **架构位置**：全局资源（`backend/lib/cgc_2046/accounts/token.ex`），用于认证 GraphQL API（`/api/graphql`）、托管算力网关 `POST /v1/chat/completions`（`LlmGatewayController`）、简历下载 `GET /api/recruitment/resumes/:profile_id` 以及运维后台 `/ops` AshAdmin（`backend/lib/cgc_2046_web/router.ex`）。
 
 ### Workspace（工作区，全局资源）
 
-- **定义**：**组织单元**（如"北京 CGC 分会"），也是租户单元。UUID 主键 + 全局唯一 slug（展示用），带加入策略 `join_policy`（open | request | invite_only）、可空的门面文案 `description`（公开展示；MCP `update_workspace_description` 维护，创建申请可带初值并在 approve 时透传，#1226）。由平台管理员创建（申请审批 + 主动创建两级，D-A3）并指定 Owner，普通用户不可自助创建。**一个 Workspace = 一个 Jido partition**（D-A5）。`:create` after_action 同事务 seed 五角色（`Role.role_descriptions/0` 单源）+ **三份协议定义**（curriculum / learning / course_preparation，published——#348：新租户教研链与学习 run 即刻可用；形状单源对齐 seeds.exs §3，任一失败整体回滚不留半 seeded workspace）。
+- **定义**：**组织单元**（如"北京 CGC 分会"），也是租户单元。UUID 主键 + 全局唯一 slug（展示用），带加入策略 `join_policy`（open | request | invite_only）、可空的门面文案 `description`（公开展示；MCP `update_workspace_description` 维护，创建申请可带初值并在 approve 时透传，#1226）、赞助配置（`sponsorship_enabled` / `sponsorship_tiers` / `sponsorship_deadline`）与工作台算力池余额 `credit_pool_mc`（`backend/lib/cgc_2046/accounts/workspace.ex`）。由平台管理员创建（申请审批 + 主动创建两级，D-A3）并指定 Owner，普通用户不可自助创建。**一个 Workspace = 一个 Jido partition**（D-A5）。`:create` after_action 同事务 seed 五角色（`Role.role_descriptions/0` 单源）+ **三份协议定义**（curriculum / learning / course_preparation，published——#348：新租户教研链与学习 run 即刻可用；形状单源对齐 seeds.exs §3，任一失败整体回滚不留半 seeded workspace）。
 - **架构位置**：全局资源；所有租户资源以 `workspace_id` 列过滤（Ash attribute 多租户策略）；WorkflowRun 等 workflow 实体归属其 partition。
 
 ### join_policy（加入策略）
 
 - **定义**：Workspace 的三种加入方式：`open`（公开可发现、直接加入、无需审批）、`request`（公开可发现、申请后审批）、`invite_only`（私密、仅邀请链接可加入）。
-- **架构位置**：Workspace 属性，Owner 可设置；驱动 Invitation / JoinRequest 行为。
+- **架构位置**：Workspace 属性，**Owner / Admin 或平台管理员**可设置（`update_join_policy` ability，见 `backend/lib/cgc_2046/accounts/rbac.ex`）；驱动 Invitation / JoinRequest 行为。
 
 ### WorkspaceMembership（成员关系，租户资源）
 
-- **定义**：1 条/人/租户的成员记录（user_id + workspace_id + 加入时间 + 邀请人）。**成员资格本身即成员身份**；无差异标签的普通成员只有 membership、无 MembershipRole。
+- **定义**：1 条/人/租户的成员记录（`user_id` + `workspace_id` + `inserted_at`/`updated_at` 及 `roles` 关联，见 `backend/lib/cgc_2046/accounts/workspace_membership.ex`）。**成员资格本身即成员身份**；无差异标签的普通成员只有 membership、无 MembershipRole。
 - **架构位置**：成员身份的事实来源；授权链第 2 步"定位身份"读它。成员基准能力（`view_workspace` / `access_invite_only`）由任意 membership 授予，不再经 `member` 角色判定。
 
 ### MembershipRole（成员角色关联，租户资源）
@@ -96,38 +96,36 @@
 
 ### 成员资格上下文（MembershipContext）
 
-- **定义**：「actor ↔ 工作台」成员资格**读取与入座（写入）**面的唯一归属：
-  - **读取面**：`membership_of/2`、`role_names/2`（角色名多角色并集，Rbac 同名委托）、`memberships_of_actor/1`（跨租户）、`owner_count/1`、`resolve_workspace_id/1`（policy 场景的 filter/changeset 目标工作台解析，含 Ash filter struct 提取钉测）。
-  - **入座写入面**：`admit_member/3`（加入工作台不变量的唯一实现）——承担「existing 守卫 → 建 Membership → 按角色名入座 MembershipRole → 并发 unique 处理 → 真 DB 故障上抛」全流程；Invitation.accept / JoinRequest.approve / Workspace.join 三处 after_action 的入座段委托此处（2026-08-05 入座收敛，消除三处同构拷贝）。opts：`:on_conflict`（`:business_error` Invitation/JoinRequest 转「已是成员」业务错误｜`:idempotent` Workspace.join 幂等成功）、`:error_message`（文案随调用方视角：Invitation 对受邀人「你」、JoinRequest 对审批方「该用户」）。事务无关纯函数——事务边界由调用方 action 控制（`:join` 的 `transaction?: false` 孤儿 membership 风险已知，升级路径单独决策）。
+- **定义**：「actor ↔ 工作台」成员资格**读取与入座（写入）**面的唯一归属（`backend/lib/cgc_2046/accounts/membership_context.ex`）：
+  - **读取面**：`membership_of/2`、`role_names/2`（角色名多角色并集）、`memberships_of_actor/1`（跨租户）、`owner_count/1`、`ownerless?/1`、`has_owner?/1`、`last_owner?/1`、`resolve_workspace_id/1`（policy 场景的 filter/changeset 目标工作台解析，含 Ash filter struct 提取钉测）。
+  - **入座写入面**：`admit_member/3`（加入工作台不变量的唯一实现）与 `admit_to_default_workspace/1`（新用户自动入驻默认工作台 `"2046"`）——承担「existing 守卫 → 建 Membership → 按角色名入座 MembershipRole（缺失角色幂等补齐）→ 并发 unique 处理 → 真 DB 故障上抛」全流程；Invitation.accept / JoinRequest.approve / Workspace.join 三处 after_action 的入座段委托此处（2026-08-05 入座收敛，消除三处同构拷贝）。opts：`:on_conflict`（`:business_error` Invitation/JoinRequest 转「已是成员」业务错误｜`:idempotent` Workspace.join 幂等成功）、`:error_message`（文案随调用方视角：Invitation 对受邀人「你」、JoinRequest 对审批方「该用户」）。事务无关纯函数——事务边界由调用方 action 控制（`:join` 的 `transaction?: false` 孤儿 membership 风险已知，升级路径单独决策）。
 - **旁路读取面（BypassReads）**：**聚合读逃生舱**——`member_count/1` / `owner_count/1`（GROUP BY 聚合直读）+ 平铺展示字段（`WorkspaceMembership.user_email`/`user_display_name` LEFT JOIN）契约归类；非全库唯一原始 SQL 出口（#217 契约改写，2026-08-20）：resolver 旁路读取 14 处与原始 SQL 六类分布的中央契约见该模块 moduledoc。安全契约成文：主查询仍受 policy 门控、旁路仅限聚合与平铺展示字段、新读路径先查此处不发明新逃生舱（2026-08-02 ③ 逃生舱收敛）。
-- **WorkspaceShell（工作区管理壳）**：前端展示层 seam（2026-08-02 ⑤ 壳收敛；#79 IA）——sidebar/退出登录/未认证壳/共享 Icon 集的唯一实现，interface `slug + children`（`requireWs` 供 profile 家族关闭 ws 解析）；members/permissions/profile/portfolio 四页退化为纯内容，加导航项不再改 4 个页面；导航激活态由 pathname 派生；管理项按 `myAbilities` 过滤（成员与角色=list_members、加入策略=update_join_policy，B-3 审批/邀请占位同组），普通成员仅见 概览/个人资料；profile 家族（`requireWs=false`）ws 不解析 → 能力为空 → 管理项恒隐藏（保守方向，页面级门控不变，后端 policy 权威拦截）。
+- **WorkspaceShell（工作区管理壳）**：前端展示层 seam（`web/components/workspace-shell.tsx` 与 `web/components/workspace-nav.ts`；2026-08-02 ⑤ 壳收敛；#79 IA）——sidebar/退出登录/未认证壳/共享 Icon 集的唯一实现，props 为 `slug`、`requireWs?`、`workspaceName?`、`requireAbility?`、`className?`、`children`（`requireWs` 供 profile 家族关闭 ws 解析）；导航激活态由 pathname 派生；普通成员可见概览、`agents`/`events`/`courses` 以及 My / Community 导航组，管理与设置项（`SETTINGS_NAV`）按 `myAbilities` 细粒度过滤（成员与角色 = `list_members`，加入申请/邀请/收款/算力池 = `manage_members`，赞助设置 = `manage_events`，基本信息/加入策略 = `update_join_policy`）；profile 家族（`requireWs=false`）ws 不解析 → 能力为空 → 管理项恒隐藏（保守方向，页面级门控不变，后端 policy 权威拦截）。
 - **架构位置**：Rbac（判定）与 WorkspaceActorIsOwnerOrAdmin policy / CurrentMembershipInfo 计算字段（读取方）之间的数据 seam（2026-08-02 ② 成员资格读取收敛）：读取形状唯一实现，Ash 升级只炸本模块一处；判定语义仍在 Rbac。入座写入面（`admit_member/3`）收敛三处加入流程的建 Membership + 角色入座 + unique 处理同构拷贝（2026-08-05 入座收敛，近 10 次提交反复修同类 bug 的 locality 缺失被根除）。
 
 ### Role（角色，租户资源）
 
 - **定义**：租户内**差异标签**实体，权限挂在角色上。**当前为静态五枚举**（plan 017 / ADR-0006，退役 `member`）：owner / admin / tutor / volunteer / learner。成员资格 = 存在 `WorkspaceMembership`；Role 只表达差异（管理、教学、志愿、学员）。`learner` 仍有真实语义（学习 run 的 StepRole / enrolled_learner）。「自定义角色」为未来能力（#71）：触发条件 = 真实工作区角色差异化需求，届时增量落地 permissionMatrix 租户查询 + Role 能力配置。
-- **架构位置**：RBAC 核心；Step/Agent 上存 `role_id` 引用。
+- **架构位置**：RBAC 核心（`backend/lib/cgc_2046/accounts/role.ex`）；Workflow 步骤角色授权通过多对多关联资源 `Cgc2046.Workflows.StepRole`（`workflow_step_roles` 表，`step_id` + `role_id`）引用 `Role.id`（`Step` 自身自 R2 起无 `role_id` 或 `agent_id` 列）。
 
 ### 平台管理员（Platform Admin）
 
 - **定义**：全局标记（`is_platform_admin`，非租户角色），可多人；负责创建 Workspace 并指定 Owner。
 - **不变量**：系统必须维持 ≥1 名平台管理员；降级最后一名管理员被拒绝（不变量由 `User :demote_platform_admin` action 守卫）。
-- **架构位置**：User 上的布尔标记，跨租户生效。**判定唯一真源 = `Cgc2046.Accounts.Policies.PlatformAdmin`**（2026-08-12 named-check 收敛）：Ash check（`match?/3`）+ 纯谓词 `platform_admin?/1` 两个 surface，policy 字面量与 plug/live/graphql ad-hoc 判定全部收口。**双面契约**：policy 面放行跨租户治理读（含成员列表，load-bearing，实 bug `7f925b7`）；能力面（Rbac abilities / myAbilities）不给非成员管理员管理类 ability（#66 P2）——两面刻意不同答，契约成文于该 module moduledoc。**MCP 治理面（role-agent-journeys-v2 S2，R12–R16）**：共 28 个工具经显式 `membership: :platform_admin` 门控族开放（Wrapper 委托上述唯一真源判定，fail-closed；其中 26 个跨租户全局工具同时声明 `workspace_id: :optional`，2 个定向租户治理工具 `admin_reassign_workspace_owner` / `unforfeit_order` 省略该键按默认规则必填 `workspace_id`）；member-only 门「无 admin 豁免」规则不变——非成员平台管理员调 member 工具仍 Forbidden。治理读面只暴露操作元数据：`admin_list_audit_logs` 三源投影经 `Ash.Query.select/2` 在 SQL 层结构性不读 `params` / `summary` / `metadata` 列（不靠查询后裁剪）。
+- **架构位置**：User 上的布尔标记，跨租户生效。**判定唯一真源 = `Cgc2046.Accounts.Policies.PlatformAdmin`**（2026-08-12 named-check 收敛）：Ash check（`match?/3`）+ 纯谓词 `platform_admin?/1` 两个 surface，policy 字面量与 plug/live/graphql ad-hoc 判定全部收口。**双面契约**：policy 面放行跨租户治理读（含成员列表，load-bearing，实 bug `7f925b7`）；能力面（Rbac abilities / myAbilities）不给非成员管理员常规管理类 ability（#66 P2，唯一显式豁免为 `update_join_policy`，见 `backend/lib/cgc_2046/accounts/rbac.ex:27-31,99-101`）——两面刻意不同答，契约成文于该 module moduledoc。**MCP 治理面（role-agent-journeys-v2 S2，R12–R16）**：共 28 个工具经显式 `membership: :platform_admin` 门控族开放（Wrapper 委托上述唯一真源判定，fail-closed；其中 26 个跨租户全局工具同时声明 `workspace_id: :optional`，2 个定向租户治理工具 `admin_reassign_workspace_owner` / `unforfeit_order` 省略该键按默认规则必填 `workspace_id`）；member-only 门「无 admin 豁免」规则不变——非成员平台管理员调 member 工具仍 Forbidden。治理读面只暴露操作元数据：`admin_list_audit_logs` 三源投影经 `Ash.Query.select/2` 在 SQL 层结构性不读 `params` / `summary` / `metadata` 列（不靠查询后裁剪）。
 
 ### 连接 token（MCP 连接令牌 / Connection Token）
 
 - **定义**：每用户一个的 MCP 认证凭证。**绑用户、不绑工作区**；可访问用户加入的多个 Workspace，具体租户由每次调用的目标资源（workspace_id）判定（D6/D13）。在网站「MCP」页生成。
 - **架构位置**：MCP server 的 `Authorization: Bearer <token>` 头；终端接入时由 `mcp.json` 配置。**区别于网站登录 Token**：登录 Token 是 httpOnly cookie，只用于网站 UI。
-- **类型（ADR-0022）**：`kind` = `terminal`（用户自建，权限随其角色）或 `learning_host`（配对签发给 CGC 本机 Host，见「学习凭证」；配对签发路径已于 2026-10-26 随 CGC 本机 Host 移除）。
-- **生命周期**：**滚动过期（#211 裁决，2026-08-18）**——连续 **90 天未使用即失效**（`last_used_at`/`inserted_at` 距今 ≥ 90d 时 `validate_token` 拒绝）；正常使用不断、无需重签。仅手动撤销 + 每用户 active 上限 10 枚；**无固定 TTL**（与 D-A7 零配置接入冲突：静默到期会让 agent 断连且引导链路长，泄漏窗口收敛与滚动过期相当）。参考实现 `Cgc2046.Mcp.Token`。
+- **类型（ADR-0022 / ADR-0025 / ADR-0028）**：`kind` = `terminal`（用户自建或 OpenClacky 一键连接签发，权限随其角色）或 `learning_host`（桌面客户端自动签发与续租的学习专用受限凭证，见下「学习凭证」；原 Web 课程页配对签发路径已于 2026-10-26 随 `cgc-host/` 移除）。
+- **生命周期**：**滚动过期（#211 裁决，2026-08-18）**——连续 **90 天未使用即失效**（`last_used_at`/`inserted_at` 距今 ≥ 90d 时 `validate_token` 拒绝）；正常使用不断、无需重签。仅手动撤销 + 每用户 active 上限 10 枚；**无固定 TTL**（与 D-A7 零配置接入冲突：静默到期会让 agent 断连且引导链路长，泄漏窗口收敛与滚动过期相当）。参考实现 `Cgc2046.Mcp.Token`（`backend/lib/cgc_2046/mcp/token.ex`）。
 - ⚠️ 注意：本术语**取代**更早调研中"token 绑 workspace_id"的旧设计（调研文档已归档）——D13 定稿为绑用户不绑工作区。
 
 ### 学习凭证（learning_host）
 
-> **已停止签发（2026-10-26）：签发它的 Web 端学习搭子与 `cgc-host/` 已移除，本条仅作历史记录（平台侧凭证类型保留）。**
-
-- **定义**：配对时由已登录的课程学习页签发、交给 CGC 本机 Host 的连接 token（`kind = learning_host`）。平台侧只放行学习循环所需的 5 个工具（精确名单钉死在 `test/support/mcp_tool_tiers.ex`），由 `Wrapper.run/4` 强制；使用独立前缀与域分隔哈希，旧版代码校验不了它。
-- **架构位置**：ADR-0022（已 Superseded）。与终端用的 `terminal` 凭证同表管理，遵守同一套撤销、10 枚上限与 90 天闲置过期规则；审计按 `token_kind` 区分两类凭证的调用。
+- **定义**：专供客户端学习对话（现由桌面客户端 `desktop/crates/platform/src/mcp/credential.rs` 调 `createMcpToken(kind: LEARNING_HOST)` 自动签发、OS Keychain 持久化并按 20 分钟租约窗口续租；原 Web 课程页配对与 `cgc-host/` 已于 2026-10-26 下线）使用的受限连接 token（`kind = :learning_host`，前缀 `cgch_`，独立 domain-separated SHA-256 哈希）。平台侧只放行学习循环所需的 **5 个工具**（`get_role_playbook` / `get_learning_state` / `get_course_revision` / `start_learning_run` / `submit_learning_attempt`，精确名单钉死在 `backend/lib/cgc_2046/mcp/scopes.ex` 与 `backend/test/support/mcp_tool_tiers.ex`），由 `Scopes.hide_disallowed_tools/1`（`tools/list` 过滤）与 `Wrapper.run/4`（`tools/call` 拦截）双面强制。
+- **架构位置**：ADR-0022 确立、ADR-0025 / ADR-0028 桌面端承接并在役（`backend/lib/cgc_2046/mcp/token.ex`）。与终端用的 `terminal` 凭证同表管理，遵守同一套撤销、10 枚上限与 90 天闲置过期规则；审计按 `token_kind` 区分两类凭证的调用。
 
 ### 已配对的电脑（Paired Computer）
 
@@ -138,13 +136,13 @@
 
 ### workspace_id 作用域（Workspace Scope）
 
-- **定义**：无状态的租户作用域。**除豁免族外，所有 MCP 工具必填 `workspace_id`**：`meta: %{workspace_id: :optional}` 声明的工具（confirm_operation / cancel_operation / list_my_workspaces 等 actor 锚定族）、`meta: %{membership: :public}` 的公开浏览工具（list_public_offerings / get_public_offering——跨工作区公开白名单口径，workspace_id 传入也不收窄，KTD3），以及 `meta: %{membership: :platform_admin}` 的平台治理工具（其中 26 个跨租户全局治理工具同时声明 `workspace_id: :optional`；定向租户治理工具 `admin_reassign_workspace_owner` / `unforfeit_order` 仅声明 `membership: :platform_admin`，按默认规则仍必填 `workspace_id`，role-agent-journeys-v2 S2）。其余工具每次调用据此鉴权 + 审计；服务端不存"当前工作区"会话状态（D12）。
+- **定义**：无状态的租户作用域。**除豁免族外，所有 MCP 工具必填 `workspace_id`**：`meta: %{workspace_id: :optional}` 声明的工具（confirm_operation / cancel_operation / list_my_workspaces 等 actor 锚定族）、`meta: %{membership: :public}` 的 4 个公开浏览工具（`list_public_offerings` / `get_public_offering` / `list_public_initiatives` / `get_public_initiative`——跨工作区公开白名单口径，workspace_id 传入也不收窄，KTD3），以及 `meta: %{membership: :platform_admin}` 的平台治理工具（其中 26 个跨租户全局治理工具同时声明 `workspace_id: :optional`；定向租户治理工具 `admin_reassign_workspace_owner` / `unforfeit_order` 仅声明 `membership: :platform_admin`，按默认规则仍必填 `workspace_id`，role-agent-journeys-v2 S2）。其余工具每次调用据此鉴权 + 审计；服务端不存"当前工作区"会话状态（D12）。
 - **meta 载体纪律**：`meta:` 仅存门控事实（workspace_id 必填性 / membership 豁免）——Anubis 会把非 nil meta 序列化进 tools/list 的 `_meta` 对 MCP 客户端可见，塞其他用途的键等于向客户端泄漏非门控信息（架构深化 C 遗留约定）；可见性分层的 `scopes:` 不进 tools/list 序列化，不受此限，也不要塞进 `meta:`。
 - **架构位置**：决定性事实——OpenClacky 的 MCP client 是 server 级全局长连接（`@clients = {name => Client}`，进程级共享），服务端存会话状态会跨会话串。因此 scope 必须无状态、每调用判定。
 
 ### 当前工作区（Current Workspace，对话上下文概念）
 
-- **定义**：用户在对话中"正在处理的工作区"，由 CGC 助手维护，而非服务端状态；助手用 `get_workspace_context(workspace_id)` 定向获取上下文（返回角色/可见 Agents/Skills/Steps）。
+- **定义**：用户在对话中"正在处理的工作区"，由 CGC 助手维护，而非服务端状态；助手用 `get_workspace_context(workspace_id)` 定向获取上下文（返回 `%{workspace_id, name, slug, description, join_policy, my_roles}`，见 `backend/lib/cgc_2046/mcp/tools/get_workspace_context.ex`）。
 - **架构位置**：对话侧概念，落在 CGC 助手提示词与工具调用参数里。
 
 ---
@@ -155,17 +153,17 @@
 
 - **定义**：平台自研的授权模型：角色（租户内 Role 实体）× 操作 × 资源；多角色取并集，命中任一角色即放行。
 - **架构位置**：MCP 调用 = 用户本人身份 + 网站 RBAC 强制（D6）。Agent 权限 = 用户权限，越权被拒。不采用编译期写死的 `ash_rbac`。
-- **工具层角色谓词单源（2026-09-08 架构评审候选①）**：MCP 工具 authorize 两族判定收编于 `Cgc2046.Accounts.Rbac`——`manage?(actor, workspace_id)`（owner/admin 并集）与 `staff?(actor, workspace_id)`（tutor ∪ 管理，课程教研工作面）。此前以私有函数散于 21 个工具文件靠注释互相指认；`Curriculum.Prep.manage?/2` 与 `Learning.Authorization.staff?/2`（候选③自 `Mcp.Tools.LearnerAuthorization` 迁域侧；web/MCP 两 seam 消费）保留 interface 改为委托。判定语义真源在 Rbac 不变，MembershipContext 仍为数据 seam。
+- **工具层角色谓词单源（2026-09-08 架构评审候选①）**：MCP 工具 authorize 三族判定收编于 `Cgc2046.Accounts.Rbac`（`backend/lib/cgc_2046/accounts/rbac.ex`）——`owner?(actor, workspace_id)`（Owner 独占，如草稿删除 ADR-0015）、`manage?(actor, workspace_id)`（owner/admin 并集）与 `staff?(actor, workspace_id)`（tutor ∪ 管理，课程教研工作面）。此前以私有函数散于 21 个工具文件靠注释互相指认；`Curriculum.Prep.manage?/2` 与 `Learning.Authorization.staff?/2`（候选③自 `Mcp.Tools.LearnerAuthorization` 迁域侧；web/MCP 两 seam 消费）保留 interface 改为委托。判定语义真源在 Rbac 不变，MembershipContext 仍为数据 seam。
 
 ### Agent 两层授权（取并集）
 
 - **定义**：① 独立使用：Agent 自身声明"哪些角色可直接用我"（默认创建者角色 + Admin/Owner）；② Workflow 内使用：跟随 Step 的执行角色。两层取并集。
-- **架构位置**：`AGENT_ROLE`（独立使用授权）与 `STEP_ROLE`（Step 执行角色）两张显式关联表，均引用 `ROLE.id`。
+- **架构位置**：`STEP_ROLE`（`Cgc2046.Workflows.StepRole`，`workflow_step_roles` 表，引用 `Role.id`）已落地用于 Step 级执行角色授权；`AGENT_ROLE`（独立使用授权）随 `Agent` 资源仍属未落地的远期规划（plan 020），v1 角色工作模式由 `Cgc2046.Mcp.Playbooks` 按四角色授权分发。
 
 ### 授权最小单元 = Workflow Step
 
-- **定义**：授权不落在 Workflow 整体，而落在每个 Step：每个 Step 声明"哪些角色可执行本步 + 本步用哪个 Agent"。
-- **架构位置**：堵死学员误用公共 Agent——学员只能执行自己角色对应的 Step，其他 Step 的 Agent 不可见。
+- **定义**：Workflow 内的授权不落在 Workflow 整体，而落在每个 Step：每个 Step 经 `Cgc2046.Workflows.StepRole`（`backend/lib/cgc_2046/workflows/step_role.ex`）声明哪些角色可执行本步（`Step.agent_id` 已于 R2 移除）。
+- **架构位置**：由 `Cgc2046.Workflows.StepAuthorization`（`backend/lib/cgc_2046/workflows/step_authorization.ex`）强制：学员只能执行自己角色对应的 Step。
 
 ### 工具 = 形状、租户 = 过滤器、每次工具调用 = 审计记录（Tool-Shape Principle）
 
@@ -189,8 +187,8 @@
 
 ### Thread journal（线程日志审计）
 
-- **定义**：Jido Storage 的 append-only 日志（审计/事件日志）+ Checkpoint（状态快照，断点恢复）+ Introspection（`provenance_chain` 溯源链 / `execution_summary`）。**审计 context 的数据源**（D-A5），不另造轮子。
-- **架构位置**：workflow 引擎的持久化与审计底座；与网站侧 ToolCallLog 审计互补。
+- **定义**：Jido Storage 的 append-only 日志（审计/事件日志）+ Checkpoint（状态快照，断点恢复）+ Introspection（`provenance_chain` 溯源链 / `execution_summary`）。原规划作为审计 context 数据源（D-A5）。
+- **架构位置**：`Cgc2046.Workflows.JidoStoragePostgres`（`backend/lib/cgc_2046/workflows/jido_storage_postgres.ex`）虽实现了 `load_thread`/`append_thread` 回调（指向 `jido_thread_entries` 表），但生产运行期仅使用 `jido_checkpoints`（`hibernate`/`thaw`），不读写 `jido_thread_entries`；实际业务与工作流审计由 `Cgc2046.Workflows.SignalLog`、`Cgc2046.Workflows.PlatformAudit`（`WorkflowRun` 脱敏元数据读面）与 `Accounts.AdminActionLog` / `Mcp.ToolCallLog` 承担。
 
 ---
 
@@ -201,7 +199,7 @@
 ### WorkflowDefinition（工作流蓝图）
 
 - **定义**：Runic.Workflow DAG + 元数据（id/name/type/version/输入 schema/节点定义）。教研 workflow 定义一次，被 Event/Course **实例化复用**；带版本管理，改定义不影响已开始 run（D-A1/D-A2）。
-- **架构位置**：租户资源；设计者 = Admin/Owner（平台运维与教研模板），使用者运行实例不改定义；部署权限 Owner/Admin/Tutor。
+- **架构位置**：租户资源（`backend/lib/cgc_2046/workflows/workflow_definition.ex`）；设计者与写/发布/归档权限均为 **Owner / Admin**（`WorkspaceActorIsOwnerOrAdmin` policy，平台管理员跨租户放行；Tutor 与普通成员仅可读，无定义写权限）。
 
 ### WorkflowRun（工作流执行实例）
 
@@ -210,12 +208,12 @@
 
 ### Step（步骤，四分类）
 
-- **定义**：Workflow 的最小授权单元，声明执行角色集合 + 使用的 Agent（`STEP_ROLE` 关联表授权）；按节点类型分四类：
-  1. **自动步骤**（Jido Action，纯函数 + 副作用）
-  2. **人工步骤**（SignalMatch 门控等待外部信号，如报名表单提交、审批）
-  3. **门控/分支**
-  4. **子 workflow**（嵌套 DAG）
-- **架构位置**：租户资源；顺序解锁（Step 1 完成才能执行 Step 2）；授权语义与旧 Workflow/Step 模型一致。
+- **定义**：Workflow 的最小授权单元（`backend/lib/cgc_2046/workflows/step.ex`），通过 `Cgc2046.Workflows.StepRole`（`STEP_ROLE` 关联表）声明可执行角色集合（R2 已移除 `Step.agent_id` 与 `Step.role_id`）；按节点类型（`kind`）分四类：
+  1. **自动步骤**（`:action`，Jido Action，纯函数 + 副作用）
+  2. **人工步骤**（`:manual`，等待外部人工提交或审批信号）
+  3. **门控/分支**（`:condition`）
+  4. **子 workflow**（`:sub_workflow`，嵌套 DAG）
+- **架构位置**：租户资源；顺序解锁（Step 1 完成才能执行 Step 2）；授权语义由 `Cgc2046.Workflows.StepAuthorization` 统一判定。
 
 ### Jido 生态（Jido Ecosystem）
 
@@ -234,7 +232,7 @@
 
 ### Runic DAG（jido_runic）
 
-- **定义**：数据流 DAG 引擎——Step 是 `input → output` 函数，Fact 是数据流单元，lazy 并发求值（分支/并行/扇出）；`react_until_satisfied/2` 执行；**SignalMatch** 按 signal type 前缀门控下游（人工步骤/等待事件原生机制）；**SignalFact** 保留溯源链。官方 `~> 0.1.0-alpha`，v1 锁版本 + 适配层隔离（D-A1）。
+- **定义**：数据流 DAG 引擎——Step 是 `input → output` 函数，Fact 是数据流单元，lazy 并发求值（分支/并行/扇出）；`react_until_satisfied/2` 执行；`Cgc2046.Workflows.JidoAdapter`（`backend/lib/cgc_2046/workflows/jido_adapter.ex`）使用 `Runic.Workflow.Condition` + `Step` + `Join` + `merge` 构建 `:manual` 信号门控与多前驱汇合（原规划中的 `SignalMatch` / `SignalFact` 未在适配器中使用）。依赖版本：`jido_runic ~> 1.0`，底层 `runic ~> 0.1.0-alpha`（`0.1.0-alpha.8`，见 `backend/mix.exs`），v1 锁版本 + 适配层隔离（D-A1）。
 - **架构位置**：WorkflowDefinition 的底层执行载体。
 
 ### 任务指令模式（Task-Instruction Pattern）
@@ -245,7 +243,7 @@
 ### AgentRun（领域操作聚合记录，实体不建）
 
 - **定义**：按"一次干活"聚合操作序列的概念（D9：操作摘要、关联对象、操作者，网站自动生成、不做用户侧上报）。**实体不落地（#211 裁决 2/3，2026-08-18）**：原设计的聚合锚先后被架构演进移除——Agent 实体不建模（形态 X / BYO，R2 已删 `Step.agent_id`）、主链路不再经过 Step（学习/教研锚 user × course，切片 H），"按 Step 聚合"的实体形态已失效。
-- **架构位置**：审计义务由 **ToolCallLog 事件账本**承担（D9 的自动记录/防抵赖已兑现）；AgentRun 语义 = ToolCallLog 之上的**投影**，可从流水回填重建，不建写模型。结果账本按 context 就位：LearningRecord（学习）/ ResearchOutput（教研）/ WorkflowRun.facts（Step 链路产物）。
+- **架构位置**：审计义务由 **ToolCallLog 事件账本**承担（D9 的自动记录/防抵赖已兑现）；AgentRun 语义 = ToolCallLog 之上的**投影**，可从流水回填重建，不建写模型。结果账本按 context 就位：`Cgc2046.Learning.Attempt`（学习，`backend/lib/cgc_2046/learning/learning_attempt.ex`，S8 取代原 `LearningRecord`）/ `Cgc2046.Curriculum.Output`（教研，`backend/lib/cgc_2046/curriculum/output.ex`，PR③ 改名自 `ResearchOutput`）/ `WorkflowRun.facts`（Step 链路产物）。
 - **重启条件**：Agent 资源落地（roadmap：plan 020，`get_agent_instruction` 切库）或多宿主（OpenClacky 及桌面 external agent；omp / opencode / dsh 的终端接入已于 2026-10-29 全部下线）会话归因需求成真 → 从 ToolCallLog 投影重建；**前置 = 流水补 `client_name` / `session_id` 归因维度**（模型可重算、流水维度不记则历史不可回填，#228）。
 
 ---
@@ -254,9 +252,9 @@
 
 ### 本机 agent（Local agent）
 
-- **定义**：跑在学员自己电脑上、由该学员自己的账号与额度驱动的那一类 agent（BYO，ADR-0001；ADR-0023）。历史实现为 **OMP**（`omp acp`）与 **Codex**（`@agentclientprotocol/codex-acp`），由 CGC 本机 Host 经 ACP 启动与驱动（ADR-0022，已 Superseded）；**2026-10-26 起 Web 端该路径已移除，本机 agent 现由桌面客户端经 ACP 驱动（ADR-0025 / ADR-0028）。**
-- **架构位置**：**类别名，不是某个具体 agent 的名字**——个体的名字出现在课程页对话栏的选择器里（「由 OMP 驱动」/「由 Codex 驱动」），「本机 agent 对话」指对话栏这个面。平台不运行模型、不代管学员的 agent 登录；学习凭证经 ACP 的 `mcpServers` 下发，平台只按 token 类型收窄权限。
-- **扩展方式（历史）**：在 Host 的注册表（原 `cgc-host/src/agents/`，已随 `cgc-host/` 删除）加一条记录、页面按 `status.agents` 自适应——第三个 agent（如 Claude Code）不改路由与页面结构。
+- **定义**：跑在学员自己电脑上、由该学员自己的账号与额度驱动的那一类外部 ACP agent（BYO，ADR-0001；ADR-0023 / ADR-0025 / ADR-0026 / ADR-0028）。桌面客户端内置签名清单（`desktop/crates/platform/resources/registry.json`）当前收录 **4 项**外部 ACP 适配器：**OMP**（`omp acp`）、**Codex**（`@agentclientprotocol/codex-acp` `2.2.2`）、**Claude Code**（`@agentclientprotocol/claude-agent-acp` `0.94.0`）与 **DeepSeek Harness**（`deepseek-agent-acp` `0.4.41`，ADR-0031）。（2026-10-26 起原 Web 端经 `cgc-host/` 驱动的路径已移除，本机外部 ACP agent 现统一由桌面客户端内化 Host 经 ACP 驱动。）
+- **架构位置**：**类别名，不是某个具体 agent 的名字**——与桌面内置第一方 `Native Agent` 共同构成桌面双轨（ADR-0028）。外部 ACP 轨下平台不代管学员的 agent 登录；学习凭证（`learning_host`）经 ACP `session/new` 的 `mcpServers`（统一命名 `cgc-2046-learning`，`desktop/crates/platform/src/mcp/inject.rs`）下发，平台按 token 类型强制收窄至 5 个学习工具白名单。
+- **扩展方式**：在桌面客户端内置签名清单 `desktop/crates/platform/resources/registry.json`（及 `registry.sig`）登记新 ACP 适配器条目，设置页与选择器自动按清单渲染（ADR-0026）。
 
 ### Native Agent（第一方桌面内置 Agent）
 
@@ -270,13 +268,13 @@
 
 ### AgentCall（学习 Agent 调用）
 
-- **定义**：学员点击 CTA 或选中材料文字后，由客户端组装的一次瞬态调用：`intent + target + source + selection?`。它是请求而不是授权；Agent 侧仍须重新检查目标、内容 revision 与权限。
+- **定义**：学员点击 CTA 或选中材料文字后，由客户端组装的一次瞬态调用：`intent + target + source + action_id? + selection?`（序列化信封携带 `version: 1` 与 `kind: "agent_call"`，见 `desktop/crates/app/src/agent_call.rs` 与 ADR-0029）。它是请求而不是授权；Agent 侧仍须重新检查目标、内容 revision 与权限。
 - **架构位置**：`Submission.agent_call` 与 composer 的 pending call；发送一次后清除，不进入 attempt，不作为学习记录持久化。
 
 ### AgentIntent（学习 Agent 意图）
 
 - **定义**：`AgentCall` 的封闭语义词表：`answer / hint / explain / summarize / inspect_workspace / create_file / run / inspect_artifact / submit / review`。内容作者不能扩展工具名或任意 prompt；`copy` 等本地动作不属于 AgentIntent。
-- **架构位置**：内容 `AgentActionSpec.intent` 与运行时 `AgentCall.intent` 共用；未知值在保存时拒绝，运行时退化为纯文本 compose。
+- **架构位置**：内容 `AgentActionSpec.intent` 与运行时 `AgentCall.intent` 共用；未知值在后端保存时拒绝，桌面端运行时解析为 `AgentActionIntent::Unknown(String)`（`desktop/crates/courses/src/content.rs`）并退化为纯文本 compose（ADR-0029）。
 
 ### LearningTarget（学习调用目标）
 
@@ -293,7 +291,7 @@
 - **私有教研增量（ADR-0012）**：公开四角色基础仍存模块常量；tutor 追加 release 内 `priv/playbooks/tutor.md`，仅开发可用 `CGC_PLAYBOOKS_DIR` 覆盖。tutor/owner/admin 可读取 tutor playbook，其他写权限与 tutor-only 教研入口不变。有效增量版本追加原始内容 SHA-256 前八位；生产镜像使用公开 SHA 与同一哈希标识。私有 PR 后需手动 Deploy；生产验收状态见运维《私有教研Playbook部署》。plan 020 导入 DB 时退役 checkout 与 deploy key。
 
 - **定义**：四角色（`platform_admin` / `workspace_admin` / `tutor` / `learner`）工作模式说明书——「如何经工具面完成角色职责」的版本化文本（role-agent-journeys-v2 S1，R2/R6）。载体 = `Cgc2046.Mcp.Playbooks` 模块常量 + 逐角色版本号（API `roles/0` / `fetch/1` / `version/1`）；分发通道 = MCP `get_role_playbook`（工具层四分支授权：learner 任何已认证用户 / tutor 与 workspace_admin 须持对应工作台角色 / platform_admin 须 `is_platform_admin` 全局标记）。**playbook 只组织用户已有能力**——面板隐藏、Agent 提示、本地缓存都不扩大网站 RBAC 权限（R6）。learner/tutor 两角色核心章节逐字吸收自已删除的 `Learning.AgentInstructions` / `Curriculum.AgentInstructions` 死代码模块。
-- **架构位置**：interface layer 资产，归 `mcp/`（playbook 是工具面使用说明书，非领域逻辑；Workflows 引擎域不持角色内容）；DB-backed Agent 资源落地（roadmap plan 020）时整体替换，不留兼容层。**架构评审裁决（2026-09-08）**：「内容即代码」中间态（prose 抽 `priv/playbooks/*.md` + 版本号改内容哈希派生）**跳过**——载体终局是 plan 020 整体 DB 化，中间态会被整体替换，编辑频率（~每月 2 次）不值一次弃置改造；若 playbook 编辑转高频（周级以上）再复议。扩展 `system_prompt.md` 静态清单收缩为 7 个跨角色公共工具（`list_my_workspaces` / `get_role_playbook` / `list_my_tasks` / 公开浏览 2 / 确认流 2），角色专属工具由 playbook 携带——「平台加工具必须手改扩展 system_prompt」的脆点收敛为 playbook 单点维护。
+- **架构位置**：interface layer 资产，归 `mcp/`（playbook 是工具面使用说明书，非领域逻辑；Workflows 引擎域不持角色内容）；DB-backed Agent 资源落地（roadmap plan 020）时整体替换，不留兼容层。**架构评审裁决（2026-09-08）**：「内容即代码」中间态（prose 抽 `priv/playbooks/*.md` + 版本号改内容哈希派生）**跳过**——载体终局是 plan 020 整体 DB 化，中间态会被整体替换，编辑频率（~每月 2 次）不值一次弃置改造；若 playbook 编辑转高频（周级以上）再复议。扩展侧现拆分为 3 个静态 Agent 提示词文件（`openclacky-ext/cgc-2046/agents/{cgc-assistant,cgc-tutor,cgc-admin}/system_prompt.md`），其中 `cgc-assistant` 静态点名 9 个跨角色公共/发现与学习核心工具（`list_my_workspaces` / `get_role_playbook` / `list_my_tasks` / 公开浏览 2：`list_public_offerings`、`get_public_offering` / 确认流 2：`confirm_operation`、`cancel_operation` / 学习核心 2：`get_learning_state`、`submit_learning_attempt`），`cgc-tutor` 额外点名 `submit_prep_quality_report`，其余角色专属工具由 playbook 携带——「平台加工具必须手改扩展 system_prompt」的脆点收敛为 playbook 单点维护。
 
 ### MCP 工具集（MCP Tool Set）
 
@@ -308,21 +306,21 @@
 
 ### 确认流（Confirmation Flow）
 
-- **定义**：高风险 MCP 工具的两阶段提交（D8；实现为 **two-tool 模式**，D-D3——目标客户端均不支持 elicitation）：
-  1. Agent 调高风险工具 → 网站**不落库**，建 pending 记录 → 返回 `needs_confirmation: {id, 摘要}`
-  2. Agent 向用户展示摘要并征得同意（OpenClacky 语境经 `ask_user` 原语弹可点击卡片）
-  3. 用户同意 → Agent 调 `confirm_operation(id)` → 网站落库 + 审计；拒绝 → `cancel_operation(id)`（pending TTL 10 分钟）
+- **定义**：高风险 MCP 工具的两阶段提交（D8；实现为 **two-tool 模式**，D-D3——目标客户端均不支持 elicitation，见 `backend/lib/cgc_2046/mcp/confirmation.ex` 与 `backend/lib/cgc_2046/mcp/tools/response.ex`）：
+  1. Agent 调高风险工具 → 网站**不落库**，建 pending 记录 → 返回 `%{status: "needs_confirmation", pending_id: ..., summary: ..., hint: ...}`
+  2. Agent 向用户展示摘要并征得同意（OpenClacky 语境经 `ask_user` 原语弹可点击卡片，且扩展 `openclacky-ext/cgc-2046/hooks/before_tool_use.rb` 对 `confirm_operation` 施加 `ui.request_confirmation(..., default: false)` 弹窗硬门禁）
+  3. 用户同意 → Agent 调 `confirm_operation(pending_id)` → 网站落库 + 审计；拒绝 → `cancel_operation(pending_id)`（pending TTL 10 分钟）
   4. **网站永远不偷偷执行：无 confirm 不落库**
-- **架构位置**：管理类写操作的安全闸门；已知风险：auto_approve 10s 倒计时自动决策（扩展 prompt 层防线已落地：ask_user 结果出现 auto_reply（无人值守）一律 cancel_operation，无人确认绝不执行）。
+- **架构位置**：管理类写操作的安全闸门（同时被 Web GraphQL 支付与退款确认 `Cgc2046Web.PaymentConfirmation` 复用）；已知风险：auto_approve 10s 倒计时自动决策（扩展 prompt 层防线 + `hooks/before_tool_use.rb` 弹窗硬门禁已落地：ask_user 结果出现 auto_reply（无人值守）一律 cancel_operation，无人确认绝不执行）。
 
 ### pending 记录（Pending Record）
 
-- **定义**：确认流中"待确认"的高风险操作暂存，**不落业务库**（业务数据未写入），仅存确认所需信息。
-- **架构位置**：确认流的中间态；`confirm(id)` 前业务状态不变。
+- **定义**：确认流中"待确认"的高风险操作暂存（`Cgc2046.Mcp.PendingOperation`，`backend/lib/cgc_2046/mcp/pending_operation.ex`），**不落业务库**（业务数据未写入），仅存确认所需信息。
+- **架构位置**：确认流的中间态；`confirm(pending_id)` 前业务状态不变。
 
 ### needs_confirmation（需确认响应）
 
-- **定义**：网站对高风险工具调用的响应结构：`{id, 摘要}`，指示 Agent 进入确认流。
+- **定义**：网站对高风险工具调用的响应结构：`%{status: "needs_confirmation", pending_id: ..., summary: ..., hint: ...}`（`backend/lib/cgc_2046/mcp/tools/response.ex`），指示 Agent 进入确认流。
 - **架构位置**：MCP 协议层响应类型。
 
 ### ask_user（用户反馈原语）
@@ -367,22 +365,22 @@
 
 ### Onboarding（一次性三步引导）
 
-- **定义**：用户接入平台的引导流程（D13 简化，D-A7）：
-  1. **装 OpenClacky**（网站给安装命令）
+- **定义**：用户接入 OpenClacky 扩展的引导流程（D13 简化，D-A7，见 `web/components/agent-connect-sections.tsx`）：
+  1. **装 OpenClacky**（网页点击按钮通过隐藏 `<iframe>` 直接触发客户端安装包下载）
   2. **安装连接器扩展**：`openclacky ext install <zip URL>`
-  3. **扩展自动检查并安装 MCP**——扩展自动配置 `mcp.json`，网站只生成 token（绑用户不绑工作区）
-- **架构位置**：新用户接入路径；加入新工作区无需重新配置（token 通用，scope 靠 workspace_id）。
+  3. **连接 CGC MCP**——主路径为在 OpenClacky 侧边栏面板点击「连接 CGC」触发一键 CDP 自动签发连接 token 并写入 `~/.clacky/mcp.json`（`POST /api/ext/cgc-2046/connect`，`openclacky-ext/cgc-2046/api/mcp_config.rb`）；兜底路径为在网页生成连接码并粘贴给 `cgc2046-onboarding` skill 写入（token 绑用户不绑工作区）
+- **架构位置**：OpenClacky 终端/扩展接入路径；加入新工作区无需重新配置（token 通用，scope 靠 workspace_id）。（桌面客户端无需走此三步：桌面端登录后自动签发 `learning_host` 凭证并通过 `desktop/crates/platform/src/mcp/inject.rs` 注入会话。）
 
 ### mcp.json（单一配置点）
 
-- **定义**：OpenClacky 的 MCP 配置文件；**由连接器扩展自动写入** cgc-2046 条目（URL + token），用户不再手动粘贴配置片段（D-A7，取代 D13 步骤 2 的手动粘贴）。
-- **架构位置**：用户侧连接配置唯一事实源。扩展自动检查并安装 MCP，网站只负责生成 token。
-- **ADR-0022 起（已 Superseded，2026-10-26）**：经 CGC 本机 Host 的网页对话不读 mcp.json——Host 在 ACP 会话里下发 MCP 服务器与学习凭证；该通道已随 `cgc-host/` 移除，mcp.json 仍是终端接入的配置点。
+- **定义**：OpenClacky 的 MCP 配置文件（`~/.clacky/mcp.json`）；**由连接器扩展通过面板一键连接或 onboarding skill 写入** `cgc-2046` 条目（URL + `Authorization: Bearer <token>`）（D-A7）。
+- **架构位置**：OpenClacky 侧连接配置唯一事实源。
+- **桌面端与历史 Host 差异（ADR-0022 / ADR-0025 / ADR-0028）**：桌面客户端（Native Agent 与外部 ACP Agent）以及已于 2026-10-26 下线的 `cgc-host/` 均不读写 `~/.clacky/mcp.json`——桌面端将 `learning_host` 凭证存入系统 Keychain，并在 ACP `session/new` 的 `mcpServers` 参数中直接注入 `cgc-2046-learning`（`desktop/crates/platform/src/mcp/inject.rs`）；`mcp.json` 仅作为 OpenClacky 接入的配置点。
 
 ### 用户离线（User Offline）
 
-- **定义**：BYO 架构下的已知限制：用户本地 OpenClacky 离线时，该用户的 Agent 任务不可用（D3，接受）。
-- **架构位置**：产品约束而非缺陷；平台不持有执行能力。
+- **定义**：BYO 与本地执行架构下的已知限制：当用户的本地执行端（桌面客户端或本地 OpenClacky）离线时，该用户的本地 Agent 任务不可用（D3，接受）。
+- **架构位置**：产品约束而非缺陷；网站侧不常驻运行用户 Agent 循环。
 
 ---
 
@@ -390,17 +388,17 @@
 
 ### Invitation（邀请链接，租户资源）
 
-- **定义**：加入 Workspace 的链接：token（存 hash）、expires_at、邀请人、预授权角色、目标邮箱（空 = 公开链接）、状态（active/used/revoked/expired）。审计字段：accepted_by（接受人）、accepted_at（接受时间）。Volunteer 可生成链接但不得赋予 Admin 级角色。
-- **架构位置**：租户资源；invite_only 空间唯一入口；撤销流程与到期清理已实现（惰性过期检查）。
+- **定义**：加入 Workspace 的链接（`backend/lib/cgc_2046/accounts/invitation.ex`）：token（存 hash）、expires_at、邀请人、预授权角色、目标邮箱（空 = 公开链接）、可选关联备课课程 `prep_course_ids`（`{:array, :uuid}`）、状态（active/used/revoked/expired）。审计字段：accepted_by（接受人）、accepted_at（接受时间）。Volunteer 可生成链接但不得赋予 Admin 级角色。
+- **架构位置**：租户资源；invite_only 空间唯一入口；撤销流程与到期清理已实现（由每 5 分钟 Oban cron `Cgc2046.Admission.Workers.ApprovalExpiryWorker` 主动调 `:expire` 落库，辅以读时 `effective_status` 计算属性与 accept 时惰性过期拦截）。
 
 ### JoinRequest（加入申请，租户资源）
 
-- **定义**：request 空间下的加入申请：申请人、Workspace、状态（pending/approved/rejected/expired）；审批通过时分配角色。审计字段：approved_by（审批人）、approved_at（审批时间）、rejection_reason（拒绝原因）、approval_deadline（审批截止时间，默认创建后 7 天）、expired_at（过期时间）。
-- **架构位置**：租户资源；审批动作属于高风险管理工具，走确认流。过期转换采用惰性检查（读取时若 pending 且 deadline 已过 → 转 expired）。
+- **定义**：request 空间下的加入申请（`backend/lib/cgc_2046/accounts/join_request.ex`）：申请人、Workspace、申请留言 `message`（可选）、状态（pending/approved/rejected/expired）；审批通过时分配角色。审计字段：approved_by（审批人）、approved_at（审批时间）、rejection_reason（拒绝原因）、approval_deadline（审批截止时间，默认创建后 7 天）、expired_at（过期时间）。
+- **架构位置**：租户资源；审批动作属于高风险管理工具，走确认流。过期状态由每 5 分钟 Oban cron `Cgc2046.Admission.Workers.ApprovalExpiryWorker` 主动调 `:expire` 落库（读操作不写库，前端芯片对过点未扫中的 pending 行做展示兜底，approve 时由 `ApprovalClaim` 的 `deadline: {:approval_deadline, :future}` 硬拦截）。
 
 ### Profile（成员公开资料，租户资源）
 
-- **定义**：头像、简介、技能标签（含 Portfolio 作品展示）per-workspace（ADR-0004，2026-08-08 落地）；`display_name`/`email` 为全局身份字段（不属于 Profile）。主题偏好（ui_theme_preference）同挂 per-workspace。
+- **定义**：头像、简介、所在地 `location`、技能标签（含 Portfolio 作品展示）及可见范围 `visibility`（`:public | :workspace | :only_me`，默认 `:only_me`）per-workspace（`backend/lib/cgc_2046/accounts/workspace_profile.ex`，ADR-0004，2026-08-08 落地）；`display_name`/`email` 为全局身份字段（不属于 Profile）。主题偏好（`ui_theme_preference`）同挂 per-workspace。
 - **架构位置**：租户资源（WorkspaceProfile，workspace_id + user_id 唯一）；PortfolioItem 同属租户维度（加 workspace_id）。visibility=:workspace 语义 = **目标 workspace 成员可读**（收窄自"任一 workspace"）。
 - **默认归属**：默认 workspace "2046"（slug=`2046`，open 策略）——新用户注册自动加入（无差异标签 membership），保证注册即有 profile 编辑上下文；全局 `/settings/account/profile` 入口已下线，redirect 到 `/w/2046/settings/account/profile`。
 - 二期需要聚合展示时再拆。
@@ -416,11 +414,11 @@
 
 ### Event / Course（活动 / 线上课程）
 
-- **定义**：**挂在 Workspace 下**的活动与课程（结构决策，D-A3）：Event 为场地形态（**校园 / 咖啡厅 / 书店 / 联合办公空间**），Course 为线上课程。事件级参与经 **Enrollment**（见下），**不自动成为 Workspace 成员**。
-- **架构位置**：租户资源（挂 Workspace）；由 Owner 创建/编辑（单步 CRUD 用表单）；筹备活动/开课程 = 跨角色 workflow；**课程内容 = issue 卡集**（见 Issue 词条，2026-08-16）。
+- **定义**：**挂在 Workspace 下**的活动与课程（结构决策，D-A3）：Event 为线下或线上场次形态（`venue` 现为四键行政区划 map `%{country, province, city, district}`，见 `backend/lib/cgc_2046/events/venue.ex`，线上活动或地点待定为 `nil`；另支持可选 `course_revision_id` 绑定课程版本，见 `backend/lib/cgc_2046/events/event.ex`），Course 为线上课程（`backend/lib/cgc_2046/courses/course.ex`）。事件级参与经 **Enrollment**（见下），**不自动成为 Workspace 成员**。
+- **架构位置**：租户资源（挂 Workspace）；由 Owner/Admin 创建/编辑（单步 CRUD 用表单）；筹备活动/开课程 = 跨角色 workflow；**课程内容 = issue 卡集**（见 Issue 词条，2026-08-16）。
 - **解除挂载来源标记（#624）**：`detached_rule_provenance`（可空 jsonb，`writable?: false`）只描述「已解除挂载后仍留在场上的强制值」——detach 保留值 + 逐字段来源、场主首改即清、重挂载整列清空，语义与读面见「Initiative（倡导活动，平台级）与挂载边界」词条；MCP 面（#630）写响应 / `list_workspace_events` 行带出、公开 DTO 不含。
-- **租户收紧读取端口（2026-09-08 架构评审候选①）**：MCP 工具层的课程存在性读取唯一入口 = `Course.fetch_scoped(workspace_id, course_id, opts \\ [])`（取代 18 份工具内私有 fetch_course 拷贝）。不变量 = 必带 `tenant:`（Course 全局资源，不带 tenant 全表读即跨租户越权面；他租户 id ≡ not found 不泄存在性）。两变体语义逐工具保真：默认 `authorize?: false`（授权已在工具层发生）；`actor: actor` 走授权读（lifecycle 工具原样，Forbidden 映 forbidden 文案）。错误字符串是 interface 的一部分。
-- **slug 公开 URL 段不可变（ADR-0014）**：draft 随便改，发布（非 draft）后锁死，无 rename 后门（恢复 = 新建）；锁定/撞 slug 拒绝带稳定 code `event_slug_locked` / `event_slug_taken` / `course_slug_*`（#619，与 Initiative #588/#604 三资源同口径；格式校验资源级单源，锁定优先于格式错）。
+- **租户收紧读取端口（2026-09-08 架构评审候选①）**：MCP 工具层的课程与活动存在性读取唯一入口 = `Course.fetch_scoped(workspace_id, course_id, opts \\ [])` 与 `Event.fetch_scoped(workspace_id, event_id, opts \\ [])`（取代工具内私有 fetch 拷贝）。不变量 = 必带 `tenant:`（Course/Event 全局资源，不带 tenant 全表读即跨租户越权面；他租户 id ≡ not found 不泄存在性）。两变体语义逐工具保真：默认 `authorize?: false`（授权已在工具层发生）；`actor: actor` 走授权读（lifecycle 工具原样，Forbidden 映 forbidden 文案）。错误字符串是 interface 的一部分。
+- **slug 公开 URL 段不可变（ADR-0014）**：draft 随便改，发布（非 draft）后锁死，无 rename 后门（恢复 = 新建）；锁定/撞 slug 拒绝带稳定 code `event_slug_locked` / `event_slug_taken` / `course_slug_*`（#619，与 Initiative #588/#604 及 Flashback.Person `public_slug` 四资源同口径；格式校验资源级单源，锁定优先于格式错）。
 
 ### provisional_title（课程临时占位标题标记，Course-only）
 
@@ -430,27 +428,27 @@
 ### 学员旅程（Learner Journey：发现 / 报名 / 支付）
 
 - **定义**：学员从发现到进入学习的完整通道（role-agent-journeys-v2 S7，R30-R35）。发现 = `discover_offerings`（无参跨台合并流：全平台公开 ∪ 本人各 workspace 可访问，按 {kind,id} 去重、封顶 100 + total_count 截断前小计、条目带 workspace 块/pricing 概要/my_enrollment；invite_only 工作台对非成员 workspace 块落 nil——不泄露不可发现工作台）。报名 = `get_enrollment_summary`（摘要 + `would_create_status` **委托域谓词单源** `Enrollment.auto_confirm_status/1`（其判定落到 `Offering.payment_mode/1`）：open+免费→confirmed / open+收费**或押金**→payment_pending / request→pending / invite_only→nil；驱动因子 = offering 的 enrollment_policy 而非 workspace join_policy，#586）→ 客户端确认 → `create_enrollment`（唯一直接写工具——确认契约在客户端 R31，不进确认流；**幂等重放**：撞 `enrollment_duplicate_active` 返回既有活跃报名 + `idempotent_replay: true` 非错误；reason 进 Wrapper 前摘除——审计不落自由文本）。支付 = payment_pending 附 `checkout_url`（web 下单页 `/orders/new?enrollmentId=`，外部浏览器完成）+ `get_order_status`（本人最新订单白名单摘要——id/amount/provider/status/expires_at/paid_at，**渠道凭据/单号/回调原文永不出面**）。学习入口 = `get_my_enrollments`（全状态跨台封顶 100；扩展课程面板列表源——confirmed 课程即学习入口，零学习记录也显示）。
-- **架构位置**：`mcp/tools/learner_journey.ex`（共享辅助：checkout_url/parse_required_kind；活跃报名读取真源 active_statuses/active_enrollment(s) 已收编至 `Admission.Enrollment` 公共函数，#355 P1-3 起 MCP 五工具与 GraphQL `myEnrollment` 查询共用）+ 五工具；两读面（discover/my_enrollments）`optional+deferred` 双键跨台锚定，三面（summary/create/order）`deferred` workspace 必填；`Admission.Enrollment :create_enrollment` 域 action 单源（web/小程序/工具同语义）；`Course.published_content/2`（显式 workspace_id 版，S7 增设——actor policy 读出的 workspace_id 列对非成员是 ForbiddenField）。扩展侧 `api/learner_routes.rb` 五 loopback 路由 + 发现面板 v2（报名确认卡/支付轮询 5s·10min cap/去支付外链）。
-- **押金段（押金制，event-deposit R1–R11，2026-09-14 交付；ADR-0007 补记）**：缴费三态互斥（免费 / 定价档位 / 押金，同一缴费槽；押金不借用定价档位）。付费 = 押金场提交报名后落 `payment_pending`；学员在下单（`createOrder`）时才生成唯一活跃**押金单**（`order_kind = :deposit`，金额以活动现值为权威、订单一旦创建即钉死在 `tier_snapshot`——不随改价追溯已创建订单，#749）→ 支付完成落 `confirmed` 并得 6 位核销码（仅本人可见、`payment_pending` 不出示；扫码失败可手输补救）。到场 = 主理人（Event 主理人 / Owner·Admin / 平台管理员；**主理人须为本工作台成员**——#558/#542 决策 A1，指派时校验，KD7「不检查、不邀请」已修订）扫码或输码核销（`checkInEnrollment`）：`Attendance` 落行（每报名至多一行，到场事实）→ **同事务发起全额退款（核销即退）**，参与者当场收「押金已退」通知；退款完成后报名保持 `confirmed`、名额不释放。未到场 = 活动结束（`ends_at`）T+48h 后仍未核销的 `paid` 押金单由 `DepositForfeitWorker` 结算为订单终态 `forfeited`——押金不退、留作平台收入（`workspace_payment_stats` 可导出）。取消 = 截止前自助取消全额退并释放名额，截止后取消只释放名额、押金不退；活动取消 / 未达成班无条件全额退**优先**于核销即退与 no-show。展示口径 = 「免费 / 收费 ¥xx / 押金 ¥xx（到场退）」三态，不再「免费」与「押金」并列。**Agent 面同口径（#586）**：缴费槽三态判定单源 = `Offering.payment_mode/1`（`:free | :pricing | :deposit`，押金优先），落点预测单源 = `Enrollment.auto_confirm_status/1`（非免费 → `payment_pending`）；MCP 读面 `discover_offerings` / `get_enrollment_summary` / `get_public_offering` / `list_workspace_events` 条目附 `payment_mode` 与押金明细 `deposit`（`enabled` / `amount_cents` / `refundable_on_check_in`）——`pricing.enabled = false` **不等于**免费（押金场即如此），押金金额缺失（历史脏行）时 `amount_cents` 落 `null`、`enabled` 仍为 `true`，绝不显示 ¥0 也绝不改判免费。
+- **架构位置**：`backend/lib/cgc_2046/mcp/tools/learner_journey.ex`（共享辅助：checkout_url/parse_required_kind；活跃报名读取真源 active_statuses/active_enrollment(s) 已收编至 `Admission.Enrollment` 公共函数，#355 P1-3 起 MCP 五工具与 GraphQL `myEnrollment` 查询共用）+ 五工具；两读面（discover/my_enrollments）`optional+deferred` 双键跨台锚定，三面（summary/create/order）`deferred` workspace 必填；`Admission.Enrollment :create_enrollment` 域 action 单源（web/小程序/桌面端/工具同语义）；`Course.published_content/2`（显式 workspace_id 版，S7 增设——actor policy 读出的 workspace_id 列对非成员是 ForbiddenField）。扩展侧路由已收编入 `openclacky-ext/cgc-2046/api/handler.rb`（`face: :learner`，8 条 loopback 路由；原 `api/learner_routes.rb` 已删除）+ 发现面板 v2（报名确认卡/支付轮询 5s·10min cap/去支付外链）。
+- **押金段（押金制，event-deposit R1–R11，2026-09-14 交付；ADR-0007 补记）**：缴费三态互斥（免费 / 定价档位 / 押金，同一缴费槽；押金不借用定价档位）。付费 = 押金场提交报名后落 `payment_pending`；学员在下单（`createOrder`）时须显式通过押金规则同意门禁（`deposit_consent: true`，落库记录 `deposit_consent_at` 与 `deposit_terms_version: "2026-09-deposit"`，未传或为 `false` 报 `order_deposit_consent_required`，#727/#750），才生成唯一活跃**押金单**（`order_kind = :deposit`，金额以活动现值为权威、订单一旦创建即钉死在 `tier_snapshot`——不随改价追溯已创建订单，#749）→ 支付完成落 `confirmed` 并得 6 位核销码（仅本人可见、`payment_pending` 不出示；扫码失败可手输补救）。到场 = 主理人（Event 主理人 / Owner·Admin / 平台管理员；**主理人须为本工作台成员**——#558/#542 决策 A1，指派时校验，KD7「不检查、不邀请」已修订）扫码或输码核销（`checkInEnrollment`）：`Attendance` 落行（每报名至多一行，到场事实）→ **同事务发起全额退款（核销即退）**，参与者当场收「押金已退」通知；退款完成后报名保持 `confirmed`、名额不释放。未到场 = 活动结束（`ends_at`）T+48h 后仍未核销的 `paid` 押金单由 `DepositForfeitWorker` 结算为订单终态 `forfeited`——押金不退、留作平台收入（`workspace_payment_stats` 可导出；异常申诉可由平台管理员调 `Order :unforfeit` 救济转入 `refunding` 原路退回，#545）。取消 = 截止前自助取消全额退并释放名额，截止后取消只释放名额、押金不退；活动取消 / 未达成班无条件全额退**优先**于核销即退与 no-show。展示口径 = 「免费 / 收费 ¥xx / 押金 ¥xx（到场退）」三态，不再「免费」与「押金」并列。**Agent 面同口径（#586）**：缴费槽三态判定单源 = `Offering.payment_mode/1`（`:free | :pricing | :deposit`，押金优先），落点预测单源 = `Enrollment.auto_confirm_status/1`（非免费 → `payment_pending`）；MCP 读面 `discover_offerings` / `get_enrollment_summary` / `get_public_offering` / `list_workspace_events` 条目附 `payment_mode` 与押金明细 `deposit`（`enabled` / `amount_cents` / `refundable_on_check_in`）——`pricing.enabled = false` **不等于**免费（押金场即如此），押金金额缺失（历史脏行）时 `amount_cents` 落 `null`、`enabled` 仍为 `true`，绝不显示 ¥0 也绝不改判免费。
 
 ### curriculum_enabled（教研开关，Event-only）
 
-- **定义**：Event 的「本活动不使用教研链路」退出通道（轻聚会等形态），默认 true。**Course 无此开关**（2026-08-16 grill Q12 语义分家）：issue 卡是课程内容本体，Course 恒走教研实例化，`courses.curriculum_enabled` 列已删除——对账规则④对 Course 无条件（draft/open 且无 published 教研定义 = 孤儿；UAT P2 扩 draft——prep run 始于 course.created，断流在 draft 期就该看见，Event 侧教研 run 始于 launched 故不扩），Readiness 教研项对 Course 无条件检查。
-- **架构位置**：Event 属性；`Curriculum.Instantiator.ensure_curriculum_enabled` 门控为 event-only 分支（按 key 前缀分叉）；对账规则④仅 Event 侧保留 curriculum_enabled 过滤。Event 侧 UI 暴露留待真实需求。
+- **定义**：Event 的「本活动不使用教研链路」退出通道（轻聚会等形态），默认 true。**Course 无此开关**（2026-08-16 grill Q12 语义分家）：issue 卡是课程内容本体，Course 恒走教研实例化，`courses.curriculum_enabled` 列已删除——对账规则④对 Course 无条件（draft/open 且无 published `:course_preparation` 定义 = 孤儿；UAT P2 扩 draft——prep run 始于 course.created，断流在 draft 期就该看见，Event 侧 `:curriculum` run 始于 launched 故不扩），Readiness 教研项对 Course 无条件检查。
+- **架构位置**：Event 属性；`Cgc2046.Curriculum.Instantiator`（`backend/lib/cgc_2046/curriculum/instantiator.ex`）自 S6 起仅订阅 `event.launched` 服务 Event（Course 改走 `PrepInstantiator`，不再按 key 前缀分叉），内部由 `ensure_curriculum_enabled/1` 门控；对账规则④仅 Event 侧保留 `curriculum_enabled` 过滤。Event 侧 UI 暴露留待真实需求。
 
 ### Offering（供给物）
 
 - **命名说明**：offering = 商业英语「提供物/供给物」，Event/Course 的**上位词**（course offerings = 开设的课程清单，非「课程设置」）。中文统一语言定名**供给物**；ADR-0009 拍板代码标识符保留 `Offering` 不改名。
 
-- **定义**：「一行可指向 Event 或 Course」的统一读取 seam = `Cgc2046.Offering`（2026-08-15 读取面收敛，架构评审候选④）。interface：`fetch(kind, id, opts \\ [])`（`{:ok, entity} | {:error, :not_found}`，默认 `authorize?: false`；`actor:` + `authorize?: true` 为 graphql 场景的 actor 感知读取；返回完整 entity 供 status/Readiness 消费）｜`fetch_by_signal_payload(data)`（按 `event_id`/`course_id` 键分派）｜`fetch_titles_by_ids(ids_by_kind, tenant)`（per-kind per-tenant 批量，消 N+1 不退化）｜投影 `kind/1`/`title/1`/`workspace_id/1`。错误形状统一坍缩 `:not_found` 单点。
+- **定义**：「一行可指向 Event 或 Course」的统一读取 seam = `Cgc2046.Offering`（`backend/lib/cgc_2046/offering.ex`，2026-08-15 读取面收敛，架构评审候选④）。interface：`fetch(kind, id, opts \\ [])`（`{:ok, entity} | {:error, :not_found}`，默认 `authorize?: false`；`actor:` + `authorize?: true` 为 graphql 场景的 actor 感知读取；返回完整 entity 供 status/Readiness 消费）｜`fetch_by_signal_payload(data)`（按 `event_id`/`course_id` 键分派）｜`fetch_titles_by_ids(ids_by_kind, tenant)` / `fetch_slugs_by_ids(ids_by_kind, tenant)` / `fetch_schedule_by_ids(ids_by_kind, tenant)`（per-kind per-tenant 批量，消 N+1 不退化）｜投影 `kind/1`/`title/1`/`workspace_id/1`/`payment_mode/1`/`deposit_amount_cents/1`/`payment_slot/1`。错误形状统一坍缩 `:not_found` 单点。
 - **命名空间区分**：kind 原子 `:event` 与 Sponsorship `level: :event`（赞助级别）**撞名但无语义关系**——前者是读取分派键，后者是业务分类字段，勿混用。
 - **架构位置**：读取面 seam（已迁出 events/，位于 lib/cgc_2046/ 顶层 offering.ex）；消费方 = Notifications.Subscriber / LearningInstantiator / PendingApprovals / GraphqlSchema（offeringReadiness）/ Curriculum.Instantiator；不碰 enrollment 裸 SQL 家族、Event/Course lifecycle change、sponsorship level 分叉。
 - **发布语言读端口（ADR-0009 D5，目标态已落地）**：Events/Courses 对 Admission 的**发布语言读端口**（纯读投影契约，零写入），位于中立位置 lib/cgc_2046/offering.ex；共享纯函数内核（PriceTier / ScheduleValidation / EnrollmentBadge / Readiness）收进 `offering/` 目录（PR②，KTD2；写原语不在其列——状态机条件 UPDATE 单文件原语 `Cgc2046.StatusTransition` 居根部 lib/cgc_2046/status_transition.ex，ApprovalClaim 同款先例，offering/ 自此纯读零写）——纯函数共享不破坏 bounded context：无状态、无表；`offering/` 另刻意保留无状态策略检查（`ActorReadsOffering` / `PlatformAdminGovernanceWrite`）与跨供给物 Oban cron worker `EventReminderWorker`（`config/config.exs` cron，不改名不搬迁，详见 ADR-0009 D5 与 ADR-0010 G1 #8）。消费面不变：Admission 校验、分享深链（target_kind/target_id）、PendingApprovals 标题、通知 target_title、GraphQL offeringReadiness、公开浏览族。
 
 ### Issue（学习议题，课程内容原子单元）
 
-- **定义**：Course 内容的原子单元，User-Story 式内容契约：`as_a / given（先修状态）/ goal（目标，Tutor 设定）/ materials（朴素参考列表，无 type 字段——动手卡 ≠ 技能）/ checklist`，带 `kind` 二分——`thoughtwork`（知识型，证据在对话）与 `handwork`（动手型，证据在产物，agent 必须实查产物判完成）。**id 稳定纪律**：issue id 发布后不改不删，内容编辑保 id（attempts 按 objective_id 引用，永远可追溯）。展示短码 issue key（`PY-02` 式，课程短码-序号，派生非存储，单源 `Curriculum.Content.issue_key/2`）。学习状态（S8 起）在 **objective 粒度**（见「学习评价账本」词条），issue 不再承载学习三态。
-- **架构位置**：存储于 `Curriculum.Output`（`kind=:issues`）；教研 Agent 起草（Tutor 经 MCP `save_course_content` 活文档式更新，run 终态后仍可改）；读取经 `get_course_content`。写入一律带 `base_version` 乐观锁（纪律见「Curriculum」词条草稿版本段）。取代词汇：section / story 卡 / acceptance（2026-08-16 课程 issue 学习闭环设计；learning_objectives 的职责由 issue 内 `objectives` 字段承担，见「课程版本」词条 schema v2 段）。
+- **定义**：Course 内容的原子单元（`backend/lib/cgc_2046/curriculum/content.ex`），User-Story 式内容契约：`as_a / given（先修状态）/ goal（目标，Tutor 设定）/ materials（强类型材料列表，带 kind: text | markdown | web | image | video，支持 bilibili provider 与图片 alt_text）/ checklist / objectives（必填学习目标列表，每个 objective 含必填 rubric 与可选 agent_actions）`，带 `kind` 二分——`thoughtwork`（知识型，证据在对话）与 `handwork`（动手型，证据在产物，agent 必须实查产物判完成）。**id 稳定纪律**：issue id 与 objective id 发布后不改不删，内容编辑保 id（attempts 按 objective_id 引用，永远可追溯）。展示短码 issue key（`PY-02` 式，课程短码-序号，派生非存储，单源 `Curriculum.Content.issue_key/2`）。学习状态（S8 起）在 **objective 粒度**（见「学习评价账本」词条），issue 不再承载学习三态。
+- **架构位置**：草稿存储于 `Curriculum.Output`（`kind=:issues`）；教研 Agent 起草（Tutor 经 MCP `save_course_content` 活文档式更新，草稿读取经 `get_course_content`，仅限 `Rbac.staff?` 教研/管理人员调用；学员侧读取已发布版本走 `get_course_revision` 或 GraphQL `courseLearningDetail`）。写入一律带 `base_version` 乐观锁（纪律见「Curriculum」词条草稿版本段）。取代词汇：section / story 卡 / acceptance（2026-08-16 课程 issue 学习闭环设计；learning_objectives 的职责由 issue 内 `objectives` 字段承担，见「课程版本」词条 schema v2 段）。
 
 ### checklist（检查单）
 
@@ -494,30 +492,36 @@
 
 ### Admission（报名上下文）
 
-- **定义**：报名生命周期的限界上下文（ADR-0009，2026-08-28 拍板）：Enrollment + InviteBatch + 名额账本。Events/Courses 是其**上游**——经 Offering（供给物）发布语言读契约供 status/capacity/deadline/price_tiers；下游 = Payments（Customer/Supplier，Order 锚 `enrollment_id` 单一引用）。
+- **定义**：报名与到场核销生命周期的限界上下文（ADR-0009，2026-08-28 拍板）：`Enrollment` + `InviteBatch` + `Attendance`（到场核销，event-deposit 新增）+ `CapacityLedger`（名额账本），以及 3 个 Oban workers（`ApprovalExpiryWorker` / `ApprovalReminderWorker` / `OfferingCancelRefundWorker`，位于 `backend/lib/cgc_2046/admission/workers/`）。Events/Courses 是其**上游**——经 Offering（供给物）发布语言读契约供 status/capacity/deadline/price_tiers；下游 = Payments（Customer/Supplier，Order 锚 `enrollment_id` 单一引用）。
 - **名额账本**（D2）：占位/释放的原子 CAS 在 Admission 自己的账本表内完成（PR⑤ U6 落地，详见下「名额账本」词条）；offering 上的 `confirmed_count` 退化为展示投影（`capacity.synced` 信号最终一致同步，PR⑤ U7）——消除系统三处跨 context 写点（enrollment.ex reserve / release 裸 SQL、order.ex expire 链名额回落、confirmed_count check constraint 耦合；ADR-0009 实施期更正，原称「唯一」）。capacity 调小的同步窗口由账本 CAS 拒单 + 对账规则兜底，不构成超卖。
-- **架构位置**：独立 context（`admission/`，已随 ADR-0009 PR① 落地）；Enrollment/InviteBatch 位于 lib/cgc_2046/admission/。
+- **架构位置**：独立 context（`backend/lib/cgc_2046/admission/`，已随 ADR-0009 PR① 落地）；`Enrollment` / `InviteBatch` / `Attendance` / `CapacityLedger` 均位于该目录。
 
 ### 名额账本（CapacityLedger）
 
-- **定义**：名额事实源（`admission_capacity_ledgers` 表，ADR-0009 D2，PR⑤ U6 落地）：每个 offering（Event/Course）唯一一行，持 `status / capacity / registration_deadline` 缓存列与权威 `occupancy / sync_version`；占位/释放的原子 CAS 收编于本表（reserve 三守卫：open + 截止未过 + 未满员；release 守卫 `occupancy > 0`），Admission 独占写权。
-- **建行与缓存同步（KTD5/R16）**：三族信号一个动作——`event.launched` / `course.launched` 建行（与报名路径懒建 upsert 的竞态由 `(offering_kind, offering_id)` 唯一索引幂等吸收）、`offering.capacity_changed` 编辑传播、`*.ended` 回查 status；订阅器 `Admission.CapacityLedgerSubscriber` 一律经 Offering 端口回查实体最新值覆盖式同步（`:state_based` 幂等，乱序自收敛）。
+- **定义**：名额事实源（`admission_capacity_ledgers` 表，`backend/lib/cgc_2046/admission/capacity_ledger.ex`，ADR-0009 D2，PR⑤ U6 落地）：每个 offering（Event/Course）唯一一行，持 `status / capacity / registration_deadline` 缓存列与权威 `occupancy / sync_version`；占位/释放的原子 CAS 收编于本表（reserve 三守卫：open + 截止未过 + 未满员；release 守卫 `occupancy > 0`），Admission 独占写权。
+- **建行与缓存同步（KTD5/R16）**：异步信号与同步直写双通道——① 信号通道：`event.launched` / `course.launched` 建行（与报名路径懒建 upsert 的竞态由 `(offering_kind, offering_id)` 唯一索引幂等吸收）、`offering.capacity_changed` 编辑传播、`*.ended` 回查 status，订阅器 `Admission.CapacityLedgerSubscriber` 一律经 Offering 端口回查实体最新值调 `sync_from_offering/1` 覆盖式同步（`:state_based` 幂等，乱序自收敛）；② 同步直写通道：`sync_offering_cache/1`（供 `Initiatives.RulePropagation` 在挂载规则传播事务内同步刷账本缓存）与 `delete_for_offering/2`（供 Event/Course `:delete` 草稿删除同事务清理账本行，ADR-0015 #688）。
 - **展示投影回路（KTD4/R15）**：账本写成功后同事务发布 `capacity.synced`（权威 occupancy + 单调 sync_version）；Events/Courses 各自订阅**自写本表** `confirmed_count` 列（条件 `confirmed_count_sync_version < 新版本`，覆盖式幂等 + 乱序收敛）——自写不算跨 context 写，反向直写（Admission 写 events/courses 表）禁止。
 - **锁序（KTD7）**：invite_only 报名双 CAS 的锁获取顺序固化——**账本行（offering 侧）永远先于 invite_batches 行**获取；反向获取禁止（防死锁）。
 - **对账兜底（R17）**：规则⑧ open 无账本行 / ⑨ occupancy ≠ 占位报名计数 / ⑩ 展示投影漂移超一拍 / ⑪ occupancy > capacity，四规则看护收敛（finding 语义见「对账扫描」词条）。
-- **架构位置**：`Cgc2046.Admission.CapacityLedger`（lib/cgc_2046/admission/，不进 GraphQL）；CapacityLedgerSubscriber 同目录。
+- **架构位置**：`Cgc2046.Admission.CapacityLedger`（`backend/lib/cgc_2046/admission/capacity_ledger.ex`，不进 GraphQL）；`CapacityLedgerSubscriber` 同目录。
+
+### Attendance（到场核销，租户资源）
+
+- **定义**：Event 参与者到场签到的不可变事实记录（`Cgc2046.Admission.Attendance`，`backend/lib/cgc_2046/admission/attendance.ex`，表 `attendances`）。每条 `confirmed` 的 Event Enrollment 至多生成一行（唯一索引 `attendances_unique_enrollment_index`）；属性包括 `id`、`workspace_id`、`enrollment_id`、`event_id`、`operator_id`（核销操作人，无 `checked_in_by_id` 或 `user_id` 列，报名人信息经 `enrollment` 关联读取）、`checked_in_at` 与核销方式 `method`（`:scan | :manual`，分别对应扫码 / 手输码）。
+- **核销即退闭环**：Event 主理人（`EventModerator`）、工作台 Owner/Admin 或平台管理员调用 `checkInEnrollment` 核验 6 位 `check_in_code` 成功后，在同一数据库事务内写入 `Attendance` 行、记录 `AdminActionLog :attendance_check_in`，并对关联的 `paid` / `refund_failed` 押金单调用 `Cgc2046.Payments.RefundCommencement.commence/2` 发起全额原路退款（同步记录 `:attendance_refund`；ADR-0007 2026-09-14 / #845 补记）；已核销报名的退款不取消 Enrollment、不释放名额。
+- **架构位置**：归属 `Cgc2046.Admission` domain；写面 `check_in` action 对外唯一 GraphQL 入口为手写 mutation `checkInEnrollment`（`backend/lib/cgc_2046_web/graphql_schema/offering.ex:416`，`Attendance` 资源自身刻意不注册任何 GraphQL query/mutation，无 `eventAttendances` 查询）；读面由 `WorkspaceActorIsOwnerOrAdmin` / `PlatformAdmin` policy 门控，经 MCP `list_attendances` 工具（`backend/lib/cgc_2046/mcp/tools/list_attendances.ex`）与 `/ops` AshAdmin 暴露。
 
 ### 审批机制族（ApprovalClaim / ApprovalDeadline / PendingApprovals / StatusTransition）
 
-- **定义**：跨 context 共享的横切写原语与读模型（ADR-0010 G1-⑦ 命名，2026-08-29 词条化）——`ApprovalClaim`（status 条件 UPDATE 原子抢占原语；**7 资源 / 15 调用点**，代码实测 `grep -rn "ApprovalClaim.claim" backend/lib`：admission/enrollment（cancel_flow + enrollment 体）、sponsorship、accounts/join_request、accounts/workspace_application、accounts/invitation、events/speaker_invitation；详单见「原子抢占」词条）、`ApprovalDeadline`（审批截止计算口径）、`StatusTransition`（状态机条件 UPDATE 单文件原语）、`PendingApprovals`（跨 4 域「待我审批」CQRS 读模型）。
+- **定义**：跨 context 共享的横切写原语与读模型（ADR-0010 G1-⑦ 命名，2026-08-29 词条化）——`ApprovalClaim`（status 条件 UPDATE 原子抢占原语，`backend/lib/cgc_2046/approval_claim.ex`；**6 资源（7 文件）/ 15 调用点**，代码实测 `grep -rn "ApprovalClaim.claim(" backend/lib`：`admission/enrollment.ex` 3 处 + `admission/enrollment/cancel_flow.ex` 1 处 = 4 处、`events/speaker_invitation.ex` 4 处、`sponsorship/sponsorship.ex` 4 处、`accounts/join_request.ex` 1 处、`accounts/workspace_application.ex` 1 处、`accounts/invitation.ex` 1 处；详单见「原子抢占」词条）、`ApprovalDeadline`（审批截止计算口径，`backend/lib/cgc_2046/approval_deadline.ex`）、`StatusTransition`（状态机条件 UPDATE 原语，含 `backend/lib/cgc_2046/status_transition.ex` 与声明式 change `backend/lib/cgc_2046/status_transition/change.ex`）、`PendingApprovals`（跨 **3 域/资源** `Enrollment` / `JoinRequest` / `Sponsorship` 的「待我审批」CQRS 读模型，`backend/lib/cgc_2046/pending_approvals.ex`）。
 - **架构位置**：**刻意不归任一 context，根部驻留**（lib/cgc_2046/ 顶层）——消费面横跨 Accounts/Admission/Events/Courses/Workflows，归任一域都会把横切原语伪装成域内资产并制造反向依赖；纯函数/裸 SQL 写原语、无自有表（写各调用方聚合的表）。进阶收编为 `approvals/` 目录是开放选项（ADR-0010 G1-⑦），未拍板前维持根部驻留。
 
 ### Curriculum（教研）
 
 - **定义**：教研 context 的英文命名（ADR-0009，2026-08-28 拍板）。教研 = 设计课程大纲/材料/学习活动，学科通用名 instructional design；命名取产出物本质（Curriculum = 课程编制）。Research 命名太宽泛退役；Teaching Research 为中式英语不采用。中文文档继续称「教研」。
-- **边界**：拥有教研产出物（outline/materials/issues/archive 的起草/审核/归档，现 `Curriculum.Output` 家族；发布归档 = `Curriculum.CourseRevision`，S6）与教研实例化触发；Event/Course 引用其产出，Course 持「哪版内容已发布」投影（`current_revision_id`），Learning 经读契约消费已发布内容。
+- **边界**：拥有教研产出物（`Curriculum.Output`，`backend/lib/cgc_2046/curriculum/output.ex`，`@kind_values [:issues]`；发布归档 = `Curriculum.CourseRevision`，S6）与教研实例化触发；Event/Course 引用其产出，Course 持「哪版内容已发布」投影（`current_revision_id`），Learning 经读契约消费已发布内容。
 - **架构位置**：独立 context（`curriculum/`，已随 ADR-0009 PR③ 落地）：Output（课程内容唯一持久层）/ Instantiator（实例化触发）/ Reaper（run 回收）；另含 `Content`（课程内容形状契约 + ContentValidation，ADR-0010 A4 自 workflows/ 迁回）与 `CurriculumProgressWorker`；**`Curriculum.content_output/2` 为课程内容 Output（kind=:issues, key=course_<id>）唯一读入口**（A4 收敛：原 curriculum/两 worker/MCP/graphql_schema 五处同形查询全归并）；发布内容读契约同域（S6）：`Curriculum.latest_revision/2` / `revision_by_id/2` / `revision_by_number/3` 为 CourseRevision 唯一读入口（消费方 = Course.published_content 投影与 get_course_revision 工具）。教研段 AgentInstructions 已随 role-agent-journeys-v2 S1 删除（内容由 `Mcp.Playbooks` tutor playbook 吸收）。research_* 命名已全代码退役（research_enabled → curriculum_enabled 等；信号 payload 键 `research_requirements` 与对账规则④⑤原子名为冻结例外，不随改名）。
-- **草稿版本（S4，R9/R10，AE2）**：`Curriculum.Output` 持 `version` 列（bigint，默认 1，`writable?: false`）；`save_course_content` 以 `base_version` 为必填写契约（0 = 首次创建），CAS upsert（`upsert_condition(version == base_version)`）成功后 `atomic_update(:version, version + 1)`；`base_version > 0` 而无草稿直接 `version_conflict`，冲突响应附最新 `version` 供调用方重载重试。双等价入口：MCP 工具 + 扩展面板 `POST /courses/:course_id/content` 共用同一工具实现（面板 409 → 弃本地编辑重载，10s 轮询在编辑/保存态挂起）。冲突文案单源 `Curriculum.Output.version_conflict_message/1`（MCP StaleRecord 与无草稿分支共用）。
+- **草稿版本（S4，R9/R10，AE2）**：`Curriculum.Output` 持 `version` 列（bigint，默认 1，`writable?: false`）；`save_course_content` 以 `base_version` 为必填写契约（0 = 首次创建），CAS upsert（`upsert_condition(version == base_version)`）成功后 `atomic_update(:version, version + 1)`；`base_version > 0` 而无草稿直接 `version_conflict`，冲突响应附最新 `version` 供调用方重载重试。双等价入口：MCP 工具 + 扩展面板 `POST /courses/:course_id/content`（面板视图位于 `openclacky-ext/cgc-2046/panels/cgc-2046-curriculum/view.js`，遇到 409 `version_conflict` 时提示重新加载最新草稿，无 10s 后台轮询）共用同一工具实现。冲突文案单源 `Curriculum.Output.version_conflict_message/1`（MCP StaleRecord 与无草稿分支共用）。
 
 ### 课程教研流程（Course Preparation，prep run）
 
@@ -525,8 +529,8 @@
 - **prep_state 五态 facts 状态机**：`draft → authoring → quality_check → review → published`（外加 `below_threshold` 回退 authoring），存于 `run.facts["prep_state"]`（缺省 draft）；迁移一律经 `Curriculum.Prep` 域服务（前置断言「invalid prep_state transition」），facts 写走 WorkflowRun 专用 `:update_prep_facts` action（optimistic_lock version；成员 bypass，学员不放行）。
 - **策略快照（R22）**：`prep_policy`（review_required 默认 true / quality_threshold 默认 80 / reviewer_user_id 默认 nil=被指派 tutor 可审，Owner/Admin 始终可审；显式 reviewer 可以是任一工作台成员，允许自审）创建时固化进 `input_snapshot` **不可变**；Owner/Admin 经确认流 `update_prep_policy` 写 `facts["prep_policy_override"]`（override-first 合并，快照本体不动），进入 quality_check 即冻结。
 - **认领 = run version 乐观锁 CAS**（R24）：tutor 认领未指派的 draft/authoring run，并发双认领恰一成一败（StaleRecord →「already claimed」业务错误），零裸 SQL。
-- **结构门禁（R26，S6 加严 schema v2）**：`Curriculum.PrepGate.check/2` 纯函数——非临时占位标题 / 内容草稿存在 / goals 非空 / issues 非空 + Content v1 形状复核 + **objectives 硬性要求**（全课程 ≥1 objective 且 ≥1 必修；逐条规则：id 课程级唯一 / title 非空 / rubric 非空组内唯一 / prereq_ids 存在且 DAG——无环无自引用）。v1-only 旧草稿不能发布，无数据迁移。提交质量检查与发布前各跑一次（发布复跑不过 → 整体回滚）。
-- **发布单事务（R23/R28/R29，plan §B#9/#10）**：`Curriculum.Prep.publish/4`（撞 (course_id, number) 唯一索引重读 max 重试一次）单事务 = 防御性复跑门禁 → 创建不可变 `CourseRevision`（number = max+1，草稿快照冻结）→ 调 Courses 发布端口 `Course.bind_revision_for_publish/3`（绑定 current_revision_id + 课程 draft 时 `:launch`——changeset context `via_prep: true` 放行教研门，授权已在工具层完成故 `authorize?: false`；已 open 只换绑）→ run `:complete`（succeeded，facts 记 published_revision_id/number）。**教研门**：存在非终态 prep run 的课程 `:launch` 一律拦截（「课程须完成教研流程后发布」），via_prep 或 prep_state=published 才放行；存量课程（无 prep run）不受影响。**发布次周期**：run 终态后 `get_prep_status` / `submit_prep_for_check` 经 `Prep.ensure_active_run/2` 懒开新 run（默认策略快照，assignee 沿用上任；advisor R1/R2 定稿：懒开与 `course.created` 首周期 producer 共用 `Prep.spawn_under_course_lock/3` 锁协议——事务内 course 行 FOR UPDATE + 锁内重读最新 status（白名单裁决，stale struct 无效化）+ 锁内重读非终态 run——同课程恰一个非终态 run；仅 draft（producer）/draft+open（懒开）课程建 run，closed/cancelled fail closed 无写副作用；course `:close`/`:cancel` 同事务经 `Prep.stop_active_runs/1` 收口既有非终态 run——terminal 课程不遗留不可发布的孤儿 run）。
+- **结构门禁（R26，S6 加严 schema v2）**：`Curriculum.PrepGate.check/2`（`backend/lib/cgc_2046/curriculum/prep_gate.ex`）纯函数——非临时占位标题 / `check_slug/2` 合法 slug / 内容草稿存在 / goals 非空 / issues 非空 + Content v1 形状复核 + `Content.material_violations/1` 强类型材料校验 + **objectives 硬性要求**（全课程 ≥1 objective 且 ≥1 必修；逐条规则：id 课程级唯一 / title 非空 / rubric 非空组内唯一 / prereq_ids 存在且 DAG——无环无自引用），并额外返回非阻塞 `warnings`（`chapter_warnings/1` 章节组织建议）。v1-only 旧草稿不能发布，无数据迁移。提交质量检查与发布前各跑一次（发布复跑不过 → 整体回滚）。
+- **发布单事务（R23/R28/R29，plan §B#9/#10）**：`Curriculum.Prep.publish/5`（`backend/lib/cgc_2046/curriculum/prep.ex`，第 5 个可选参数 `expected_draft_version` 用于核对草稿版本防审核与发布间 TOCTOU 竞态；撞 `(course_id, number)` 唯一索引重读 max 重试一次）单事务 = 防御性复跑门禁 + 草稿版本核对 → 创建不可变 `CourseRevision`（number = max+1，草稿快照冻结）→ 调 Courses 发布端口 `Course.bind_revision_for_publish/3`（绑定 current_revision_id + 课程 draft 时 `:launch`——changeset context `via_prep: true` 放行教研门，授权已在工具层完成故 `authorize?: false`；已 open 只换绑）→ run `:complete`（succeeded，facts 记 published_revision_id/number）。**教研门**：存在非终态 prep run 的课程 `:launch` 一律拦截（「课程须完成教研流程后发布」），via_prep 或 prep_state=published 才放行；存量课程（无 prep run）不受影响。**发布次周期**：run 终态后 `get_prep_status` / `submit_prep_for_check` 经 `Prep.ensure_active_run/2` 懒开新 run（默认策略快照，assignee 沿用上任；advisor R1/R2 定稿：懒开与 `course.created` 首周期 producer 共用 `Prep.spawn_under_course_lock/3` 锁协议——事务内 course 行 FOR UPDATE + 锁内重读最新 status（白名单裁决，stale struct 无效化）+ 锁内重读非终态 run——同课程恰一个非终态 run；仅 draft（producer）/draft+open（懒开）课程建 run，closed/cancelled fail closed 无写副作用；course `:close`/`:cancel` 同事务经 `Prep.stop_active_runs/1` 收口既有非终态 run——terminal 课程不遗留不可发布的孤儿 run）。
 - **架构位置**：`curriculum/prep.ex`（域服务）/ `prep_gate.ex`（纯函数）/ `prep_instantiator.ex`（订阅器，application 注册于 curriculum Instantiator 后）；MCP 面 = 九工具（get_prep_status 读 + assign/claim/submit×2/request_changes 直接写 + update_prep_policy/override_prep_gate/approve_prep 确认流），`list_my_tasks` 按角色分派三类教研行（claimable/authoring/review）；扩展面板 `GET /courses/:course_id/prep` 透出状态。
 
 ### 课程版本（CourseRevision，发布即冻结的内容快照）
@@ -537,11 +541,11 @@
 
 ### 内容安全检查（Content Safety Check）
 
-- **定义**：报名 reason 自由文本的同步内容安全拦截（issue #230；advisor09 F1-F3 修订）。提交时 reason 经微信 **msgSecCheck v2**（`Cgc2046.Integrations.Wechat.Client.content_check/3`，宿主 Wechat.Requester 直发 `POST /wxa/msg_sec_check`，body `%{content, version: 2, scene: 2, openid}`——SDK `Security.msg_check/2` 为 v1 已废弃）同步检查——**违规内容拒绝提交且不落库**（`result.suggest` 为 `risky`/`review` → BusinessError code `enrollment_content_rejected`）；平台瞬时故障（errcode 非 0 含 45009/47001/61010 / 网络错误 / 非 200）**fail-open 放行**并记 telemetry `[:cgc_2046, :content_check, :skipped]`（metadata 仅类别原子，不含 reason 明文）。
-- **范围**：v1 wechat-only——tt/xhs 显式 pass-through（各自平台审核独立，Phase 4 接入）；检查字段仅 `submission_payload.reason`；reason **服务端前置校验**（F3：必须 binary 且 ≤2500 字节合法 UTF-8，违者直接拒绝——检查产物 = 落库产物，无静默截断）。
+- **定义**：报名 reason 自由文本与闪念间（Flashback）UGC 文本的同步内容安全拦截（issue #230；advisor09 F1-F3 修订）。提交时经微信 **msgSecCheck v2**（`Cgc2046.Integrations.Wechat.Client.content_check/3`，宿主 Wechat.Requester 直发 `POST /wxa/msg_sec_check`，body `%{content, version: 2, scene: 2, openid}`——SDK `Security.msg_check/2` 为 v1 已废弃）同步检查——**违规内容拒绝提交且不落库**（`result.suggest` 为 `risky`/`review` → 报名报 BusinessError code `enrollment_content_rejected`，闪念间报 `flashback_content_rejected`）；平台瞬时故障（errcode 非 0 含 45009/47001/61010 / 网络错误 / 非 200）**fail-open 放行**并记 telemetry `[:cgc_2046, :content_check, :skipped]`（metadata 仅类别原子，不含明文；闪念间无法解析微信 openid 时另记 `[:cgc_2046, :content_check, :openid_unresolved]`）。
+- **范围**：v1 wechat-only——tt/xhs 显式 pass-through（各自平台审核独立，Phase 4 接入）；检查字段覆盖 `Enrollment` 的 `submission_payload.reason`（F3：必须 binary 且 ≤2500 字节合法 UTF-8，违者直接拒绝——检查产物 = 落库产物，无静默截断）以及 Flashback 的心愿正文（`backend/lib/cgc_2046/flashback/wish_writing.ex`）、心愿附议留言与心愿评论（`backend/lib/cgc_2046/flashback/wishes.ex`）。
 - **平台判定**：create 时 actor 无 platform（platform claim 在 JWT，User struct 不带），取 `user_identities` 的 wechat uid 作 openid（order.ex 同款 SQL）——有 wechat identity → wechat 检查；无 wechat identity（tt/xhs 单平台 / web 无 identity）/ 查询失败 → pass-through 放行。
 - **红线**：reason 明文不进日志 / telemetry / BusinessError message；msg_check 请求走宿主 Wechat.Requester（debug: false 既有）。
-- **架构位置**：`Client.content_check/3`（miniprogram facade，v2 错误分类单点）+ `Enrollment :create_enrollment` 的 before_action **首位**（F2：外呼移至目标校验 / FOR SHARE 行锁获取之前，外呼不持锁）；前端文案在 `miniprogram/src/domain/error-copy.ts`（`enrollment_content_rejected`）。
+- **架构位置**：`Client.content_check/3`（miniprogram facade，v2 错误分类单点）+ `Cgc2046.Admission.Enrollment.CreateFlow.prepare_create/1`（`backend/lib/cgc_2046/admission/enrollment/create_flow.ex`，`Enrollment :create_enrollment` 的 before_action **首位**，F2：外呼移至目标校验 / FOR SHARE 行锁获取之前，外呼不持锁）+ `Flashback.WishWriting` / `Flashback.Wishes`；前端文案在 `miniprogram/src/domain/error-copy.ts`（`enrollment_content_rejected` / `flashback_content_rejected`）。
 
 ### learning 锚定（Enrollment Anchor）
 
@@ -554,13 +558,13 @@
 
 ### PriceTier（价格档位）
 
-- **定义**：收费 Event/Course 的嵌入式定价配置（`pricing_enabled: true` 时的 `price_tiers` 字段），形状：id / name / amount_cents / available_until。金额下限 **1 分，无 0 元档**（免费场景 = `pricing_enabled: false` 整场免费，或管理员免缴个例）；`available_until` 到期档位报名时自动隐藏。下单即快照（tier_snapshot + amount_cents），改价/删档不追溯已生成订单。
+- **定义**：收费 Event/Course 的嵌入式定价配置（`pricing_enabled: true` 时的 `price_tiers` 字段，`backend/lib/cgc_2046/offering/price_tier.ex`），形状：id / name / amount_cents / available_until。开启 `pricing_enabled: true` 时强制校验活动 `starts_at` 非空（`pricing_starts_at_required`）；金额下限 **1 分，无 0 元档**（免费场景 = `pricing_enabled: false` 整场免费，或管理员免缴个例；读面由 `PriceTier.available_tiers/1` 将非正整数脏金额归一化为 `nil`）；`available_until` 到期档位报名时自动隐藏。下单即快照（tier_snapshot + amount_cents），改价/删档不追溯已生成订单。
 - **架构位置**：Event/Course 属性（先例：`sponsorship_tiers` 嵌入式无独立表）；与 SponsorshipTier 刻意成对但语义对立——本词条是真实收款金额，后者仅登记意向（见 §9）。
 
 ### Order（缴费订单，租户资源）
 
-- **定义**：一笔报名的缴费单，归属 **Payments domain**（`payments_orders` 表），资金事实源。持渠道关联键（`out_trade_no` 我方单号 / `transaction_id` 渠道单号）、tier 快照与金额（**分**）、provider（wechat_jsapi / wechat_native / alipay_page / alipay_wap）、状态机 `pending → paid → refunding → refunded`（`refunding → refund_failed` 渠道拒绝，`refund_failed → refunding` 经 retry_refund 重入；cancelled / expired / refunded 为终态；押金单另有 `paid → forfeited` 一次性 CAS 迁入的终态——no-show 结算、**不退**、留作平台收入，ADR-0007 补记）。不变量：一个 Enrollment **至多一个非终态 Order**（部分唯一索引）；回调金额必须等于订单金额。**退款即取消报名**（一般路径）：全额退款同时取消 Enrollment 并释放名额（ADR-0007）；到场事实（Attendance 行）或免缴留痕在场时退款**保留** confirmed 报名、不释放名额（押金核销即退 / 免缴，ADR-0007 补记）；订单过期后渠道侧迟到扣款自动原路退回。
-- **组织者查询面（organizer-payment U4/U7）**：Order 计算字段 `event_id` / `course_id`（expr(enrollment.event_id)，Enrollment 无 GraphQL 对象类型的惯用替代）使 `workspaceOrders` 可按活动筛选；`workspacePaymentStats` 收可选 `eventId`/`courseId`（JOIN enrollments 收敛，四数口径同源）；`retryRefund` mutation 暴露给客户端（此前只有后端 action）。活动经营面（详情页 OfferingPaymentsPanel，manage_events 门控）与工作区财务面（收款管理页 + 活动筛选）两层结构：定价与订单随活动走，工作区级只留汇总。孤儿定价配置页（/settings/pricing）已删除，TierEditor 共享组件嵌入创建/编辑表单。
+- **定义**：一笔报名的缴费单，归属 **Payments domain**（`payments_orders` 表，`backend/lib/cgc_2046/payments/order.ex`），资金事实源。持渠道关联键（`out_trade_no` 我方单号 / `transaction_id` 渠道单号）、tier 快照与金额（**分**）、provider（`wechat_jsapi` / `wechat_native` / `alipay_page` / `alipay_wap` / `alipay_qr` 共 5 种）、状态机 `pending → paid → refunding → refunded`（`refunding → refund_failed` 渠道拒绝，`refund_failed → refunding` 经 `retry_refund` 重入；`cancelled` / `expired` / `refunded` 为终态；押金单另有 `paid → forfeited` 一次性 CAS 迁入的 no-show 结算态——**默认不退**、留作平台收入，但支持平台管理员调 `:unforfeit` 救济转入 `refunding` 原路退回，#545，ADR-0007 补记）。不变量：一个 Enrollment **至多一个非终态 Order**（部分唯一索引）；回调金额必须等于订单金额。**退款即取消报名**（一般路径）：全额退款同时取消 Enrollment 并释放名额（ADR-0007）；到场事实（Attendance 行）或免缴留痕在场时退款**保留** confirmed 报名、不释放名额（押金核销即退 / 免缴，ADR-0007 补记）；订单过期后渠道侧迟到扣款自动原路退回。
+- **组织者查询面（organizer-payment U4/U7）**：Order 计算字段 `event_id` / `course_id`（expr(enrollment.event_id)，Enrollment 无 GraphQL 对象类型的惯用替代）使 `workspaceOrders` 可按活动筛选；`workspacePaymentStats` 收可选 `eventId`/`courseId`（JOIN enrollments 收敛，`collected_cents` / `pending_cents` / `refunded_cents` / `refund_failed_cents` / `forfeited_cents` 五数口径同源）；`retryRefund` mutation 暴露给客户端（此前只有后端 action）。活动经营面（详情页 OfferingPaymentsPanel，manage_events 门控）与工作区财务面（收款管理页 + 活动筛选）两层结构：定价与订单随活动走，工作区级只留汇总。孤儿定价配置页（/settings/pricing）已删除，TierEditor 共享组件嵌入创建/编辑表单。
 
 ### 退款发起（RefundCommencement）
 
@@ -571,7 +575,7 @@
 ### 管理员免缴（Fee Waiver）
 
 - **定义**：Owner/Admin 将 `payment_pending` 报名直接置 `confirmed` 的特权操作，跳过支付、不建订单；个案级免费入口（志愿者/组织者参会），审计照走。区别于 `pricing_enabled: false`（整场免费）与 0 元档（不存在，PriceTier 金额下限 1 分）。
-- **关闭收费批量转换（organizer-payment U3/R9）**：Event/Course update 检测 `pricing_enabled` true→false 时，同事务对该活动全部 `payment_pending` 报名逐条复用免缴三元组（CAS 转确认 + 作废待付单 + 免缴审计行）+ 补发 completed 信号（`Enrollment.waive_pending_for_offering/4`，经 `Changes.WaivePendingOnPricingDisable` 挂接）。落账竞态 CAS 先到先得（先落账者保持已付）；迟到扣款由落账 worker 按免缴审计行/作废单判定自动原路退回——审计行不可省（KTD4 正确性约束）。
+- **关闭收费/押金批量转换（organizer-payment U3/R9）**：Event/Course update 检测缴费槽关闭（`pricing_enabled` 或 `deposit_enabled` 由 true→false）时，同事务对该活动 `payment_pending` 报名逐条复用免缴三元组（CAS 转确认 + 作废待付单 + 免缴审计行）+ 补发 completed 信号（`Enrollment.waive_pending_for_offering/4`，经 `Cgc2046.Admission.Changes.WaivePendingOnFeeSlotDisable` `backend/lib/cgc_2046/admission/changes/waive_pending_on_fee_slot_disable.ex` 挂接，带单事务 200 条上限守卫 `pricing_disable_batch_limit`）。落账竞态 CAS 先到先得（先落账者保持已付）；迟到扣款由落账 worker 按免缴审计行/作废单判定自动原路退回——审计行不可省（KTD4 正确性约束）。
 
 ### Sponsorship（赞助，两级）
 
@@ -603,66 +607,66 @@
 - **定义**：闪念间（Flashback）公开的许愿条目；**新愿望以 `user_id` 为账号归属，`person_id` 仅为可选档案关联**（ADR-0017，2026-09-25 已接受）。允许没有历史档案的新用户许愿，**不创建占位 Person**；存量仅关联 Person 的愿望与有效 token 写入口继续表达真实历史作者身份，认领后按该 Person 的账号归属展示/授权/合并年度额度。
 - **写入与额度**：新小程序提交带稳定 `requestId`，同账号同请求重放返回原记录，改动正文或选项必须换请求号；年度额度统计账号愿望与已认领历史愿望（含软删），写入按 Person → User 顺序同事务加锁。账号注销级联删除其愿望；档案删除仅清理关联该档案的愿望，独立账号愿望不受影响。
 - **署名隐私边界（ADR-0018，2026-09-25 已接受）**：`AlumniProjection.masked_name` 已生成的遮罩姓是快照，**不随 display_name 溯源回溯**；`flashback_people.full_name` **只能作为生成遮罩姓的输入，不能原文写入愿望署名快照**。`Wish.signature` = 愿望被创建那一刻写入的不可变快照（后续改 display_name / 档案资料不回冲）。
-- **架构位置**：`Cgc2046.Flashback` domain。写面单源 = `Flashback.WishWriting.create/4`；无 MCP 写面；**公开 GraphQL 写面 = 手写 mutation `flashback_create_wish`**（`mutations.ex:294`，经 `import_fields(:flashback_mutations)` / `(:flashback_wish_mutations)` 进根 schema，调 `WishWriting.create`；Ash 自动生成的 create action 不进 GraphQL 写面——`wish.ex:78` 注释所指的「不进 GraphQL 写面」是这层）；治理面 = `admin_list_wishes` / `admin_get_wish` / `admin_soft_delete_wish` / `admin_soft_delete_wish_comment`（见 platform_admin 层 28）。
+- **架构位置**：`Cgc2046.Flashback` domain。写面单源 = `Flashback.WishWriting.create/4`；无 MCP 写面；**公开 GraphQL 写面 = 手写 mutation `flashback_create_wish`**（`backend/lib/cgc_2046_web/graphql_schema/flashback/mutations.ex:293`，另含 `backend/lib/cgc_2046_web/graphql_schema/flashback/wish_mutations.ex` 的 wish2 附议/评论/治理 mutation，经 `import_fields(:flashback_mutations)` / `(:flashback_wish_mutations)` 进根 schema，调 `WishWriting.create`；Ash 自动生成的 create action 不进 GraphQL 写面——`backend/lib/cgc_2046/flashback/wish.ex:77-79` 注释所指的「不进 GraphQL 写面」是这层）；治理面 = `admin_list_wishes` / `admin_get_wish` / `admin_soft_delete_wish` / `admin_soft_delete_wish_comment`（见 platform_admin 层 28）。
 
 ### ShareScheme（微信 URL Scheme 分享链接）
 
-- **定义**：微信分享深链缓存的存储/复用面（plan 011，spike D1-A/D2-A 拍板）：`miniprogram_share_schemes` 表（全局资源，Miniprogram domain（2026-08-28 自 Accounts 拆出；⑩ 方案 A 收缩后该 domain 仅剩本资源），无 GraphQL 面），UK `(target_kind, target_id, platform)`——同一目标/平台只留一份 scheme，未过期命中**复用零外呼**、过期重生成 upsert 覆盖（照 `Accounts.InvitationCode` 先例——原 Miniprogram.Code，⑩ 方案 A 迁域）。到期失效 = `min(registration_deadline + 7d, now + 30d)`，deadline 缺失 → `now + 30d`（30 天为官方临时 scheme 硬上限；时间源经 plan owner 2026-08-18 应答修正：Event/Course 均无 endsAt，统一以 registration_deadline 为 clamp 代理）。
-- **架构位置**：生成/复用/clamp 唯一入口 = `Cgc2046.Miniprogram.ShareSchemeService.fetch_or_generate/2`（外呼经 `UrlScheme.create_link/3`，errcode 保真传播不落库）；触发 = `Workflows.ShareSchemeInstantiator` 订阅 `event.launched`/`course.launched` → Oban job（`Workers.ShareSchemeWorker`，maintenance 队列）异步预生成——外呼不进信号同步路径，`:not_found` warning 不重试、平台错误走 Oban 默认重试。scheme query/path 只含 `id`+`kind`（安全红线，永不携带 token/凭据/openid）；前端配套 = event-detail 分享 title 兜底 + `Taro.onAppShow` 热启动路由（`resolveAppShowRoute` 纯函数，scene 优先）。
+- **定义**：微信分享深链缓存的存储/复用面（plan 011，spike D1-A/D2-A 拍板）：`miniprogram_share_schemes` 表（全局资源，Miniprogram domain（2026-08-28 自 Accounts 拆出；⑩ 方案 A 收缩后该 domain 仅剩本资源），无 GraphQL 面），UK `(target_kind, target_id, platform)`——同一目标/平台只留一份 scheme，未过期命中**复用零外呼**、过期重生成 upsert 覆盖（照 `Accounts.InvitationCode` 先例——原 Miniprogram.Code，⑩ 方案 A 迁域）。到期失效 = `min(registration_deadline + 7d, now + 30d)`，deadline 缺失 → `now + 30d`（30 天为官方临时 scheme 硬上限；时间源经 plan owner 2026-08-18 应答确立：虽后续 Event 与 Course 均新增了 `:ends_at` 列，`ShareSchemeService` 仍统一以 `registration_deadline` 为 clamp 代理）。
+- **架构位置**：生成/复用/clamp 唯一入口 = `Cgc2046.Miniprogram.ShareSchemeService.fetch_or_generate/2`（`backend/lib/cgc_2046/miniprogram/share_scheme_service.ex`，外呼经 `UrlScheme.create_link/3`，errcode 保真传播不落库）；触发 = `Workflows.ShareSchemeInstantiator` 订阅 `event.launched`/`course.launched` → Oban job（`Cgc2046.Miniprogram.ShareSchemeWorker`，`backend/lib/cgc_2046/miniprogram/share_scheme_worker.ex`，maintenance 队列）异步预生成——外呼不进信号同步路径，`:not_found` warning 不重试、平台错误走 Oban 默认重试。scheme query/path 只含 `id`+`kind`（安全红线，永不携带 token/凭据/openid）；前端配套 = event-detail 分享 title 兜底 + `Taro.onAppShow` 热启动路由（`resolveAppShowRoute` 纯函数，scene 优先）。
 - **⚠️ 已建未接线（2026-09-10 审计确认，非缺陷）**：`fetch_or_generate/2` 的**生产调用方只有 `ShareSchemeWorker` 自己**——表读策略 `forbid_if(always())`（`:54-58`）、GraphQL/MCP/admin/短信邮件全无 scheme/openlink 面，**产物零消费方**。这是 spike §6 D5-A「不做 GraphQL 面、由渠道内部触发」的原样落地：渠道（短信/邮件/活动页取链接）当年未实现。scheme 的站内价值为零——微信内分享走 `useShareAppMessage` 卡片直达小程序，不经 scheme。**唯一真实需求是站外投放**（海报/公众号/浏览器）。同批确认的第二处缺口：`target_kind` 只允许 `:event | :course`（Ash 层约束，DB 无 check 约束），initiative 无 scheme/小程序码。
-- **站外投放的现行落点 = HTTPS 公开页，不是 scheme**：`/events/<slug>`、`/courses/<slug>`、`/initiatives/<slug>` 游客可读，`/initiatives/[slug]` 的 `page.tsx` 为 server wrapper 声明 canonical/hreflang（`pageAlternates`），三条路径全部进 `app/sitemap.ts` 动态条目（open 才进）。运营取链接出口 = admin 倡导活动列表「复制公开链接」+ MCP `get_public_initiative`/`list_public_initiatives` 的 `url` 字段（单源 `Cgc2046.Initiatives.Public.public_url/1`，base 取 `config :cgc_2046, :web_base_url`）。小程序侧冷启动与热启动同判定（`resolveEntry`，`useLaunch` + `Taro.onAppShow`），`id`/`slug` 深链冷启动不再被丢弃。
+- **站外投放的现行落点 = HTTPS 公开页，不是 scheme**：`/events/<slug>`、`/courses/<slug>`、`/initiatives/<slug>` 游客可读，`web/app/[locale]/initiatives/[slug]/page.tsx` 为 server wrapper 声明 canonical/hreflang（`pageAlternates`），三条路径全部进 `web/app/sitemap.ts` 动态条目（open 才进）。运营取链接出口 = admin 倡导活动列表「复制公开链接」+ MCP `get_public_initiative`/`list_public_initiatives` 的 `url` 字段（单源 `Cgc2046.Initiatives.Public.public_url/1`，base 取 `config :cgc_2046, :web_base_url`）。小程序侧冷启动与热启动同判定（`resolveEntry`，`useLaunch` + `Taro.onAppShow`），`id`/`slug` 深链冷启动不再被丢弃。
 
-### AuditLog（审计日志，二期）
+### AdminActionLog 与三源审计日志（AuditLog）
 
-- **定义**：敏感操作留痕的全局日志（二期接 `ash_paper_trail`）；一期以 ToolCallLog 每次工具调用审计记录覆盖。
-- **架构位置**：二期基础设施。
+- **定义**：敏感管理与治理操作留痕的全局审计资源 = `Cgc2046.Accounts.AdminActionLog`（`backend/lib/cgc_2046/accounts/admin_action_log.ex`，表 `admin_action_logs`），覆盖 **47 类**敏感治理操作枚举（工作台创建与申请审批、管理员升降级、Owner 重指派与邀请取消、免缴与退款/`:order_unforfeit`/批量退款、倡导活动全生命周期与规则变更、活动主理人指派与移除、核销与押金没收/核销退款、平台管理员对 Event/Course 的治理写、闪念间触达发送/重发、LLM 网关算力池/钱包/Provider 目录治理），经 `Cgc2046.Accounts.Changes.LogAdminAction` 在业务 action 同一数据库事务内写入。
+- **三源合一审计读面**：MCP `admin_list_audit_logs`（`backend/lib/cgc_2046/mcp/tools/admin_list_audit_logs.ex`）按 `source`（`tool_calls | pending_operations | admin_actions`）经 `Ash.Query.select/2` 列级裁剪统一读取 `Mcp.ToolCallLog`、`Mcp.PendingOperation` 与 `Accounts.AdminActionLog`；Web `/admin/audit` 页面在此三源之外另含 `Cgc2046.Workflows.PlatformAudit`（`backend/lib/cgc_2046/workflows/platform_audit.ex`，仅投影脱敏后的 `WorkflowRun` 元数据）。`ash_paper_trail` 仍未启用。
 
 ### 通知分发面（Notification Fanout）
 
-- **定义**：**收件人解析 + 通知入队的唯一归属**（2026-08-14 通知分发收敛，架构评审候选①，依赖异步链路 PR-B 合入后落地）。interface 三件套：`managers(workspace_id, selector)`（租户内目标角色成员 → `%{user_id => [identity]}` 平台身份分组）｜`identities(user_id)`（单用户全平台身份）｜`deliver(recipients, template_key, data, job_meta, unique)`（入队 args 形状 / identity_uid 展开 / unique 预设的唯一实现）。**收件人选择器是数据不是谓词**：`:manage`（走 `Role.manage_roles/0` 唯一真源）｜`{:roles, [...]}`（显式窄集，如赞助 Workspace 级仅 Owner，拍板 #4）；unique 用命名预设 `:default`｜`:reminder_7d`，未显式传参时按 template_key 查 `NotificationWorker.type/1` 的 unique 预设（缺省 `:default`，2026-08-18 架构深化候选 D D3）——Oban unique 语义不进 interface。**错误内化**：不崩、必 Logger + telemetry（`[:cgc2046, :notification_fanout, :deliver]`，失败可计数）。
-- **架构位置**：Notifications.Subscriber / SpeakerSubscriber（handle 体）与 ApprovalReminderWorker / LearningProgressWorker（按工作台预取分组复用，消 N+1——两段式 interface 的原因）四方调用的 seam；Notifications.Subscriber 退化纯订阅方（公共入队面删除，异步计划 Q4 backlog 落地）；发送侧 Notifications.Service 与 NotificationWorker 不动；`target_title` 的 Event/Course 分叉不在此面（属 offering seam 候选）。
+- **定义**：**收件人解析 + 通知入队的唯一归属**（`Cgc2046.Notifications.Fanout`，`backend/lib/cgc_2046/notifications/fanout.ex`，2026-08-14 通知分发收敛，架构评审候选①）。公开 API 五件套：`managers(workspace_id, selector)`（租户内目标角色成员 → `%{user_id => [identity]}` 平台身份分组）｜`identities(user_id)`（单用户全平台身份）｜`identities_for_users(user_ids)`（多用户批量平台身份预取）｜`deliver(recipients, template_key, data, job_meta)`｜`deliver_with_receipt(recipients, template_key, data, job_meta)`。**收件人选择器是数据不是谓词**：`:manage`（走 `Role.manage_roles/0` 唯一真源）｜`{:roles, [...]}`（显式窄集，如赞助 Workspace 级仅 Owner，拍板 #4）。**耐久路由**：22 类 durable 通知键（`Notifications.DeliveryKey.durable?/1` 为 true）经 `Notifications.Delivery.enqueue` 同事务写站内收件箱快照与渠道 outbox/jobs；仅 `flashback_wish_echo` 直投 `NotificationWorker`。**错误内化**：不崩、必 Logger + telemetry（`[:cgc_2046, :notification_fanout, :deliver]`，失败可计数）。
+- **架构位置**：全库 **15 个**生产模块（`Notifications.Subscriber` / `Notifications.Delivery` / `Notifications.Workers.DeliveryWorker` / `Notifications.Workers.ScheduleChangedFanoutWorker` / `Admission.Workers.ApprovalReminderWorker` / `Events.Moderators` / `Events.Qualification` / `Events.SpeakerSubscriber` / `Flashback.WishEchoes` / `Learning.LearningProgressWorker` / `Offering.EventReminderWorker` / `Payments.Workers.PaymentExpiryWorker` / `Payments.Workers.PaymentRefundWorker` / `Payments.Workers.PaymentSettlementWorker` / `Recruitment.Subscriber`）共用的通知分发 seam；发送侧由 `Notifications.DeliveryWorker` / `Notifications.Service` 与 `NotificationWorker` 承接。
 - **无身份收件人（#232）**：`managers` 保留已命中角色但身份列表为空的用户。耐久接受逐用户同事务写站内快照与渠道 outbox/jobs；真零身份保留既有哨兵，有身份但全无订阅能力仅写站内记录，channel count 仍为 0。`deliver` 的 best-effort/claim_first 失败边界不变，失败不冒充已接受。
 
 ### 通知收件箱（Notification Inbox）
 
-- **定义**：用户本人最近 30 天内系统已生成并接受的通知及服务端已读状态，不是订阅授权余额、投递账本或送达回执。工作台管理者与平台管理员均无他人收件箱读取旁路。
+- **定义**：用户本人最近 30 天内系统已生成并接受的通知及服务端已读状态（资源 `Cgc2046.Notifications.Notification` `backend/lib/cgc_2046/notifications/notification.ex`，写读入口 `Cgc2046.Notifications.Inbox` `backend/lib/cgc_2046/notifications/inbox.ex`，纯文本投影 `Cgc2046.Notifications.InboxSnapshot` `backend/lib/cgc_2046/notifications/inbox_snapshot.ex` 的 `build/3`），不是订阅授权余额、投递账本或送达回执。工作台管理者与平台管理员均无他人收件箱读取旁路。
 - **生命周期**：`inserted_at > now - 30 天` 才可读取或标记已读；日清理删除等于或早于截止时刻的正文。`read_at` 首次写入后不再覆盖，换设备仍一致；本机仅缓存账号隔离的服务端快照，认证错误不能恢复缓存。
-- **来源**：既有通知类型在接受事务中写精简用户文本；同类型、同来源、同用户的多身份扇出只有一条站内记录，写入和查询均不消耗 Consent，不触发发送。不回填旧 outbox/本机记录，也不保存核销码、认证密钥或原始渠道载荷。
+- **来源**：22 类渠道 durable 通知类型在接受事务中写精简用户文本，另含 2 类仅站内信类型（`llm_credit_expiring` 由 `Cgc2046.LlmGateway.Workers.CreditExpiryReminderWorker` `backend/lib/cgc_2046/llm_gateway/workers/credit_expiry_reminder_worker.ex` 写入、`llm_credit_low` 由 `Cgc2046.LlmGateway.Ledger` `backend/lib/cgc_2046/llm_gateway/ledger.ex` 写入，均直接调 `Inbox.record/4`）；同类型、同来源、同用户的多身份扇出只有一条站内记录，写入和查询均不消耗 Consent，不触发发送。不回填旧 outbox/本机记录，也不保存核销码、认证密钥或原始渠道载荷。
 - **去重边界**：不保永久幂等墓碑。保留行去重，旧 durable outbox 不作为历史导入来源；纯站内记录清理后，同一来源被重新接受可能产生新记录，不称永久 exactly-once，也不恢复旧 `read_at`。
 
 
 ### 通知类型（Notification Types）
 
-- **定义**：**通知类型契约的唯一真源** = `Cgc2046.Notifications.NotificationWorker` 的 `@notification_types` 表（2026-08-18 架构深化候选 D；AEW `@expiry_specs` 同款声明式规格先例），公开 `type/1`（按 template_key 查条目 \| nil）与 `types/0`（全条目）读契约。条目字段：`template_key`（通知类型键，与 config `:miniprogram_templates` 三平台 registry 键集**双射**；runtime.exs prod 块同键集注入亦由 D7 测试锚定——三面一致，防 prod 漏配静默失败）｜`id_key`（stale 重查的资源 id 在 data 中的键，无重查 = nil）｜`data_keys` / `job_meta_keys`（生产方构建 data / job_meta 的键集契约）｜`unique`（Notifications.Fanout.deliver 缺省 unique 预设 `:default` \| `:reminder_7d`）｜`stale`（重查规格 `{resource, required_status, :not_expired \| :running}`，nil = 不重查）。
-- **stale 语义（表驱动单解释器，D2）**：提醒类类型发送时重查——approval_reminder 同键两行（Enrollment / Sponsorship 面，由 data 携带的 id_key 分派）走 `ApprovalDeadline.not_expired?/2` **放行谓词**（nil 永不过期=投递、==now 不放行=跳过；**禁用 overdue?/2**——不对称对偶）；learning_stagnation 走 WorkflowRun `status == :running`。非 required_status / 读失败 → 跳过（stale=true）；未知类型 / 无 stale → 不重查直接投递。
-- **收敛/不收边界**：收敛面 = 键集契约（data_keys / job_meta_keys）+ unique 预设 + stale 谓词（D4）；payload 值构建不收敛（生产方仍自构建 data / job_meta 值，D4/D6——`Payments.NotificationTemplates.payment_data/1` 是唯一 payload builder 先例，不扩此面）；Notifications.Fanout 主体 / Notifications.Service / Integrations.Wechat.Client / config 面与 miniprogram SubscriptionScenario（独立数据面，`event_reminder` 漂移仅 advisory，D5）不收。
-- **架构位置**：横切契约面（位于 `lib/cgc_2046/notifications/notification_worker.ex`——平铺留守而非迁入 `notifications/workers/`，因模块名持久化于 `oban_jobs.worker`、受 7 天 unique 键约束及 `ScanDetections.dead_letter_workers/0` 监控，详见 ADR-0010「该留勿动」清单；AEW `@expiry_specs` 同款先例）；消费方 = Notifications.Fanout（unique 缺省查表，D3）/ 生产方（moduledoc 契约描述引用 `type/1`，D6）/ 表驱动契约测试（`test/cgc_2046/notifications/notification_worker_test.exs`，D7）。
-- **缴费闭环新增键（organizer-payment U5，R12/R13）**：`payment_received`（收款到账 → workspace 管理者逐笔实时感知，data 含 title/tier_name/amount；落账 worker 挂点）与 `payment_expired`（订单超时 → 学员 + 管理者，data 携带 `re_enrollable` 标志——报名截止未过才承诺可重新报名；过期 worker 成功分支挂点，尽力而为不影响释放）。推送尽力而为，可靠兜底 = 经营面面板；模板未配置时 provider_not_configured 静默跳过。
+- **定义**：**通知类型契约的唯一真源** = `Cgc2046.Notifications.NotificationWorker` 的 `@notification_types` 表（`backend/lib/cgc_2046/notifications/notification_worker.ex`，2026-08-18 架构深化候选 D；AEW `@expiry_specs` 同款声明式规格先例），公开 `type/1`（按 template_key 查条目 \| nil）与 `types/0`（全条目）读契约。条目字段：`template_key`（通知类型键，与 config `:miniprogram_templates` 三平台 registry 键集**双射**；runtime.exs prod 块同键集注入亦由 D7 测试锚定——三面一致，防 prod 漏配静默失败）｜`id_key`（stale 重查的资源 id 在 data 中的键，无重查 = nil）｜`data_keys` / `job_meta_keys`（生产方构建 data / job_meta 的键集契约）｜`stale`（重查规格 `{resource, required_status, :not_expired \| :running}`，nil = 不重查）。（注：`NotificationWorker` 在模块级 `use Oban.Worker` 统一配置 7 天 `unique`，`@notification_types` 表不再为每条类型单列 `unique` 字段。）
+- **stale 语义（表驱动单解释器 `Cgc2046.Notifications.Staleness`，`backend/lib/cgc_2046/notifications/staleness.ex`，D2）**：提醒类类型发送时由 `NotificationWorker` 与 `DeliveryWorker` 共用 `Staleness.stale?/1` 重查——`approval_reminder` 同键两行（Enrollment / Sponsorship 面，由 data 携带的 id_key 分派）走 `ApprovalDeadline.not_expired?/2` **放行谓词**（nil 永不过期=投递、==now 不放行=跳过；**禁用 overdue?/2**——不对称对偶）；`learning_stagnation` 走 WorkflowRun `status == :running`。`event_reminder` 的 `stale` 设为 `nil`（不重查，直接投递）。非 required_status / 读失败 → 跳过（stale=true）；未知类型 / 无 stale → 不重查直接投递。
+- **收敛/不收边界**：收敛面 = 键集契约（data_keys / job_meta_keys）+ stale 谓词（D4）；payload 值构建不收敛（生产方仍自构建 data / job_meta 值，D4/D6——`Payments.NotificationTemplates.payment_data/1` 是唯一 payload builder 先例，不扩此面）；Notifications.Fanout 主体 / Notifications.Service / Integrations.Wechat.Client / config 面与 miniprogram SubscriptionScenario（独立数据面，`event_reminder` 已由 `Cgc2046.Offering.EventReminderWorker` 定时投递）不收。
+- **架构位置**：横切契约面（位于 `backend/lib/cgc_2046/notifications/notification_worker.ex`——平铺留守而非迁入 `notifications/workers/`，因模块名持久化于 `oban_jobs.worker`、受 7 天 unique 键约束及 `ScanDetections.dead_letter_workers/0` 监控，详见 ADR-0010「该留勿动」清单；AEW `@expiry_specs` 同款先例）；消费方 = `Notifications.Staleness` / `DeliveryWorker` / 生产方（moduledoc 契约描述引用 `type/1`，D6）/ 表驱动契约测试（`backend/test/cgc_2046/notifications/notification_worker_test.exs`，D7）。
+- **缴费闭环新增键（organizer-payment U5，R12/R13）**：`payment_received`（收款到账 → workspace 管理者逐笔实时感知，data 含 title/tier_name/amount；落账 worker 挂点）与 `payment_expired`（订单超时 → 学员 + 管理者，data 携带 `re_enrollable` 标志——报名截止未过才承诺可重新报名；过期 worker 成功分支挂点，尽力而为不影响释放）。推送尽力而为，可靠兜底 = 经营面面板；模板 ID 未配置时 `Service.send_notification` 返回 `{:error, :template_not_configured}`（记 warning 日志并在 worker 层 discard / 在 `DeliveryWorker` 标 `:failed` 触发对账规则⑭）。
 
 ### 审批期限（Approval Deadline）
 
-- **定义**：审批截止时间的派生语义唯一真源 = `Cgc2046.ApprovalDeadline`（2026-08-14 审批期限深化，架构评审候选②；2026-08-17 架构深化 A+B 补谓词端口 `not_expired?/2`）。interface：`derive/1`（列实体读 `approval_deadline` 列；Invitation 读 `expires_at` 列；WorkflowRun = `updated_at + definition.approval_timeout` 内存派生，调用方需先 load definition）｜`not_expired?/2`（**放行谓词**：nil→true、否则严格 `> now`；==now 不放行）｜`overdue?/2`（**扫中谓词**：deadline 严格过点 `< now`）｜`in_window?/3`（提醒窗口 `(now, window_end]` 半开区间）｜`default_timeout_days/0`（四资源创建期默认期限 7 天的唯一来源）。`not_expired?` 与 `overdue?` 是**不对称对偶**（nil 侧相反：not_expired? nil→true / overdue? nil→false；==now 侧双双 false），语义分工：放行谓词（claim 守卫 / 投递守卫）vs 扫中谓词（过期扫描），不可互相代用；SQL 端口 = ApprovalClaim 的 deadline 守卫（`:future` ↔ not_expired? / `:passed` ↔ overdue?，测试对偶钉死）。
+- **定义**：审批截止时间的派生语义唯一真源 = `Cgc2046.ApprovalDeadline`（`backend/lib/cgc_2046/approval_deadline.ex`，2026-08-14 审批期限深化，架构评审候选②；2026-08-17 架构深化 A+B 补谓词端口 `not_expired?/2`）。interface：`derive/1`（列实体读 `approval_deadline` 列；Invitation 读 `expires_at` 列；WorkflowRun = `updated_at + definition.approval_timeout` 内存派生，调用方需先 load definition）｜`not_expired?/2`（**放行谓词**：nil→true、否则严格 `> now`；==now 不放行）｜`overdue?/2`（**扫中谓词**：deadline 严格过点 `< now`）｜`in_window?/3`（提醒窗口 `(now, window_end]` 半开区间）｜`default_timeout_days/0` 与 `default_deadline_from_now/0`（四资源创建期默认期限 7 天及截止时间戳的唯一来源）。`not_expired?` 与 `overdue?` 是**不对称对偶**（nil 侧相反：not_expired? nil→true / overdue? nil→false；==now 侧双双 false），语义分工：放行谓词（claim 守卫 / 投递守卫）vs 扫中谓词（过期扫描），不可互相代用；SQL 端口 = ApprovalClaim 的 deadline 守卫（`:future` ↔ not_expired? / `:passed` ↔ overdue?，测试对偶钉死）。
 - **nil 语义（单点）**：`derive/1` 返回 nil = **永不过期**——不参与过期扫描（`overdue?` 恒 false），也不进入提醒窗口。WorkflowRun 的 `definition.approval_timeout = nil`（F7 方案 A）即此语义；列实体 deadline 列为空同此。
 - **扫尾 specs**：ApprovalExpiryWorker 六份过期扫描由 `@expiry_specs` 声明式规格驱动（`{resource, status, deadline: {:column, atom} | :derived, tenant}`）——列实体保持 SQL 下推过滤，WorkflowRun 走 `:derived`（load definition + 内存判断，**绝不可并入纯 SQL 分支**，否则 timeout nil 的 run 会被误扫）；每记录转换仍走各资源 `:expire` 领域 action（D-A6）。
 - **架构位置**：横切读取面（root 单文件，Notifications.Fanout 同款先例）；消费方 = ApprovalExpiryWorker / ApprovalReminderWorker（窗口大小 48h 仍为 ARW 私有常量）与四资源创建期（Enrollment 客户端可传覆盖 / Sponsorship 服务端固定的创建纪律差异另行决策）。
 
 ### 原子抢占（Approval Claim）
 
-- **定义**：条件 UPDATE 原子抢占唯一真源 = `Cgc2046.ApprovalClaim`（2026-08-17 架构深化候选 A+B；架构评审候选 A）。interface：`claim(record, opts)`——`table:`（编译期枚举 atoms，拒绝任意字符串）｜`from:`（状态守卫数组，`status IN (...)`）｜`set:`（列 → 字面值 | `{:arg, atom}` | `{:sql, fragment}`）｜`deadline:`（`{col, :future | :passed}`；`:future` → `(col IS NULL OR col > $N)`，`:passed` → `col IS NOT NULL AND col < $N`；守卫复用 set 中 `{:arg, :now}` 占位符，SQL 端口 = ApprovalDeadline.not_expired?/overdue?）｜`extra_where:`（`{sql_fragment, params}`，片段占位符 `$1` 起内部编号、claim 统一重编号到全语句连续编号——42P18 纪律单点化）｜`returning:`（列原子列表，成功回读 DB 原始值）。占位符序：SET 值 → extra_where 参数 → id（固定最后一个参数）。
+- **定义**：条件 UPDATE 原子抢占唯一真源 = `Cgc2046.ApprovalClaim`（`backend/lib/cgc_2046/approval_claim.ex`，2026-08-17 架构深化候选 A+B；架构评审候选 A）。interface：`claim(record, opts)`——`table:`（编译期枚举 atoms，拒绝任意字符串）｜`from:`（状态守卫数组，`status IN (...)`）｜`set:`（列 → 字面值 | `{:arg, atom}` | `{:sql, fragment}`）｜`deadline:`（`{col, :future | :passed}`；`:future` → `(col IS NULL OR col > $N)`，`:passed` → `col IS NOT NULL AND col < $N`；守卫复用 set 中 `{:arg, :now}` 占位符，SQL 端口 = ApprovalDeadline.not_expired?/overdue?）｜`extra_where:`（`{sql_fragment, params}`，片段占位符 `$1` 起内部编号、claim 统一重编号到全语句连续编号——42P18 纪律单点化）｜`returning:`（列原子列表，成功回读 DB 原始值）。占位符序：SET 值 → extra_where 参数 → id（固定最后一个参数）。
 - **错误分工（D3）**：claim 只返回 `{:ok, returned} | {:error, :not_claimed}`，DB 错误 `{:error, {:database, reason}}` 回传资源层——各资源现有错误原子/消息/发生层原样保留（graphql 契约字符串、Splode code、域错误原子均不动）；sponsorship 读回消歧（approval_conflict/reject_conflict）、enrollment claim_cancellable RETURNING 值判读留各资源。
-- **收编边界**：**7 资源 / 15 调用点**（代码实测 `grep -rn "ApprovalClaim.claim" backend/lib`，**勘误 2026-10-05**：原文 14，事后 enrollment cancel_flow 又添一处）：join_request approve、workspace_application approve、invitation accept、enrollment claim_pending/prepare_expire/claim_cancellable/claim_waive（4 处）+ cancel_flow 体（1 处）、sponsorship approve/reject/expire/end（4 处）、speaker_invitation claim_decision×2/claim_complete（3 处）。**保留（D5）**：invitation accept_miniprogram（多表 JOIN+别名+双 deadline 列）、user demote（count 子查询聚合）、capacity ledger reserve/release counter（capacity_ledger.ex）+ enrollment consume_invite_quota counter、validate_pending_status 快照守卫×2、transition.ex、payments/order.ex 私有 claim/4、其余非 approval deadline 守卫（registration_deadline/invite_batches/sponsorship_deadline + FOR SHARE）、Ash expr 全部（ARW/AEW/pending_approvals/reconciliation，D7 冻结面）。
+- **收编边界**：**6 资源（7 文件）/ 15 调用点**（代码实测 `grep -rn "ApprovalClaim.claim(" backend/lib`，**2026-11-22 核实**）：`accounts/join_request.ex` approve（1 处）、`accounts/workspace_application.ex` approve（1 处）、`accounts/invitation.ex` accept（1 处）、`admission/enrollment.ex` `claim_pending` / `prepare_expire` / `claim_waive`（3 处）+ `admission/enrollment/cancel_flow.ex` `claim_cancellable`（1 处）、`sponsorship/sponsorship.ex` approve / reject / expire / end（4 处）、`events/speaker_invitation.ex` `claim_decision`×2 / `claim_complete` / `prepare_resend`（4 处）。**保留（D5）**：invitation accept_miniprogram（多表 JOIN+别名+双 deadline 列）、user demote（count 子查询聚合）、capacity ledger reserve/release counter（capacity_ledger.ex）+ enrollment consume_invite_quota counter、validate_pending_status 快照守卫×2、transition.ex、payments/order.ex 私有 claim/4、其余非 approval deadline 守卫（registration_deadline/invite_batches/sponsorship_deadline + FOR SHARE）、Ash expr 全部（ARW/AEW/pending_approvals/reconciliation，D7 冻结面）。
 - **组合序留在资源层**：sponsorship approve 独占位 advisory lock（`Repo.acquire_lock/2`；锁失败返回 `%BusinessError{}` 由 change 折进 changeset，#621）在 claim 前取得（锁序 lock→claim，D6）；不加租户过滤（row id 已从租户隔离读面解析）；不自己开事务/checkout（before_action 事务继承，savepoint 语义不变）；成功不 force_change（回写留资源层）。plan 2026-08-15-010 D4「裸 SQL 本体不动」re-scope：claim 族是真同构（deletion test 失败=复杂度随资源数扩散），与 domain_error 族假同构（39 原子仅 1 共享）区分。
-- **架构位置**：横切写原语（root 单文件，ApprovalDeadline / Notifications.Fanout 同款先例）；消费方 = 七个资源 action 的 before_action（事务内）+ 表驱动契约测试（`test/cgc_2046/approval_claim_test.exs`）。
+- **架构位置**：横切写原语（root 单文件，ApprovalDeadline / Notifications.Fanout 同款先例）；消费方 = 6 个资源（7 个模块文件）action 的 before_action（事务内）+ 表驱动契约测试（`backend/test/cgc_2046/approval_claim_test.exs`）。
 
 ### 对账扫描（Reconciliation Scan）
 
 - **定义**：平台级 best-effort 异步路径孤儿报告（E-10 #125）。`ReconciliationScanWorker` 每 10 分钟扫 **19 条**（全集 **24 条**，含 ①~⑦ 引擎与运行异常、⑧~⑫ **ADR-0009 U7 名额账本四条** + **Fable 5** 缓存漂移一条、⑬ **资金写频次告警（R3）**、⑭ **通知失败面（#556）**、⑮ **refunding 无在途退款 job（#862）**，以及 4 条 LLM 算力对账规则 `llm_wallet_balance_mismatch` / `llm_wallet_held_mismatch` / `llm_paid_order_without_grant` / `llm_workspace_pool_mismatch`；另含 5 条非 cron 生产方规则），落 `Reconciliation.Finding`（表 reconciliation_findings，全局资源，read 仅 PlatformAdmin）→ /admin/reconciliation 对账页可读。**规则语义单源** = `backend/lib/cgc_2046/reconciliation/rules_registry.ex`（#852 C9 Q4 收编）。
-- **规则清单**：① `confirmed_enrollment_without_run` confirmed enrollment 无 learning run（#505 起按 `workflow_runs` 的 `subject_user_id × subject_course_revision_id` 判定，无锚事件型回退 `subject_enrollment_id`，未发布课程豁免，BYO 无平台终态、存在即非孤儿）｜② `pending_without_deadline` pending 无 approval_deadline（enrollment/sponsorship/join_request/workspace_application 四资源 UNION，创建路径必写）｜③ `active_sponsorship_signal_dead` active sponsorship 的 `sponsorship.active` 发布 job 处于 discarded（PR-A 同事务必入队，死信=信号链断连；原「无 signal_log」因 ADR-0003 入向局限不可实现而修正）｜④ `open_entity_without_research_definition` draft/open 但工作台无 published 教研定义——Course 无条件命中（curriculum_enabled 无此列，2026-08-16 Q12；UAT P2 扩 draft：prep run 始于 course.created，断流在 draft 期就该看见）、Event 仅 curriculum_enabled=true 命中（false = 轻聚会合法不命中；教研 run 始于 launched，draft 期无断流不扩；S6 起 event-only）｜⑤ `nonterminal_research_run_for_closed_entity` closed/cancelled Event/Course 仍有非终态教研 run（instance key `event_<id>`/`course_<id>`，reaper 同约定）｜⑥ `dead_letter_job` 信号族死信（SignalPublishWorker / NotificationWorker / DeliveryWorker / DepositForfeitWorker / PaymentRefundWorker / LlmPaymentSettlementWorker 的 discarded job，Pruner 7 天窗口内判定，超窗交 Pruner，#862）｜⑦ `learning_run_stalled` learning run 停滞（最新 attempt `created_at` 超 7 天，零 attempt 回退 run `inserted_at`，与 LearningProgressWorker 同源判定）。规④/⑤原子名冻结 `research_*`——DB 落库枚举值，不随 PR③ 改名。**名额账本四条（ADR-0009 U7，R17）**：⑧ `open_offering_without_ledger` open offering 无账本行（launched 信号建行 / 报名懒建双路均未到达，信号在途窗口下一拍自消）｜⑨ `ledger_occupancy_mismatch` 账本 occupancy ≠ 占位报名计数（占位 = confirmed + payment_pending，与占位/释放路径口径一致）｜⑩ `capacity_projection_drift` 展示投影滞后账本超一拍（confirmed_count / sync_version 与账本不一致且超一个扫描周期，宽限一拍对齐 10 分钟 cron）｜⑪ `occupancy_exceeds_capacity` 账本 occupancy > capacity（capacity 调小后的合法超员窗口看护至自然释放收敛，R16/AE4）｜⑫ `ledger_cache_drift` 账本三列缓存（status/capacity/registration_deadline）漂移于 offering 真值（ADR-0009 Fable 5 HIGH-1，无宽限；在途瞬时命中下一拍自消）。**规⑬ `fund_action_burst`（资金写频次告警 R3）**：窗口内同一 actor 同类资金写治理动作（`:order_refund`/`:order_refund_retry`/`:waive_payment`）超阈值（默认 1h/5 笔，app env 可调）→ 按 actor 一行 Finding；纯查询 `admin_action_logs` 不动资金链路；频率回落下一拍自消。**规⑭ `notification_delivery_failed`（通知失败面 #556）**：24h 内落 `:failed` 的 `notification_deliveries` 行逐行出 Finding（entity = `:notification_delivery`）；窗口语义自清——超窗未命中删除；终态化本体在 DeliveryWorker 末拍。**规⑮ `refunding_without_refund_job`（refunding 无在途退款 job，#862）**：进 `refunding` 即同事务入队 `PaymentRefundWorker`（C2 #845），无在途任务 = 任务被人工删除或重试耗尽丢弃，钱退不出去且无人发现；在途 state = `available/scheduled/executing/retryable`（Oban `:incomplete` 的 Postgres 子集），15 分钟宽限纯防御；处置：MCP `retry_refund` 重入退款链，或订单离开 refunding 后下一拍自消。**LLM 算力四条**：`llm_wallet_balance_mismatch` / `llm_wallet_held_mismatch` / `llm_paid_order_without_grant` / `llm_workspace_pool_mismatch`（详见 `rules_registry.ex`）。
+- **规则清单**：① `confirmed_enrollment_without_run` confirmed enrollment 无 learning run（#505 起按 `workflow_runs` 的 `subject_user_id × subject_course_revision_id` 判定，无锚事件型回退 `subject_enrollment_id`，未发布课程豁免，BYO 无平台终态、存在即非孤儿）｜② `pending_without_deadline` pending 无 approval_deadline（enrollment/sponsorship/join_request/workspace_application 四资源 UNION，创建路径必写）｜③ `active_sponsorship_signal_dead` active sponsorship 的 `sponsorship.active` 发布 job 处于 discarded（PR-A 同事务必入队，死信=信号链断连；原「无 signal_log」因 ADR-0003 入向局限不可实现而修正）｜④ `open_entity_without_research_definition` draft/open 但工作台无 published 教研定义——Course 无条件命中（查 `:course_preparation` 定义；curriculum_enabled 无此列，2026-08-16 Q12；UAT P2 扩 draft：prep run 始于 course.created，断流在 draft 期就该看见）、Event 仅 curriculum_enabled=true 命中（查 `:curriculum` 定义；false = 轻聚会合法不命中；教研 run 始于 launched，draft 期无断流不扩）｜⑤ `nonterminal_research_run_for_closed_entity` closed/cancelled Event 仍有非终态 `:curriculum` 教研 run（S6 起 event-only，instance key `event_<id>`，与 `Curriculum.Reaper` 同约定；Course 的 `:course_preparation` run 由 `:close`/`:cancel` 同事务 `Prep.stop_active_runs/1` 收口）｜⑥ `dead_letter_job` 信号族死信（SignalPublishWorker / NotificationWorker / DeliveryWorker / DepositForfeitWorker / PaymentRefundWorker / LlmPaymentSettlementWorker 的 discarded job，Pruner 7 天窗口内判定，超窗交 Pruner，#862）｜⑦ `learning_run_stalled` learning run 停滞（最新 attempt `created_at` 超 7 天，零 attempt 回退 run `inserted_at`，与 LearningProgressWorker 同源判定）。规④/⑤原子名冻结 `research_*`——DB 落库枚举值，不随 PR③ 改名。**名额账本四条（ADR-0009 U7，R17）**：⑧ `open_offering_without_ledger` open offering 无账本行（launched 信号建行 / 报名懒建双路均未到达，信号在途窗口下一拍自消）｜⑨ `ledger_occupancy_mismatch` 账本 occupancy ≠ 占位报名计数（占位 = confirmed + payment_pending，与占位/释放路径口径一致）｜⑩ `capacity_projection_drift` 展示投影滞后账本超一拍（confirmed_count / sync_version 与账本不一致且超一个扫描周期，宽限一拍对齐 10 分钟 cron）｜⑪ `occupancy_exceeds_capacity` 账本 occupancy > capacity（capacity 调小后的合法超员窗口看护至自然释放收敛，R16/AE4）｜⑫ `ledger_cache_drift` 账本三列缓存（status/capacity/registration_deadline）漂移于 offering 真值（ADR-0009 Fable 5 HIGH-1，无宽限；在途瞬时命中下一拍自消）。**规⑬ `fund_action_burst`（资金写频次告警 R3）**：窗口内同一 actor 同类资金写治理动作（`:order_refund`/`:order_refund_retry`/`:waive_payment`）超阈值（默认 1h/5 笔，app env 可调）→ 按 actor 一行 Finding；纯查询 `admin_action_logs` 不动资金链路；频率回落下一拍自消。**规⑭ `notification_delivery_failed`（通知失败面 #556）**：24h 内落 `:failed` 的 `notification_deliveries` 行逐行出 Finding（entity = `:notification_delivery`）；窗口语义自清——超窗未命中删除；终态化本体在 DeliveryWorker 末拍。**规⑮ `refunding_without_refund_job`（refunding 无在途退款 job，#862）**：进 `refunding` 即同事务入队 `PaymentRefundWorker`（C2 #845），无在途任务 = 任务被人工删除或重试耗尽丢弃，钱退不出去且无人发现；在途 state = `available/scheduled/executing/retryable`（Oban `:incomplete` 的 Postgres 子集），15 分钟宽限纯防御；处置：MCP `retry_refund` 重入退款链，或订单离开 refunding 后下一拍自消。**LLM 算力四条**：`llm_wallet_balance_mismatch` / `llm_wallet_held_mismatch` / `llm_paid_order_without_grant` / `llm_workspace_pool_mismatch`（详见 `rules_registry.ex`）。
 - **刷新语义**：命中 upsert（唯一键 `(rule, entity_type, entity_id)`，保 first_seen_at、刷新 last_seen_at），本次未命中删除——「无孤儿 → 空报告」由结构保证。共享驱动 `Finding.apply_rule/3` 按 sweep 模式分拍（#848）：`:full` 全量拍（upsert + 未命中删除，默认）；`:partial` 降级拍（扫描面残缺，只 upsert）；`:one_shot` 单事件拍（单事件触发无全量视图，只 upsert，命中仍刷 last_seen_at）。
 - **死信窗口**：规⑥只判 oban_jobs 7 天窗口内（与 Oban Pruner max_age 对齐）的 discarded 行；死信可见性由本扫描承担，不扩 Oban discard 插件。
 - **七天上限（窗口语义，非 bug）**：规③/规⑥的有效窗口同受 Oban Pruner（max_age 7 天）约束——discarded job 被 Pruner 删除后，未消解的规③/规⑥孤儿会从报告静默消失（刷新语义按未命中删除，视为已消解）。
 - **缴费对账（已落地）**：`payment_recon` 由 PaymentReconciliationWorker、`payment_amount_mismatch` 由 PaymentSettlementWorker 写入同一 Finding 底座（「底座共享 + 扫描器归各域」，ADR-0009 D6；ADR-0007，webhook 丢失的长尾兜底）。sweep 模式（#848）：`payment_recon` 完整拍 `:full`、渠道账单拉取失败的降级拍 `:partial`（不删旧 finding）；`payment_amount_mismatch` 单事件拍 `:one_shot`（重复命中刷新 last_seen_at，不做 stale 删除）——全部生产者走同一驱动，无旁路。
-- **架构位置**：`Cgc2046.Reconciliation.Finding`（Reconciliation domain 全局资源，PR⑤ U8 归位、Api 退役）+ `Cgc2046.Reconciliation.ReconciliationScanWorker`（maintenance 队列，unique 300s，规1/2/4/5 Ash 查询下推、规3/6 Repo 直查 oban_jobs、规8-11 Repo 直查账本/offering 表）；配套 SignalSubscriber 骨架 telemetry `[:cgc2046, :signal, :deliver]`（D7）与订阅方冒烟测试（#134-①）。
+- **架构位置**：`Cgc2046.Reconciliation.Finding`（Reconciliation domain 全局资源，PR⑤ U8 归位、Api 退役）+ `Cgc2046.Reconciliation.ReconciliationScanWorker`（`backend/lib/cgc_2046/reconciliation/reconciliation_scan_worker.ex`，maintenance 队列，unique 300s，检测查询拆分为 `ScanDetections` 与 `ScanDetectionsOps`）；配套 SignalSubscriber 骨架 telemetry `[:cgc2046, :signal, :deliver]`（`backend/lib/cgc_2046/workflows/signal_subscriber.ex:118`，D7）与订阅方冒烟测试（#134-①）。
 
 ### 工具 = 形状 原则（见 §3）
 
@@ -678,7 +682,7 @@
 | 个人 Agent vs 公共 Agent | 个人 = 角色分身仅本人可见；公共 = Workspace 级按 Workflow 协作 |
 | Skill vs Agent | Skill 是预设工作流（`SKILL.md`，当前仅随扩展静态打包）；Agent 是带人格/面板/技能绑定的助手；角色指令走 `get_role_playbook`（原工作区 Skill 本地同步已废） |
 | `cgc-2046` vs `cgc2046-<ws>-<skill>` | `cgc-2046` 是扩展 id / MCP 条目名；`cgc2046-<ws>-<skill>` 是已废弃的本地同步技能命名前缀（未实现） |
-| 确认流 vs 直接执行 | 高风险管理工具必须 pending → `confirm_operation` 才落库（two-tool 模式）；低风险写工具（save_* 族）直接执行 |
+| 确认流 vs 直接执行 | 高风险管理工具必须 pending → `confirm_operation` 才落库（two-tool 模式）；低风险写工具（`save_*` 草稿保存族、备课流转 `submit_prep_*` 与学员报名/学习进度记录工具）直接执行 |
 | PriceTier vs SponsorshipTier | PriceTier 是真实收款定价（收款即发生）；SponsorshipTier 是赞助意向档位（v1 仅登记不收款，amount_suggestion） |
 | WorkflowDefinition vs WorkflowRun | 蓝图（Runic.Workflow DAG + 版本）vs 执行实例（pending→running→waiting→succeeded/failed/cancelled/expired，归属 partition） |
 | 同步写 vs 异步 Signal | 业务核心状态主写入口走同步 Ash Action（强一致，8）；衍生副作用/通知走 Signal 异步最终一致（2） |
@@ -694,5 +698,5 @@
 - ~~JoinRequest 审批的角色分配方式（申请人请求 vs 审批方指定）~~ ✅ 已定稿：审批方指定（slice-B 决策 2）
 - 确认流 auto_approve 模式的冷却期（二期）
 - ~~平台管理员建 Workspace 的审计留痕~~ ✅ 已实现（`accounts/workspace.ex` `:create` 挂 `LogAdminAction` 同事务留痕，#116 R10a）
-- 人工步骤超时/取消语义（workflow `waiting` 状态）：✅ 已实现 approval_timeout 过点 → expired（`ApprovalExpiryWorker` `@expiry_specs`）与显式 `:cancel` action（`workflow_run.ex`）；❌ 未做：按 offering registration_deadline 自动取消 run
+- 人工步骤超时/取消语义（workflow `waiting` 状态）：✅ 已实现 approval_timeout 过点 → expired（`ApprovalExpiryWorker` `@expiry_specs`）与显式 `:cancel` action（`workflow_run.ex`）；✅ 已实现：按 offering 生命周期自动收口 run（`EventLifecycleWorker` 到期自动 close/cancel → `Course :close`/`:cancel` 同事务调 `Curriculum.Prep.stop_active_runs/1`、`Curriculum.Reaper` 订阅 `event.ended` 收口 `:curriculum` run、`Learning.RunReaper` 订阅 `*.ended` 在 `cancelled` 时收口 `:learning` run）
 - ~~异步 Signal 路径的幂等键与重试策略~~ ✅ 已落地（`signal_idempotency.ex` Postgres 唯一约束登记 + `SignalEmitter` 缺省 idempotency_key + Oban max_attempts 8 + 订阅方 claim 去重）
