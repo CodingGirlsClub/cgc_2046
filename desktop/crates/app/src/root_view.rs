@@ -520,6 +520,11 @@ impl std::ops::DerefMut for RootView {
 }
 
 impl RootView {
+    /// Settings 的充值入口是否可达（native 面板被偏好/环境关闭时不显示）。
+    pub(crate) fn native_agent_available() -> bool {
+        RootView::native_agent_enabled()
+    }
+
     /// 启动时恢复历史侧栏开关（main 读取 preferences 后传入；默认关闭）。
     pub fn set_history_sidebar_persisted(&mut self, open: bool) {
         if open {

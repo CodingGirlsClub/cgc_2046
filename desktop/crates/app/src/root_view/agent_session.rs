@@ -369,6 +369,7 @@ impl RootView {
 
     /// 账号/scope 切换时清掉 native 视图里上一账号的钱包、402 卡和在途回调。
     pub(in crate::root_view) fn reset_native_account_state(&mut self, cx: &mut Context<Self>) {
+        self.reset_settings_account_state(cx);
         if let Some(view) = self.native_agent_view.clone() {
             view.update(cx, |view, cx| view.reset_account_state(cx));
         }
@@ -381,22 +382,21 @@ impl RootView {
             return;
         };
         let view = self.native_agent_view.clone();
-        let should_fetch_gateway = cgc_platform::gateway::signed_in();
-        let fetch_task = should_fetch_gateway.then(|| {
+        let fetch_task = cgc_platform::gateway::signed_in().then(|| {
             cx.background_executor()
                 .spawn(async move { cgc_platform::gateway::fetch_models() })
         });
         cx.spawn(async move |_this, cx| {
-            if let Some(task) = fetch_task {
-                if let Err(error) = task.await {
-                    log::warn!(
-                        target: "native-agent",
-                        "gateway model catalog fetch failed: {}",
-                        error.diagnostic()
-                    );
-                }
+            let outcome =
+                crate::native_runtime::refresh_catalog_and_providers(runtime, fetch_task).await;
+            if let Some(Err(error)) = outcome.catalog {
+                log::warn!(
+                    target: "native-agent",
+                    "gateway model catalog fetch failed: {}",
+                    error.diagnostic()
+                );
             }
-            if let Err(error) = runtime.refresh_providers().await {
+            if let Err(error) = outcome.runtime {
                 log::warn!(target: "native-agent", "provider refresh after login failed: {error}");
                 if let Some(view) = view {
                     let message = format!("模型配置刷新失败：{error}；可重开设置或重启客户端重试");

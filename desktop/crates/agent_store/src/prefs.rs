@@ -173,7 +173,7 @@ impl Default for AgentPrefs {
 impl AgentPrefs {
     /// 一次性迁移：旧配置的模型能力字段取 catalog 默认值。
     pub fn migrate(&mut self) {
-        let catalog = builtin_providers();
+        let catalog = builtin_byok_providers();
         if self.schema_version < 1 {
             for provider in &mut self.providers {
                 if !provider.builtin {
@@ -268,11 +268,17 @@ pub fn next_provider_id(base: &str, existing: &[String]) -> String {
     }
 }
 
-/// 该 id 是否来自内置目录；保存这类条目时保留 `builtin` 标记。
+/// 第一方托管网关（CGC Cloud）：目录由后端下发，不走 BYOK 目录与表单。
+pub fn is_managed_provider_id(provider_id: &str) -> bool {
+    provider_id == CGC_CLOUD_PROVIDER_ID
+}
+
+/// 该 id 是否来自内置目录（含托管网关）；保存这类条目时保留 `builtin` 标记。
 pub fn is_builtin_provider_id(provider_id: &str) -> bool {
-    builtin_providers()
-        .iter()
-        .any(|provider| provider.id == provider_id)
+    is_managed_provider_id(provider_id)
+        || builtin_byok_providers()
+            .iter()
+            .any(|provider| provider.id == provider_id)
 }
 
 /// 每个 provider 的 API key 在钥匙串里的 account。
@@ -313,8 +319,11 @@ pub fn cgc_cloud_provider() -> ProviderPrefs {
     cgc_cloud_provider_with_models(Vec::new())
 }
 
-/// 内置 provider 目录：第一次打开设置就能看到的默认配置（不写入用户文件）。
-pub fn builtin_providers() -> Vec<ProviderPrefs> {
+/// 内置 BYOK provider 目录：第一次打开设置就能看到的默认配置（不写入用户文件）。
+///
+/// 托管网关（`cgc-cloud`）不在此列：它由登录态与后端目录驱动，
+/// 由 [`cgc_cloud_provider`] 单独构造。
+pub fn builtin_byok_providers() -> Vec<ProviderPrefs> {
     fn provider(id: &str, name: &str, base_url: &str) -> ProviderPrefs {
         ProviderPrefs {
             id: id.to_string(),
@@ -439,7 +448,7 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
         thinking_mode: ThinkingMode::Disabled,
     });
 
-    vec![cgc_cloud_provider(), deepseek, moonshot, minimax, zhipu]
+    vec![deepseek, moonshot, minimax, zhipu]
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -694,25 +703,31 @@ mod model_param_tests {
 
     #[test]
     fn builtin_catalog_covers_domestic_providers() {
-        let providers = builtin_providers();
+        let providers = builtin_byok_providers();
         let ids: Vec<&str> = providers
             .iter()
             .map(|provider| provider.id.as_str())
             .collect();
-        assert_eq!(
-            ids,
-            vec!["cgc-cloud", "deepseek", "moonshot", "minimax", "zhipu"]
-        );
-        let managed = providers.iter().find(|p| p.id == "cgc-cloud").unwrap();
-        assert!(managed.models.is_empty());
-        assert!(managed.model_params.is_empty());
+        assert_eq!(ids, vec!["deepseek", "moonshot", "minimax", "zhipu"]);
         assert!(providers.iter().all(|provider| provider.builtin));
+        assert!(providers
+            .iter()
+            .all(|provider| provider.id != CGC_CLOUD_PROVIDER_ID));
         let deepseek = providers.iter().find(|p| p.id == "deepseek").unwrap();
         assert_eq!(
             deepseek.model_config("deepseek-flash").context_window,
             1_000_000
         );
         assert!(deepseek.model_config("deepseek-v4-pro").supports_thinking);
+    }
+
+    #[test]
+    fn managed_provider_is_outside_the_byok_catalog_but_stays_builtin() {
+        assert!(is_managed_provider_id(CGC_CLOUD_PROVIDER_ID));
+        assert!(!is_managed_provider_id("deepseek"));
+        assert!(is_builtin_provider_id(CGC_CLOUD_PROVIDER_ID));
+        assert!(is_builtin_provider_id("deepseek"));
+        assert!(!is_builtin_provider_id("custom-1"));
     }
 
     #[test]
@@ -844,7 +859,7 @@ mod model_param_tests {
 
     #[test]
     fn zhipu_glm53_has_low_high_max_efforts() {
-        let zhipu = builtin_providers()
+        let zhipu = builtin_byok_providers()
             .into_iter()
             .find(|provider| provider.id == "zhipu")
             .expect("zhipu");
