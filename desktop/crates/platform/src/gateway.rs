@@ -7,7 +7,7 @@
 //! 同一模块承载 `myLlmWallet`、`createLlmPaymentOrder`、`llmPaymentOrder` 的
 //! GraphQL 读写，供 native agent 状态栏与 402 续费卡使用。
 
-use std::sync::{LazyLock, RwLock};
+use std::sync::{Condvar, LazyLock, Mutex, MutexGuard, RwLock};
 
 use serde_json::{json, Value};
 use url::Url;
@@ -206,8 +206,10 @@ pub struct GatewayModel {
 }
 
 static SESSION: LazyLock<RwLock<Option<GatewaySession>>> = LazyLock::new(|| RwLock::new(None));
-static GATEWAY_CATALOG: LazyLock<RwLock<GatewayCatalogState>> =
-    LazyLock::new(|| RwLock::new(GatewayCatalogState::default()));
+static GATEWAY_CATALOG: LazyLock<GatewayCatalog> = LazyLock::new(|| GatewayCatalog {
+    state: Mutex::new(GatewayCatalogState::default()),
+    finished: Condvar::new(),
+});
 
 #[derive(Clone, Debug, Default)]
 struct GatewayCatalogState {
@@ -215,6 +217,12 @@ struct GatewayCatalogState {
     fetched_at: Option<u64>,
     last_error: Option<String>,
     syncing: bool,
+}
+
+/// 目录缓存 + 同步完成通知：并发调用者等待正在进行的请求，而不是拿旧缓存提前返回。
+struct GatewayCatalog {
+    state: Mutex<GatewayCatalogState>,
+    finished: Condvar,
 }
 
 /// 目录同步快照：供 Settings 卡片区分「同步中 / 空目录 / 失败」。
@@ -302,8 +310,15 @@ fn session_slot() -> &'static RwLock<Option<GatewaySession>> {
     &SESSION
 }
 
-fn catalog_slot() -> &'static RwLock<GatewayCatalogState> {
+fn catalog() -> &'static GatewayCatalog {
     &GATEWAY_CATALOG
+}
+
+fn catalog_state() -> MutexGuard<'static, GatewayCatalogState> {
+    catalog()
+        .state
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 fn now_unix() -> u64 {
@@ -315,23 +330,18 @@ fn now_unix() -> u64 {
 
 /// 读取最近一次从后端同步到的官方网关模型列表。
 pub fn cached_models() -> Vec<GatewayModel> {
-    catalog_slot()
-        .read()
-        .map(|slot| slot.models.clone())
-        .unwrap_or_default()
+    catalog_state().models.clone()
 }
 
 /// 读取目录同步状态（模型、同步时间、最近错误、是否进行中）。
 pub fn catalog_status() -> GatewayCatalogStatus {
-    catalog_slot()
-        .read()
-        .map(|slot| GatewayCatalogStatus {
-            models: slot.models.clone(),
-            fetched_at: slot.fetched_at,
-            last_error: slot.last_error.clone(),
-            syncing: slot.syncing,
-        })
-        .unwrap_or_default()
+    let slot = catalog_state();
+    GatewayCatalogStatus {
+        models: slot.models.clone(),
+        fetched_at: slot.fetched_at,
+        last_error: slot.last_error.clone(),
+        syncing: slot.syncing,
+    }
 }
 
 /// 更新内存中的官方网关模型缓存（测试与恢复缓存用）。
@@ -341,19 +351,17 @@ pub fn set_cached_models(models: Vec<GatewayModel>) {
 }
 
 fn restore_catalog(models: Vec<GatewayModel>, fetched_at: Option<u64>) {
-    if let Ok(mut slot) = catalog_slot().write() {
-        slot.models = models;
-        slot.fetched_at = fetched_at;
-        slot.last_error = None;
-    }
+    let mut slot = catalog_state();
+    slot.models = models;
+    slot.fetched_at = fetched_at;
+    slot.last_error = None;
 }
 
 fn reset_catalog() {
-    if let Ok(mut slot) = catalog_slot().write() {
-        slot.models.clear();
-        slot.fetched_at = None;
-        slot.last_error = None;
-    }
+    let mut slot = catalog_state();
+    slot.models.clear();
+    slot.fetched_at = None;
+    slot.last_error = None;
 }
 
 /// 登录态同步入口；只保留当前会话 token，不派生或持久化第二份凭据。
@@ -392,25 +400,31 @@ fn session() -> Option<GatewaySession> {
     session_slot().read().ok().and_then(|slot| slot.clone())
 }
 
-/// 防重复拉取：同一时刻只允许一个目录请求，其余调用直接返回当前缓存。
+/// 单飞：正在同步时后来者等待同一次请求结束，再依次拉取，避免返回旧缓存后
+/// 调用方把 `syncing = true` 写进自己的 UI 状态而永远等不到完成通知。
 struct CatalogSyncGuard;
 
 impl CatalogSyncGuard {
-    fn begin() -> Option<Self> {
-        let mut slot = catalog_slot().write().ok()?;
-        if slot.syncing {
-            return None;
+    fn acquire() -> Self {
+        let mut slot = catalog_state();
+        while slot.syncing {
+            slot = catalog()
+                .finished
+                .wait(slot)
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
         }
         slot.syncing = true;
-        Some(Self)
+        Self
     }
 }
 
 impl Drop for CatalogSyncGuard {
     fn drop(&mut self) {
-        if let Ok(mut slot) = catalog_slot().write() {
+        {
+            let mut slot = catalog_state();
             slot.syncing = false;
         }
+        catalog().finished.notify_all();
     }
 }
 
@@ -451,13 +465,11 @@ fn gateway_base_url_from(api: &str) -> Option<String> {
 
 /// 拉取官方网关当前可用模型目录并更新本地内存缓存。
 ///
-/// 已有同步在途时直接返回当前缓存，避免并发请求互相覆盖；失败保留上次成功的目录，
+/// 已有同步在途时等待它结束后再拉取；失败保留上次成功的目录，
 /// 只记录 `last_error`，供 Settings 展示。
 pub fn fetch_models() -> Result<Vec<GatewayModel>, GatewayError> {
+    let _guard = CatalogSyncGuard::acquire();
     let active_session = session().ok_or(GatewayError::Unauthenticated)?;
-    let Some(_guard) = CatalogSyncGuard::begin() else {
-        return Ok(cached_models());
-    };
     let result = (|| {
         let value = graphql_client().post(
             Some(&active_session.token),
@@ -478,9 +490,7 @@ pub fn fetch_models() -> Result<Vec<GatewayModel>, GatewayError> {
 }
 
 fn apply_catalog_fetch_result(result: &Result<Vec<GatewayModel>, GatewayError>) {
-    let Ok(mut slot) = catalog_slot().write() else {
-        return;
-    };
+    let mut slot = catalog_state();
     match result {
         Ok(models) => {
             slot.models = models.clone();
@@ -908,13 +918,26 @@ mod tests {
     }
 
     #[test]
-    fn catalog_sync_guard_blocks_concurrent_fetch() {
+    fn catalog_sync_guard_waits_for_in_flight_fetch() {
         let _lock = test_state_lock();
         reset_catalog();
-        let guard = CatalogSyncGuard::begin().expect("first sync starts");
+        let first = CatalogSyncGuard::acquire();
         assert!(catalog_status().syncing);
-        assert!(CatalogSyncGuard::begin().is_none());
-        drop(guard);
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let waiter = std::thread::spawn(move || {
+            let _guard = CatalogSyncGuard::acquire();
+            tx.send(()).expect("notify acquired");
+        });
+        assert!(
+            rx.recv_timeout(std::time::Duration::from_millis(150))
+                .is_err(),
+            "second caller must wait for the first fetch"
+        );
+        drop(first);
+        rx.recv_timeout(std::time::Duration::from_secs(2))
+            .expect("second caller proceeds after completion");
+        waiter.join().expect("waiter thread");
         assert!(!catalog_status().syncing);
     }
 

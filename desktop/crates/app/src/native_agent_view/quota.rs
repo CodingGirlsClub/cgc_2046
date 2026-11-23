@@ -40,6 +40,12 @@ pub(super) fn wallet_card_visible(insufficient_quota: bool, wallet_panel_open: b
     insufficient_quota || wallet_panel_open
 }
 
+/// BYOK 选中时默认不显示也不刷新额度；但 Settings 显式打开的面板必须继续刷新，
+/// 否则支付成功后的 `refresh_wallet` 会被挡掉，面板停留在付款前余额。
+fn should_refresh_wallet(force: bool, managed_selected: bool, panel_from_settings: bool) -> bool {
+    force || managed_selected || panel_from_settings
+}
+
 pub(super) fn paid_state_action(insufficient_quota: bool) -> PaidStateAction {
     if insufficient_quota {
         PaidStateAction::RetryTurn
@@ -173,7 +179,11 @@ impl NativeAgentView {
             cx.notify();
             return;
         }
-        if !force && !self.is_managed_model_selected() {
+        if !should_refresh_wallet(
+            force,
+            self.is_managed_model_selected(),
+            self.wallet_panel_from_settings,
+        ) {
             self.wallet_refresh_serial = self.wallet_refresh_serial.wrapping_add(1);
             cx.notify();
             return;
@@ -711,8 +721,8 @@ fn render_wallet_breakdown(wallet: &WalletSummary, palette: &theme::Palette) -> 
 mod tests {
     use super::{
         format_grant_expiry, format_mc_as_cny, format_price_cents, grant_source_label,
-        paid_state_action, polling_error_is_transient, provider_label, wallet_badge_label,
-        wallet_card_visible, CheckoutSku, PaidStateAction, CHECKOUT_SKUS,
+        paid_state_action, polling_error_is_transient, provider_label, should_refresh_wallet,
+        wallet_badge_label, wallet_card_visible, CheckoutSku, PaidStateAction, CHECKOUT_SKUS,
     };
     use cgc_platform::gateway::GatewayError;
 
@@ -787,6 +797,14 @@ mod tests {
             code: Some("llm_payment_order_not_found".into()),
             message: "missing".into(),
         }));
+    }
+
+    #[test]
+    fn settings_wallet_entry_keeps_refreshing_after_byok_payment() {
+        assert!(!should_refresh_wallet(false, false, false));
+        assert!(should_refresh_wallet(true, false, false));
+        assert!(should_refresh_wallet(false, true, false));
+        assert!(should_refresh_wallet(false, false, true));
     }
 
     #[test]
