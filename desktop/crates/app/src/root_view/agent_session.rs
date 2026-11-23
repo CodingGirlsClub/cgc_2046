@@ -369,6 +369,7 @@ impl RootView {
 
     /// 账号/scope 切换时清掉 native 视图里上一账号的钱包、402 卡和在途回调。
     pub(in crate::root_view) fn reset_native_account_state(&mut self, cx: &mut Context<Self>) {
+        self.reset_settings_account_state(cx);
         if let Some(view) = self.native_agent_view.clone() {
             view.update(cx, |view, cx| view.reset_account_state(cx));
         }

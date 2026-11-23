@@ -219,7 +219,7 @@ impl SettingsWindowView {
         let prefs = self.provider_settings.load();
         let status = cgc_platform::gateway::catalog_status();
         if let Ok(mut state) = self.cgc_cloud.lock() {
-            state.signed_in = cgc_platform::gateway::signed_in();
+            state.signed_in = cgc_platform::gateway::current_user_id().is_some();
             state.apply_prefs(&prefs);
             state.models = status.models;
             state.fetched_at = status.fetched_at;
@@ -240,10 +240,10 @@ impl SettingsWindowView {
                 state.request_serial
             })
             .unwrap_or_default();
-        if !cgc_platform::gateway::signed_in() {
+        let Some(user_id) = cgc_platform::gateway::current_user_id() else {
             cx.notify();
             return;
-        }
+        };
         if let Ok(mut state) = self.cgc_cloud.lock() {
             state.wallet_loading = true;
             state.wallet_error = None;
@@ -278,10 +278,11 @@ impl SettingsWindowView {
                 let Ok(mut state) = state_handle.lock() else {
                     return;
                 };
-                if state.request_serial != serial {
+                let current_user_id = cgc_platform::gateway::current_user_id();
+                if !state.accepts_response(&user_id, current_user_id.as_deref(), serial) {
                     return;
                 }
-                state.signed_in = cgc_platform::gateway::signed_in();
+                state.signed_in = true;
                 state.models = status.models;
                 state.fetched_at = status.fetched_at;
                 state.last_error = status.last_error;
@@ -303,6 +304,14 @@ impl SettingsWindowView {
             });
         })
         .detach();
+    }
+
+    /// 账号切换/登出时由 RootView 调用：清掉上一账号的余额与目录，保留本机覆盖。
+    pub(crate) fn reset_cgc_cloud_account(&mut self, cx: &mut Context<Self>) {
+        if let Ok(mut state) = self.cgc_cloud.lock() {
+            state.clear_account_scoped();
+        }
+        cx.notify();
     }
 
     pub(crate) fn set_cgc_cloud_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {

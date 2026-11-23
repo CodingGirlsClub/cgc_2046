@@ -409,6 +409,11 @@ pub fn set_session(session: Option<&SignedInSession>) {
     }
 }
 
+/// 当前登录账号 id（不含 token）；用于丢弃跨账号的异步响应。
+pub fn current_user_id() -> Option<String> {
+    session().map(|session| session.user_id)
+}
+
 /// 当前进程是否持有登录会话。
 pub fn signed_in() -> bool {
     session_slot()
@@ -960,6 +965,29 @@ mod tests {
             .expect("second caller proceeds after completion");
         waiter.join().expect("waiter thread");
         assert!(!catalog_status().syncing);
+    }
+
+    #[test]
+    fn current_user_id_tracks_account_switches() {
+        let _lock = test_state_lock();
+        let session_a = SignedInSession {
+            token: "tok-a".to_string(),
+            user_id: "user-a".to_string(),
+            email: None,
+            is_platform_admin: false,
+        };
+        let session_b = SignedInSession {
+            token: "tok-b".to_string(),
+            user_id: "user-b".to_string(),
+            email: None,
+            is_platform_admin: false,
+        };
+        set_session(Some(&session_a));
+        assert_eq!(current_user_id().as_deref(), Some("user-a"));
+        set_session(Some(&session_b));
+        assert_eq!(current_user_id().as_deref(), Some("user-b"));
+        set_session(None);
+        assert!(current_user_id().is_none());
     }
 
     #[test]

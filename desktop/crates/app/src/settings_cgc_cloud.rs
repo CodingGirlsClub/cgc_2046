@@ -52,6 +52,29 @@ impl CgcCloudSettingsState {
         !self.disabled_models.contains(model_id)
     }
 
+    /// 账号切换/登出：清除账号维度的数据；provider/model 覆盖属于本机偏好，保留。
+    pub(crate) fn clear_account_scoped(&mut self) {
+        self.signed_in = false;
+        self.models.clear();
+        self.fetched_at = None;
+        self.last_error = None;
+        self.syncing = false;
+        self.wallet = None;
+        self.wallet_error = None;
+        self.wallet_loading = false;
+        self.request_serial = self.request_serial.wrapping_add(1);
+    }
+
+    /// 异步响应落地前校验账号与请求序号，避免把上一账号的余额写进当前卡片。
+    pub(crate) fn accepts_response(
+        &self,
+        response_user_id: &str,
+        current_user_id: Option<&str>,
+        serial: u64,
+    ) -> bool {
+        self.request_serial == serial && current_user_id == Some(response_user_id)
+    }
+
     pub(crate) fn enabled_model_count(&self) -> usize {
         self.models
             .iter()
@@ -375,7 +398,7 @@ fn wallet_line(state: &CgcCloudSettingsState) -> String {
 mod tests {
     use cgc_agent_store::{cgc_cloud_provider_with_models, AgentPrefs, ModelPrefs};
 
-    use super::{CgcCloudSettingsState, GatewayModel};
+    use super::{CgcCloudSettingsState, GatewayModel, WalletSummary};
 
     fn gateway_model(id: &str) -> GatewayModel {
         GatewayModel {
@@ -427,5 +450,59 @@ mod tests {
         assert!(state.model_enabled("managed-a"));
         assert!(!state.model_enabled("managed-b"));
         assert_eq!(state.enabled_model_count(), 1);
+    }
+
+    #[test]
+    fn account_switch_clears_wallet_and_catalog_but_keeps_overrides() {
+        let wallet = WalletSummary {
+            wallet_id: "w-old".to_string(),
+            cached_balance_mc: 10,
+            held_mc: 0,
+            available_mc: 10,
+            max_concurrent_streams: 1,
+            status: "active".to_string(),
+            remaining_percentage: 50,
+            active_grants: Vec::new(),
+        };
+        let mut state = CgcCloudSettingsState {
+            signed_in: true,
+            models: vec![gateway_model("managed-a")],
+            fetched_at: Some(10),
+            last_error: Some("old".to_string()),
+            syncing: true,
+            provider_enabled: false,
+            wallet: Some(wallet),
+            wallet_error: Some("wallet-error".to_string()),
+            wallet_loading: true,
+            request_serial: 7,
+            ..CgcCloudSettingsState::default()
+        };
+        state.disabled_models.insert("managed-a".to_string());
+
+        state.clear_account_scoped();
+
+        assert!(!state.signed_in);
+        assert!(state.models.is_empty());
+        assert!(state.fetched_at.is_none());
+        assert!(state.last_error.is_none());
+        assert!(!state.syncing);
+        assert!(state.wallet.is_none());
+        assert!(state.wallet_error.is_none());
+        assert!(!state.wallet_loading);
+        assert_eq!(state.request_serial, 8);
+        assert!(!state.provider_enabled, "本机覆盖必须保留");
+        assert!(state.disabled_models.contains("managed-a"));
+    }
+
+    #[test]
+    fn accepts_response_rejects_other_account_or_stale_serial() {
+        let state = CgcCloudSettingsState {
+            request_serial: 5,
+            ..CgcCloudSettingsState::default()
+        };
+        assert!(state.accepts_response("user-a", Some("user-a"), 5));
+        assert!(!state.accepts_response("user-a", Some("user-b"), 5));
+        assert!(!state.accepts_response("user-a", None, 5));
+        assert!(!state.accepts_response("user-a", Some("user-a"), 4));
     }
 }

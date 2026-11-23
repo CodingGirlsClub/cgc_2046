@@ -3915,6 +3915,26 @@ impl RootView {
         }
     }
 
+    /// 账号切换/登出时清掉设置窗口里上一账号的托管余额与目录状态。
+    pub(in crate::root_view) fn reset_settings_account_state(&mut self, cx: &mut Context<Self>) {
+        let views: Vec<_> = cx
+            .windows()
+            .into_iter()
+            .filter_map(|window| {
+                let root = window.downcast::<gpui_kit::base::Root>()?;
+                root.read(cx)
+                    .ok()?
+                    .view()
+                    .clone()
+                    .downcast::<crate::settings_window::SettingsWindowView>()
+                    .ok()
+            })
+            .collect();
+        for view in views {
+            view.update(cx, |view, cx| view.reset_cgc_cloud_account(cx));
+        }
+    }
+
     pub(in crate::root_view) fn sign_out(&mut self, cx: &mut Context<Self>) {
         self.session_epoch = self.session_epoch.wrapping_add(1);
         self.revoke_agent_authorization(cx);
