@@ -6,6 +6,8 @@ mod factory;
 mod gateway;
 mod mcp;
 mod operations;
+mod provider_refresh;
+pub(crate) use provider_refresh::refresh_catalog_and_providers;
 #[cfg(test)]
 mod thinking_tests;
 mod title;

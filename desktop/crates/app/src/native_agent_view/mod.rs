@@ -321,6 +321,7 @@ mod turn;
 mod view_ops;
 mod widgets;
 
+pub(crate) use quota::format_mc_as_cny;
 pub use state::NativeThreadState;
 pub(crate) use widgets::*;
 
@@ -398,12 +399,23 @@ pub struct NativeAgentView {
     wallet_refresh_serial: u64,
     /// 用户主动点击状态栏算力徽章展开的钱包/续费面板开关。
     wallet_panel_open: bool,
+    /// 由 Settings 充值入口打开：允许 BYOK 选中时仍展示额度/收银台。
+    wallet_panel_from_settings: bool,
     /// HTTP 403 / 钱包冻结时的客服提示（不触发充值卡片）。
     wallet_frozen_notice: Option<String>,
     /// 最近一次流式错误是否为算力不足；驱动 composer 上方的续费卡片。
     insufficient_quota: bool,
     quota_checkout: Option<QuotaCheckout>,
     quota_checkout_serial: u64,
+    /// 模型选择器打开时的目录懒补偿节流。
+    catalog_refresh: CatalogRefreshGate,
+}
+
+/// 目录懒补偿：同一时刻只发一次，失败/空目录后 10 秒内不重试。
+#[derive(Default)]
+struct CatalogRefreshGate {
+    in_flight: bool,
+    last_started: Option<std::time::Instant>,
 }
 
 #[derive(Clone)]

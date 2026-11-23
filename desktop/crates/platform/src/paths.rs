@@ -208,6 +208,11 @@ impl AppPaths {
         self.data_root.join("agent_prefs.json")
     }
 
+    /// 官方网关模型目录的本地快照（按 user_id 恢复，登录后台再刷新）。
+    pub fn gateway_models_cache_file(&self) -> PathBuf {
+        self.data_root.join("gateway_models_cache.json")
+    }
+
     /// 用户可编辑的桌面端设置文件（对齐 Zed settings.json 的定位）。
     ///
     /// 按平台放在用户配置目录，`CGC_SETTINGS_FILE` 可整体覆盖（测试/QA）：

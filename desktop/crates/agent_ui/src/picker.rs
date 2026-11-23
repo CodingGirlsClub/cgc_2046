@@ -89,8 +89,6 @@ type SharedSelectCallback = Rc<dyn Fn(usize, &mut Window, &mut App)>;
 pub struct PickerSearch {
     pub input: Entity<InputState>,
     pub scroll: ScrollHandle,
-    /// 弹层打开时回调（用于清空搜索词）。
-    pub on_open: Option<OpenCallback>,
 }
 
 pub struct PickerPopoverSpec {
@@ -105,6 +103,8 @@ pub struct PickerPopoverSpec {
     pub width: f32,
     pub list_max_height: Option<f32>,
     pub search: Option<PickerSearch>,
+    /// 弹层打开时回调（清空搜索词、懒刷新目录等）。
+    pub on_open: Option<OpenCallback>,
     /// 被点中条目的扁平下标（组标题不计入）。
     pub on_select: SelectCallback,
 }
@@ -122,6 +122,7 @@ pub fn render_picker_popover(spec: PickerPopoverSpec) -> AnyElement {
         width,
         list_max_height,
         search,
+        on_open,
         on_select,
     } = spec;
 
@@ -136,14 +137,7 @@ pub fn render_picker_popover(spec: PickerPopoverSpec) -> AnyElement {
 
     let list_id = SharedString::from(format!("{popover_id}-list"));
     let on_select: SharedSelectCallback = Rc::from(on_select);
-    let (search_input, search_on_open) = match search {
-        Some(PickerSearch {
-            input,
-            scroll,
-            on_open,
-        }) => (Some((input, scroll)), on_open),
-        None => (None, None),
-    };
+    let search_input = search.map(|PickerSearch { input, scroll }| (input, scroll));
 
     let mut popover = Popover::new(popover_id);
     if let Some(anchor) = anchor {
@@ -249,7 +243,7 @@ pub fn render_picker_popover(spec: PickerPopoverSpec) -> AnyElement {
             .child(list)
             .into_any_element()
     });
-    if let Some(on_open) = search_on_open {
+    if let Some(on_open) = on_open {
         popover = popover.on_open_change(move |open, window, cx| {
             if *open {
                 on_open(window, cx);

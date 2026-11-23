@@ -48,7 +48,7 @@ pub(super) fn paid_state_action(insufficient_quota: bool) -> PaidStateAction {
     }
 }
 
-fn format_mc_as_cny(mc: i64) -> String {
+pub(crate) fn format_mc_as_cny(mc: i64) -> String {
     format!("¥{:.2}", mc as f64 / 1_000_000.0)
 }
 
@@ -62,7 +62,7 @@ fn wallet_badge_label(available_mc: i64, percentage: i64, frozen: bool) -> Strin
     format!("额度 {}", format_mc_as_cny(available_mc))
 }
 
-fn format_price_cents(price_cents: i64) -> String {
+pub(crate) fn format_price_cents(price_cents: i64) -> String {
     if price_cents % 100 == 0 {
         format!("¥{}", price_cents / 100)
     } else {
@@ -111,6 +111,7 @@ impl NativeAgentView {
     pub(crate) fn reset_account_state(&mut self, cx: &mut Context<Self>) {
         self.wallet = None;
         self.wallet_panel_open = false;
+        self.wallet_panel_from_settings = false;
         self.wallet_frozen_notice = None;
         self.wallet_refresh_serial = self.wallet_refresh_serial.wrapping_add(1);
         self.clear_quota_state();
@@ -131,6 +132,7 @@ impl NativeAgentView {
             return;
         }
         self.wallet_panel_open = !self.wallet_panel_open;
+        self.wallet_panel_from_settings = false;
         if !self.wallet_panel_open && !self.insufficient_quota {
             self.quota_checkout = None;
             self.quota_checkout_serial = self.quota_checkout_serial.wrapping_add(1);
@@ -145,12 +147,25 @@ impl NativeAgentView {
             self.state.session.last_error = None;
         }
         self.wallet_panel_open = false;
+        self.wallet_panel_from_settings = false;
         self.clear_quota_state();
         cx.notify();
     }
 
     /// 登录成功 / 每轮结束后异步刷新 `myLlmWallet`；失败不阻塞对话。
     pub(crate) fn refresh_wallet(&mut self, cx: &mut Context<Self>) {
+        self.refresh_wallet_inner(false, cx);
+    }
+
+    /// Settings 托管卡片打开钱包：即使当前选的是 BYOK 也要能看余额与充值。
+    pub(crate) fn open_wallet_panel(&mut self, cx: &mut Context<Self>) {
+        self.wallet_panel_open = true;
+        self.wallet_panel_from_settings = true;
+        self.refresh_wallet_inner(true, cx);
+        cx.notify();
+    }
+
+    fn refresh_wallet_inner(&mut self, force: bool, cx: &mut Context<Self>) {
         if !cgc_platform::gateway::signed_in() {
             self.wallet = None;
             // 让已经发出的 wallet 请求在回调里也被丢弃。
@@ -158,7 +173,7 @@ impl NativeAgentView {
             cx.notify();
             return;
         }
-        if !self.is_managed_model_selected() {
+        if !force && !self.is_managed_model_selected() {
             self.wallet_refresh_serial = self.wallet_refresh_serial.wrapping_add(1);
             cx.notify();
             return;
@@ -438,9 +453,11 @@ impl NativeAgentView {
         palette: &theme::Palette,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        if !self.is_managed_model_selected()
-            || !wallet_card_visible(self.insufficient_quota, self.wallet_panel_open)
-        {
+        if !wallet_card_visible(self.insufficient_quota, self.wallet_panel_open) {
+            return None;
+        }
+        // BYOK 只在用户从 Settings 显式打开时展示；陈旧的主动面板状态不得泄漏。
+        if !self.is_managed_model_selected() && !self.wallet_panel_from_settings {
             return None;
         }
         let weak = cx.entity().downgrade();

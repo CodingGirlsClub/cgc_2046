@@ -484,8 +484,8 @@ pub(super) fn save_model_selection(
     if model.provider_id.as_str() == CGC_CLOUD_PROVIDER_ID
         && prefs.provider(CGC_CLOUD_PROVIDER_ID).is_none()
     {
-        let fallback = cgc_cloud_provider_from_gateway(None).unwrap_or_else(cgc_cloud_provider);
-        prefs.upsert_provider(fallback);
+        // 只落覆盖记录；远端目录由内存/缓存提供，不能把当时目录写死进磁盘。
+        prefs.upsert_provider(cgc_cloud_provider());
     }
     prefs.selected_provider = Some(model.provider_id.as_str().to_string());
     prefs.selected_model = Some(SelectedModel::new(

@@ -2,9 +2,11 @@
 
 use std::fmt;
 
+use cgc_agent_core::SelectedModel;
 use cgc_agent_provider::probe::RemoteModel;
 use cgc_agent_store::{
-    is_builtin_provider_id, provider_key_account, AgentPrefs, PrefsStore, ProviderPrefs,
+    cgc_cloud_provider, is_builtin_provider_id, is_managed_provider_id, provider_key_account,
+    AgentPrefs, ModelPrefs, PrefsStore, ProviderPrefs, CGC_CLOUD_PROVIDER_ID,
 };
 use cgc_platform::paths::AppPaths;
 use cgc_platform::session::KeychainStore;
@@ -21,6 +23,15 @@ pub(crate) enum ProviderPrefsChange {
     /// 只更新已保存 provider 的启用状态。
     SetProviderEnabled {
         provider_id: String,
+        enabled: bool,
+    },
+    /// 托管网关总开关：磁盘没有覆盖记录时先 upsert 再落开关。
+    SetManagedProviderEnabled {
+        enabled: bool,
+    },
+    /// 托管网关单模型开关：只写覆盖记录，不落远端全量目录。
+    SetManagedModelEnabled {
+        model_id: String,
         enabled: bool,
     },
     SaveKey {
@@ -127,6 +138,52 @@ impl ProviderSettings {
                 provider.enabled = enabled;
                 self.save(&mut prefs)
             }
+            ProviderPrefsChange::SetManagedProviderEnabled { enabled } => {
+                let mut prefs = self.prefs.load();
+                match prefs
+                    .providers
+                    .iter_mut()
+                    .find(|provider| provider.id == CGC_CLOUD_PROVIDER_ID)
+                {
+                    Some(provider) => provider.enabled = enabled,
+                    None => {
+                        let mut provider = cgc_cloud_provider();
+                        provider.enabled = enabled;
+                        prefs.upsert_provider(provider);
+                    }
+                }
+                self.save(&mut prefs)
+            }
+            ProviderPrefsChange::SetManagedModelEnabled { model_id, enabled } => {
+                let mut prefs = self.prefs.load();
+                if !prefs
+                    .providers
+                    .iter()
+                    .any(|provider| provider.id == CGC_CLOUD_PROVIDER_ID)
+                {
+                    prefs.upsert_provider(cgc_cloud_provider());
+                }
+                let Some(provider) = prefs
+                    .providers
+                    .iter_mut()
+                    .find(|provider| provider.id == CGC_CLOUD_PROVIDER_ID)
+                else {
+                    return Ok(());
+                };
+                match provider
+                    .model_params
+                    .iter_mut()
+                    .find(|model| model.id == model_id)
+                {
+                    Some(model) => model.enabled = enabled,
+                    None => {
+                        let mut model = ModelPrefs::new(model_id);
+                        model.enabled = enabled;
+                        provider.model_params.push(model);
+                    }
+                }
+                self.save(&mut prefs)
+            }
             ProviderPrefsChange::SaveKey { mut provider, key } => {
                 provider.builtin |= is_builtin_provider_id(&provider.id);
                 let account = provider_key_account(&provider.id);
@@ -197,20 +254,11 @@ impl ProviderSettings {
 
     fn save(&self, prefs: &mut AgentPrefs) -> Result<(), ProviderSettingsError> {
         // 切换 Provider 或移除模型后，热刷新可能返回 Busy；持久化选择不能依赖刷新修正。
-        if prefs.selected_model.as_ref().is_some_and(|selection| {
-            !prefs.active_provider().is_some_and(|provider| {
-                selection.provider_id.as_str() == provider.id
-                    && provider
-                        .models
-                        .iter()
-                        .any(|id| id == selection.model_id.as_str())
-                    && provider
-                        .model_params
-                        .iter()
-                        .find(|model| model.id == selection.model_id.as_str())
-                        .is_none_or(|model| model.enabled)
-            })
-        }) {
+        if prefs
+            .selected_model
+            .as_ref()
+            .is_some_and(|selection| !selection_is_available(prefs, selection))
+        {
             prefs.selected_model = None;
         }
         self.prefs
@@ -219,12 +267,43 @@ impl ProviderSettings {
     }
 }
 
+/// 选择是否仍可落到当前 provider。
+///
+/// 托管网关的模型目录只存在内存/缓存里，磁盘覆盖记录不复制远端 `models`；
+/// 因此托管分支只校验 provider 启用与单模型未显式禁用。
+fn selection_is_available(prefs: &AgentPrefs, selection: &SelectedModel) -> bool {
+    let Some(provider) = prefs.active_provider() else {
+        return false;
+    };
+    if selection.provider_id.as_str() != provider.id {
+        return false;
+    }
+    let model_enabled = provider
+        .model_params
+        .iter()
+        .find(|model| model.id == selection.model_id.as_str())
+        .is_none_or(|model| model.enabled);
+    if is_managed_provider_id(&provider.id) {
+        return model_enabled;
+    }
+    provider
+        .models
+        .iter()
+        .any(|id| id == selection.model_id.as_str())
+        && model_enabled
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
+    use cgc_agent_core::SelectedModel;
     use cgc_agent_provider::probe::RemoteModel;
-    use cgc_agent_store::{provider_key_account, PrefsStore, ProviderPrefs};
+    use cgc_agent_provider::{ModelId, ProviderId};
+    use cgc_agent_store::{
+        cgc_cloud_provider_with_models, provider_key_account, ModelPrefs, PrefsStore,
+        ProviderPrefs, CGC_CLOUD_PROVIDER_ID,
+    };
     use cgc_platform::session::{KeychainStore, SecretBackend};
 
     use super::{ProviderPrefsChange, ProviderSettings};
@@ -635,6 +714,111 @@ mod tests {
             cgc_agent_provider::ProviderProtocol::AnthropicCompatible
         );
         assert_eq!(after.models, vec!["test-model".to_string()]);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    fn select_managed_model(settings: &ProviderSettings, model_id: &str) {
+        let mut prefs = settings.load();
+        prefs.upsert_provider(cgc_cloud_provider_with_models(vec![ModelPrefs::new(
+            model_id,
+        )]));
+        prefs.selected_provider = Some(CGC_CLOUD_PROVIDER_ID.to_string());
+        prefs.selected_model = Some(SelectedModel::new(
+            ProviderId::new(CGC_CLOUD_PROVIDER_ID),
+            ModelId::new(model_id),
+        ));
+        settings.prefs.save(&prefs).expect("seed managed prefs");
+    }
+
+    #[test]
+    fn managed_selection_survives_byok_save() {
+        let root = std::env::temp_dir().join(format!("cgc-managed-select-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let settings = settings(&root);
+        select_managed_model(&settings, "managed-model");
+
+        settings
+            .apply(ProviderPrefsChange::SaveProvider(provider()))
+            .expect("save byok provider");
+
+        let prefs = settings.load();
+        assert_eq!(
+            prefs.selected_provider.as_deref(),
+            Some(CGC_CLOUD_PROVIDER_ID)
+        );
+        let selection = prefs.selected_model.expect("managed selection kept");
+        assert_eq!(selection.provider_id.as_str(), CGC_CLOUD_PROVIDER_ID);
+        assert_eq!(selection.model_id.as_str(), "managed-model");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn managed_provider_enable_upserts_missing_record() {
+        let root = std::env::temp_dir().join(format!("cgc-managed-upsert-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let settings = settings(&root);
+
+        settings
+            .apply(ProviderPrefsChange::SetManagedProviderEnabled { enabled: false })
+            .expect("disable managed provider");
+
+        let provider = settings
+            .load()
+            .provider(CGC_CLOUD_PROVIDER_ID)
+            .cloned()
+            .expect("managed record upserted");
+        assert!(!provider.enabled);
+        assert!(provider.models.is_empty());
+        assert!(provider.model_params.is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn managed_model_enable_upserts_model_param() {
+        let root = std::env::temp_dir().join(format!("cgc-managed-model-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let settings = settings(&root);
+
+        settings
+            .apply(ProviderPrefsChange::SetManagedModelEnabled {
+                model_id: "managed-model".into(),
+                enabled: false,
+            })
+            .expect("disable managed model");
+
+        let provider = settings
+            .load()
+            .provider(CGC_CLOUD_PROVIDER_ID)
+            .cloned()
+            .expect("managed record upserted");
+        assert!(
+            provider.models.is_empty(),
+            "must not copy the remote catalog"
+        );
+        let model = provider
+            .model_params
+            .iter()
+            .find(|model| model.id == "managed-model")
+            .expect("model override");
+        assert!(!model.enabled);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn disabling_managed_model_clears_selection() {
+        let root = std::env::temp_dir().join(format!("cgc-managed-clear-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let settings = settings(&root);
+        select_managed_model(&settings, "managed-model");
+
+        settings
+            .apply(ProviderPrefsChange::SetManagedModelEnabled {
+                model_id: "managed-model".into(),
+                enabled: false,
+            })
+            .expect("disable selected managed model");
+
+        assert!(settings.load().selected_model.is_none());
         let _ = std::fs::remove_dir_all(&root);
     }
 }

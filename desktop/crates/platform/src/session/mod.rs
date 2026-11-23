@@ -92,6 +92,7 @@ impl SessionService {
         let token = self.signed_in().map(|session| session.token.clone());
         let _ = self.store.clear();
         crate::gateway::set_session(None);
+        crate::gateway::clear_catalog_cache();
         self.state = SessionState::SignedOut;
         token
     }
@@ -159,6 +160,7 @@ impl SessionService {
         }
         let _ = self.store.clear();
         crate::gateway::set_session(None);
+        crate::gateway::clear_catalog_cache();
         self.state = SessionState::SignedOut;
     }
 }
