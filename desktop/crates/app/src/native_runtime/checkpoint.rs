@@ -1,5 +1,27 @@
-use super::worker::Owner;
+use cgc_agent_checkpoint::{
+    CheckpointError, GcMode, ObjectStoreStats, PrunedRef, ReclaimReport, DEFAULT_PRESSURE_KEEP_REFS,
+};
+
+use super::worker::{Job, Owner};
 use super::*;
+
+const CHECKPOINT_GC_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum CheckpointGcRequest {
+    Auto,
+    ReclaimForBudget,
+}
+
+#[derive(Debug)]
+pub(super) enum CheckpointGcOutcome {
+    Auto {
+        result: Result<ObjectStoreStats, CheckpointError>,
+    },
+    Reclaim {
+        result: Result<ReclaimReport, CheckpointError>,
+    },
+}
 
 impl Owner {
     pub(super) fn reload_checkpoints(&mut self) {
@@ -18,20 +40,46 @@ impl Owner {
     }
 
     pub(super) fn refresh_changes(&mut self) {
-        let result = match (&self.checkpoint_manager, self.checkpoints.last()) {
-            (Some(manager), Some((_, checkpoint))) => manager.changed_files(checkpoint),
-            _ => {
-                self.changes = Arc::new(Vec::new());
-                return;
-            }
+        if self.checkpoint_budget_exceeded {
+            self.queue_checkpoint_gc(CheckpointGcRequest::ReclaimForBudget);
+            return;
+        }
+        let Some((manager, (_, checkpoint))) = self
+            .checkpoint_manager
+            .as_ref()
+            .zip(self.checkpoints.last())
+        else {
+            self.changes = Arc::new(Vec::new());
+            return;
         };
-        match result {
+        match manager.changed_files(checkpoint) {
             Ok(changes) => self.changes = Arc::new(changes),
+            Err(CheckpointError::BudgetExceeded {
+                used_bytes,
+                limit_bytes,
+            }) => self.enter_budget_circuit_breaker(used_bytes, limit_bytes),
             Err(error) => self.notice(format!("读取检查点变更失败：{error}")),
         }
     }
 
+    fn enter_budget_circuit_breaker(&mut self, used_bytes: u64, limit_bytes: u64) {
+        self.checkpoint_budget_exceeded = true;
+        if !self.checkpoint_budget_notice_reported {
+            self.checkpoint_budget_notice_reported = true;
+            self.notice(format!(
+                "检查点对象库已超过容量上限（{} / {}），已暂停本轮快照并触发后台清理。",
+                format_bytes(used_bytes),
+                format_bytes(limit_bytes),
+            ));
+        }
+        self.queue_checkpoint_gc(CheckpointGcRequest::ReclaimForBudget);
+    }
+
     pub(super) fn capture_checkpoint(&mut self, thread_id: &str, ordinal: usize) {
+        if self.checkpoint_budget_exceeded {
+            self.queue_checkpoint_gc(CheckpointGcRequest::ReclaimForBudget);
+            return;
+        }
         let Some(manager) = &self.checkpoint_manager else {
             if !self.checkpoint_notice_reported {
                 self.checkpoint_notice_reported = true;
@@ -39,13 +87,12 @@ impl Owner {
             }
             return;
         };
-        let result = manager.snapshot(thread_id, ordinal as u64);
-        match result {
-            Ok(checkpoint) => {
+        match manager.snapshot_with_report(thread_id, ordinal as u64) {
+            Ok(report) => {
                 if let Some(store) = &mut self.store {
                     if let Err(error) = store.save_thread(&self.frozen).and_then(|()| {
                         store.save_checkpoint(
-                            &checkpoint,
+                            &report.checkpoint,
                             ordinal as i64,
                             crate::native_context::now_secs(),
                         )
@@ -55,27 +102,193 @@ impl Owner {
                 }
                 let checkpoints = Arc::make_mut(&mut self.checkpoints);
                 checkpoints.retain(|(existing, _)| *existing != ordinal);
-                checkpoints.push((ordinal, checkpoint));
+                checkpoints.push((ordinal, report.checkpoint));
                 checkpoints.sort_by_key(|(ordinal, _)| *ordinal);
+                self.apply_pruned_refs(&report.pruned, false);
+                self.checkpoint_budget_exceeded = false;
+                self.checkpoint_budget_notice_reported = false;
+                self.checkpoint_unrecoverable_notice_reported = false;
+                if report.needs_gc {
+                    self.queue_checkpoint_gc(CheckpointGcRequest::Auto);
+                }
             }
+            Err(CheckpointError::BudgetExceeded {
+                used_bytes,
+                limit_bytes,
+            }) => self.enter_budget_circuit_breaker(used_bytes, limit_bytes),
             Err(error) => self.notice(format!("本轮未创建检查点：{error}（文件改动无法回滚）")),
+        }
+    }
+
+    pub(super) fn apply_pruned_refs(&mut self, pruned: &[PrunedRef], same_repo: bool) {
+        if pruned.is_empty() {
+            return;
+        }
+        let current_thread_id = self.frozen.id.clone();
+        for item in pruned {
+            if let Some(store) = &mut self.store {
+                if let Err(error) = store.mark_checkpoint_invalid(&item.thread_id, item.seq as i64)
+                {
+                    log::warn!(target: "native", "mark pruned checkpoint invalid failed: {error}");
+                }
+            }
+            if item.thread_id == current_thread_id {
+                let target_ordinal = item.seq as usize;
+                Arc::make_mut(&mut self.checkpoints)
+                    .retain(|(ordinal, _)| *ordinal != target_ordinal);
+            }
+        }
+        if same_repo {
+            self.refresh_changes();
+            self.publish(RuntimeChange::Checkpoint);
         }
     }
 
     pub(super) fn invalidate_checkpoints(&mut self, from: usize) -> Result<(), NativeRuntimeError> {
         if let Some(store) = &mut self.store {
-            for (ordinal, _) in self
-                .checkpoints
-                .iter()
-                .filter(|(ordinal, _)| *ordinal >= from)
-            {
+            for (ordinal, _) in self.checkpoints.iter().filter(|(o, _)| *o >= from) {
                 store
                     .mark_checkpoint_invalid(&self.frozen.id, *ordinal as i64)
                     .map_err(|error| NativeRuntimeError::Storage(error.to_string()))?;
             }
         }
         Arc::make_mut(&mut self.checkpoints).retain(|(ordinal, _)| *ordinal < from);
+        if let Some(manager) = &self.checkpoint_manager {
+            match manager.delete_refs_from(&self.frozen.id, from as u64) {
+                Ok(deleted) if !deleted.is_empty() => {
+                    self.queue_checkpoint_gc(CheckpointGcRequest::Auto);
+                    self.maybe_start_checkpoint_gc();
+                }
+                Ok(_) => {}
+                Err(error) => self.notice(format!("清理 Git 检查点引用失败：{error}")),
+            }
+        }
         Ok(())
+    }
+
+    pub(super) fn queue_checkpoint_gc(&mut self, request: CheckpointGcRequest) {
+        self.checkpoint_gc_pending = Some(match (self.checkpoint_gc_pending, request) {
+            (Some(CheckpointGcRequest::ReclaimForBudget), _)
+            | (_, CheckpointGcRequest::ReclaimForBudget) => CheckpointGcRequest::ReclaimForBudget,
+            _ => CheckpointGcRequest::Auto,
+        });
+    }
+
+    pub(super) fn maybe_start_checkpoint_gc(&mut self) {
+        if self.active.is_some() || self.checkpoint_gc_running {
+            return;
+        }
+        let Some(request) = self.checkpoint_gc_pending else {
+            return;
+        };
+        let cooldown_applies = matches!(request, CheckpointGcRequest::Auto)
+            || (matches!(request, CheckpointGcRequest::ReclaimForBudget)
+                && self.checkpoint_unrecoverable_notice_reported);
+        if cooldown_applies
+            && self
+                .last_checkpoint_gc_at
+                .is_some_and(|last| last.elapsed() < CHECKPOINT_GC_COOLDOWN)
+        {
+            return;
+        }
+        let Some(manager) = self.checkpoint_manager.clone() else {
+            self.checkpoint_gc_pending = None;
+            return;
+        };
+        self.checkpoint_gc_pending = None;
+        self.checkpoint_gc_running = true;
+        let current_thread_id = self.frozen.id.clone();
+        let repo = manager.repo().to_path_buf();
+        let (sender, receiver) = oneshot::channel();
+        let spawned = std::thread::Builder::new()
+            .name("cgc-checkpoint-gc".into())
+            .spawn(move || {
+                let outcome = match request {
+                    CheckpointGcRequest::Auto => CheckpointGcOutcome::Auto {
+                        result: manager.run_gc(GcMode::Auto),
+                    },
+                    CheckpointGcRequest::ReclaimForBudget => CheckpointGcOutcome::Reclaim {
+                        result: manager
+                            .reclaim_for_budget(&current_thread_id, DEFAULT_PRESSURE_KEEP_REFS),
+                    },
+                };
+                let _ = sender.send(outcome);
+            });
+        if let Err(error) = spawned {
+            log::warn!(target: "native", "failed to spawn checkpoint gc thread: {error}");
+            self.checkpoint_gc_running = false;
+            self.checkpoint_gc_pending = Some(request);
+            return;
+        }
+        self.jobs.push(Box::pin(async move {
+            let outcome = receiver.await.unwrap_or_else(|_| match request {
+                CheckpointGcRequest::Auto => CheckpointGcOutcome::Auto {
+                    result: Err(CheckpointError::Io("checkpoint gc cancelled".into())),
+                },
+                CheckpointGcRequest::ReclaimForBudget => CheckpointGcOutcome::Reclaim {
+                    result: Err(CheckpointError::Io("checkpoint reclaim cancelled".into())),
+                },
+            });
+            Job::CheckpointGc {
+                repo,
+                request,
+                outcome,
+            }
+        }));
+    }
+
+    fn apply_reclaim_budget(&mut self, reclaim: &ReclaimReport, warn_unrecoverable: bool) {
+        self.last_checkpoint_gc_at = Some(std::time::Instant::now());
+        self.checkpoint_budget_exceeded = !reclaim.within_budget;
+        if reclaim.within_budget {
+            self.checkpoint_budget_notice_reported = false;
+            self.checkpoint_unrecoverable_notice_reported = false;
+        } else if warn_unrecoverable && !self.checkpoint_unrecoverable_notice_reported {
+            self.checkpoint_unrecoverable_notice_reported = true;
+            let used = format_bytes(reclaim.stats_after.total_bytes());
+            let limit = format_bytes(reclaim.limit_bytes);
+            self.notice(format!(
+                "检查点对象库清理后仍超过容量上限（{used} / {limit}），已暂停新检查点；不会删除你的 Git 分支或提交。",
+            ));
+        }
+    }
+
+    pub(super) fn checkpoint_gc_completed(
+        &mut self,
+        repo: PathBuf,
+        _request: CheckpointGcRequest,
+        outcome: CheckpointGcOutcome,
+    ) {
+        self.checkpoint_gc_running = false;
+        let same_repo = self
+            .checkpoint_manager
+            .as_ref()
+            .is_some_and(|m| m.repo() == repo);
+        if same_repo {
+            self.last_checkpoint_gc_at = Some(std::time::Instant::now());
+        }
+        match outcome {
+            CheckpointGcOutcome::Auto { result: Err(error) } if same_repo => {
+                log::warn!(target: "native", "background checkpoint gc failed: {error}");
+            }
+            CheckpointGcOutcome::Auto { .. } => {}
+            CheckpointGcOutcome::Reclaim {
+                result: Ok(reclaim),
+            } => {
+                // SQLite 会话库跨 scope 共享：即便 GC 期间切了 scope 也必须标记已删 ref 为 invalid。
+                if same_repo {
+                    self.apply_reclaim_budget(&reclaim, true);
+                }
+                self.apply_pruned_refs(&reclaim.pruned, same_repo);
+            }
+            CheckpointGcOutcome::Reclaim { result: Err(error) } => {
+                self.apply_pruned_refs(error.pruned_refs(), same_repo);
+                if same_repo {
+                    log::warn!(target: "native", "background checkpoint reclaim failed: {error}");
+                }
+            }
+        }
+        self.maybe_start_checkpoint_gc();
     }
 
     pub(super) fn rewind(
@@ -116,18 +329,12 @@ impl Owner {
                 .restore(&checkpoint)
                 .map_err(|error| NativeRuntimeError::Checkpoint(error.to_string()))?;
         }
-        self.agent
-            .as_mut()
-            .ok_or(NativeRuntimeError::Closed)?
+        let agent = self.agent.as_mut().ok_or(NativeRuntimeError::Closed)?;
+        agent.thread_mut().entries.truncate(index);
+        agent
             .thread_mut()
-            .entries
-            .truncate(index);
-        if let Some(agent) = &mut self.agent {
-            agent
-                .thread_mut()
-                .user_drafts
-                .truncate(ordinal.saturating_sub(1));
-        }
+            .user_drafts
+            .truncate(ordinal.saturating_sub(1));
         self.invalidate_checkpoints(ordinal)?;
         self.prepared = None;
         self.generation = self.generation.wrapping_add(1);
@@ -177,5 +384,116 @@ impl Owner {
         }
         self.publish(RuntimeChange::Checkpoint);
         Ok(self.snapshot())
+    }
+
+    pub(super) fn inspect_checkpoint_storage(
+        &self,
+        reply: Reply<Option<WorkspaceCheckpointStorage>>,
+    ) {
+        let Some(manager) = self.checkpoint_manager.clone() else {
+            let _ = reply.send(Ok(None));
+            return;
+        };
+        let _ = std::thread::Builder::new()
+            .name("cgc-checkpoint-stats".into())
+            .spawn(move || {
+                let repo = manager.repo().to_path_buf();
+                let result = manager
+                    .storage_summary()
+                    .map(|summary| Some(WorkspaceCheckpointStorage { repo, summary }))
+                    .map_err(|error| NativeRuntimeError::Checkpoint(error.to_string()));
+                let _ = reply.send(result);
+            });
+    }
+
+    pub(super) fn start_manual_checkpoint_cleanup(
+        &mut self,
+        expected_repo: PathBuf,
+        reply: Reply<ReclaimReport>,
+    ) {
+        if self.active.is_some() || self.checkpoint_gc_running {
+            let _ = reply.send(Err(NativeRuntimeError::Busy));
+            return;
+        }
+        let repo_matches = self
+            .checkpoint_manager
+            .as_ref()
+            .map_or(self.config.context.workspace() == expected_repo, |m| {
+                m.repo() == expected_repo
+            });
+        if !repo_matches {
+            let _ = reply.send(Err(NativeRuntimeError::WorkspaceChanged));
+            return;
+        }
+        let Some(manager) = self.checkpoint_manager.clone() else {
+            let msg = "当前工作区没有可用的 Git 检查点".into();
+            let _ = reply.send(Err(NativeRuntimeError::Checkpoint(msg)));
+            return;
+        };
+        self.checkpoint_gc_running = true;
+        self.checkpoint_gc_pending = None;
+        let current_thread_id = self.frozen.id.clone();
+        let repo = manager.repo().to_path_buf();
+        let (sender, receiver) = oneshot::channel();
+        let spawned = std::thread::Builder::new()
+            .name("cgc-checkpoint-purge".into())
+            .spawn(move || {
+                let _ = sender.send(manager.purge_history_checkpoints(Some(&current_thread_id), 1));
+            });
+        if let Err(error) = spawned {
+            self.checkpoint_gc_running = false;
+            let _ = reply.send(Err(NativeRuntimeError::Checkpoint(error.to_string())));
+            return;
+        }
+        self.jobs.push(Box::pin(async move {
+            let cancelled = || CheckpointError::Io("manual checkpoint purge cancelled".into());
+            let result = receiver.await.unwrap_or_else(|_| Err(cancelled()));
+            Job::ManualCheckpointCleanup {
+                repo,
+                reply,
+                result,
+            }
+        }));
+    }
+
+    pub(super) fn manual_checkpoint_cleanup_completed(
+        &mut self,
+        repo: PathBuf,
+        reply: Reply<ReclaimReport>,
+        result: Result<ReclaimReport, CheckpointError>,
+    ) {
+        self.checkpoint_gc_running = false;
+        let same_repo = self
+            .checkpoint_manager
+            .as_ref()
+            .is_some_and(|m| m.repo() == repo);
+        let mapped = match result {
+            Ok(report) => {
+                self.apply_pruned_refs(&report.pruned, false);
+                if same_repo {
+                    self.apply_reclaim_budget(&report, false);
+                    self.refresh_changes();
+                    self.publish(RuntimeChange::Checkpoint);
+                }
+                Ok(report)
+            }
+            Err(error) => {
+                self.apply_pruned_refs(error.pruned_refs(), same_repo);
+                Err(NativeRuntimeError::Checkpoint(error.to_string()))
+            }
+        };
+        let _ = reply.send(mapped);
+        self.maybe_start_checkpoint_gc();
+    }
+}
+
+pub(crate) fn format_bytes(bytes: u64) -> String {
+    let value = bytes as f64;
+    if value >= 1024.0 * 1024.0 {
+        format!("{:.1} MiB", value / (1024.0 * 1024.0))
+    } else if value >= 1024.0 {
+        format!("{:.1} KiB", value / 1024.0)
+    } else {
+        format!("{bytes} B")
     }
 }
