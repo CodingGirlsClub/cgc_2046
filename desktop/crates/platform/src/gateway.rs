@@ -254,6 +254,22 @@ fn model_json(model: &GatewayModel) -> Value {
     })
 }
 
+enum CatalogCacheAction {
+    Write(String),
+    Remove,
+}
+
+fn catalog_cache_action(
+    user_id: &str,
+    fetched_at: u64,
+    models: &[GatewayModel],
+) -> CatalogCacheAction {
+    match cached_catalog_json(user_id, fetched_at, models) {
+        Some(raw) => CatalogCacheAction::Write(raw),
+        None => CatalogCacheAction::Remove,
+    }
+}
+
 fn cached_catalog_json(user_id: &str, fetched_at: u64, models: &[GatewayModel]) -> Option<String> {
     if models.is_empty() {
         return None;
@@ -284,19 +300,24 @@ fn load_cached_catalog(user_id: &str) -> Option<(Vec<GatewayModel>, u64)> {
 }
 
 fn persist_catalog(user_id: &str, models: &[GatewayModel], fetched_at: u64) {
-    let Some(raw) = cached_catalog_json(user_id, fetched_at, models) else {
-        return;
-    };
     let path = catalog_cache_path();
-    let Some(parent) = path.parent() else {
-        return;
-    };
-    if std::fs::create_dir_all(parent).is_err() {
-        return;
-    }
-    let temp_path = path.with_extension("json.tmp");
-    if std::fs::write(&temp_path, raw).is_ok() {
-        let _ = std::fs::rename(&temp_path, &path);
+    match catalog_cache_action(user_id, fetched_at, models) {
+        // 成功但为空：删除旧快照，避免重启后恢复已被撤下的模型。
+        CatalogCacheAction::Remove => {
+            let _ = std::fs::remove_file(&path);
+        }
+        CatalogCacheAction::Write(raw) => {
+            let Some(parent) = path.parent() else {
+                return;
+            };
+            if std::fs::create_dir_all(parent).is_err() {
+                return;
+            }
+            let temp_path = path.with_extension("json.tmp");
+            if std::fs::write(&temp_path, raw).is_ok() {
+                let _ = std::fs::rename(&temp_path, &path);
+            }
+        }
     }
 }
 
@@ -939,6 +960,18 @@ mod tests {
             .expect("second caller proceeds after completion");
         waiter.join().expect("waiter thread");
         assert!(!catalog_status().syncing);
+    }
+
+    #[test]
+    fn empty_successful_fetch_invalidates_the_persisted_catalog() {
+        assert!(matches!(
+            catalog_cache_action("user-a", 1, &[]),
+            CatalogCacheAction::Remove
+        ));
+        assert!(matches!(
+            catalog_cache_action("user-a", 1, &sample_gateway_models()),
+            CatalogCacheAction::Write(_)
+        ));
     }
 
     #[test]
