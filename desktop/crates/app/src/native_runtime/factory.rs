@@ -117,7 +117,12 @@ pub(super) fn merge_available_providers(
 ) -> Vec<ProviderPrefs> {
     let mut available = Vec::new();
     if let Some(managed) = managed_provider {
-        if managed.enabled && !managed.models.is_empty() {
+        if managed.enabled
+            && managed
+                .models
+                .iter()
+                .any(|id| managed.model_config(id).enabled)
+        {
             available.push(managed);
         }
     }
@@ -152,9 +157,14 @@ pub(super) fn resolve_active_provider_with_env(
         return (false, byok_active);
     }
     let saved_managed = prefs.provider(CGC_CLOUD_PROVIDER_ID);
-    let managed_available = managed_provider
-        .as_ref()
-        .is_some_and(|provider| provider.enabled && !provider.models.is_empty());
+    // 目录里有模型不等于可用：全部被用户停用时必须回退到已配置的 BYOK。
+    let managed_available = managed_provider.as_ref().is_some_and(|provider| {
+        provider.enabled
+            && provider
+                .models
+                .iter()
+                .any(|id| provider.model_config(id).enabled)
+    });
     let configured_byok = prefs
         .providers
         .iter()

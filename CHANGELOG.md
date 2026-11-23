@@ -25,6 +25,7 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 ### Fixed
 
 - [Desktop] 网关模型目录同步失败时保留上次成功目录并展示原因；登录后按账号恢复本地目录快照，打开模型选择器时自动补拉。
+- [Desktop] 托管模型全部停用后回退到已配置的 BYOK provider，不再显示「未配置模型」。
 
 ## [Desktop v0.1.0-dev.20261121]
 
