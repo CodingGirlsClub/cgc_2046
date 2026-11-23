@@ -187,7 +187,7 @@
 
 ### Thread journal（线程日志审计，已退役）
 
-> **已退役（2026-11-22）：`JidoStoragePostgres` 与数据库表 `jido_thread_entries` / `jido_thread_meta` / `jido_checkpoints` 已移除，本条仅作历史记录。**
+> **已退役（2026-11-22）：`JidoStoragePostgres` 与全部代码读写路径已移除（`jido_checkpoints` / `jido_thread_entries` / `jido_thread_meta` 数据库表为兼容 blue-green 部署切流窗口暂留，排空后由 #1331 迁移清理），本条仅作历史记录。**
 
 - **定义**：原规划基于 Jido Storage 的 append-only 日志 + Checkpoint 状态快照 + Introspection 溯源链，作为引擎侧审计数据源（D-A5）。
 - **架构位置**：现已全面退役；**引擎侧信号审计真源为 `Cgc2046.Workflows.SignalLog`（`signal_logs` 表）**，**MCP 审计真源为 `Cgc2046.Mcp.ToolCallLog`**，并辅以 `Cgc2046.Workflows.PlatformAudit`（`WorkflowRun` 脱敏元数据读面）与 `Accounts.AdminActionLog`。
@@ -231,7 +231,7 @@
 ### Runic DAG（jido_runic，已退役，2026-11-22）
 
 - **定义**：原基于 `jido_runic` / `Runic.Workflow`（`0.1.0-alpha`）的数据流 DAG 编排方案（曾由 `JidoAdapter` 结合 `jido_checkpoints` 承载 `hibernate`/`thaw` 门控与求值）。
-- **架构位置**：**已退役（2026-11-22）**：`jido_runic`、`runic`、`jido` 及持久化表（`jido_checkpoints` / `jido_thread_entries` / `jido_thread_meta`）已从 `backend/mix.exs` 与数据库移除；生产中不存在 `:auto` / `:gate` / `:sub_workflow` 自动 DAG，线性人工门控改由 `Cgc2046.Workflows.Engine` 基于 `WorkflowDefinition.node_def` + `SignalLog` 纯数据驱动。
+- **架构位置**：**已退役（2026-11-22）**：`jido_runic`、`runic`、`jido` 依赖及代码侧对持久化表（`jido_checkpoints` / `jido_thread_entries` / `jido_thread_meta`）的全部读写已移除（三张表为兼容 blue-green 部署切流窗口暂留，排空后由 #1331 迁移删除）；生产中不存在 `:auto` / `:gate` / `:sub_workflow` 自动 DAG，线性人工门控改由 `Cgc2046.Workflows.Engine` 基于 `WorkflowDefinition.node_def` + `SignalLog` 纯数据驱动。
 
 ### 任务指令模式（Task-Instruction Pattern）
 

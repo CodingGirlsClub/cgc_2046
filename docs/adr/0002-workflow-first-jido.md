@@ -1,7 +1,7 @@
 # ADR-0002: workflow-first + Jido 架构
 
 > 日期：2026-08-01 ｜ 状态：**已接受（Accepted）** ｜ 决策者：用户（方伯）+ Leader + Jido/Workflow架构研究员（worker_4cfa7aa2）+ 领域建模工程师（worker_f150e10b）
-> 2026-11-22 架构演进修订：保留 `Jido.Signal.Bus`（依赖收敛为 `{:jido_signal, "~> 2.2"}`）作为全站异步领域信号总线（2 成异步路径）；Workflow 执行层收敛为 `WorkflowRun` + 纯数据线性人工门控引擎（`Cgc2046.Workflows.Engine`）+ `SignalLog`（`signal_logs` 表）；正式退役 `jido`、`jido_runic`、`ash_jido`、`Runic.Workflow`、`Jido.Persist`、`StepHandlerRegistry`、`jido_checkpoints`、`jido_thread_entries`、`jido_thread_meta` 及 `Thread journal` 审计源，审计真源为 `SignalLog`（`signal_logs`）+ `ToolCallLog`。
+> 2026-11-22 架构演进修订：保留 `Jido.Signal.Bus`（依赖收敛为 `{:jido_signal, "~> 2.2"}`）作为全站异步领域信号总线（2 成异步路径）；Workflow 执行层收敛为 `WorkflowRun` + 纯数据线性人工门控引擎（`Cgc2046.Workflows.Engine`）+ `SignalLog`（`signal_logs` 表）；正式退役 `jido`、`jido_runic`、`ash_jido`、`Runic.Workflow`、`Jido.Persist`、`StepHandlerRegistry` 与 `Thread journal` 审计源，停用全部 `jido_checkpoints` / `jido_thread_entries` / `jido_thread_meta` 代码读写（三张数据库表为兼容 Kamal blue-green 部署切流窗口暂留，排空后由 #1331 迁移删除），审计真源为 `SignalLog`（`signal_logs`）+ `ToolCallLog`。
 > 关联：ADR-0001（网站作为 MCP server 的 BYO 架构）、docs/03-决策记录/grill-决策记录-2026-08-01.md（D1-D14）、docs/04-引擎验证/workflow-engine-ddd-design.md
 
 ---
@@ -23,7 +23,7 @@
 | D-A2 | WorkflowDefinition 带版本管理（改定义不影响已开始 run） | 决策 1 |
 | D-A3 | Event/Course 挂 Workspace（Event 场地形态 / Course 线上课程）；Sponsorship 两级（Event+Workspace）；SpeakerInvitation Event 级；Workspace 创建两级入口 | 出范围（面向领域建模工作坊「领域模型定稿 · §5.1」的并排参考，属业务模型定稿而非本 ADR 引擎落地；落地由后续业务 context 实施承接，本 ADR 决策 #1-8 未覆盖） |
 | D-A4 | Enrollment 归活动 context，由报名 workflow 同步调 `create_enrollment` Action 创建；不自动成为 Workspace 成员（已被 ADR-0009 / ADR-0005 修订：Enrollment 已独立归 `Cgc2046.Admission` 并走实体自序贯，不再经报名 workflow） | 决策 5 |
-| D-A5 | 每 Workspace = 一个 partition；审计 context 数据源 = Thread journal（**2026-11-22 架构演进修订**：`partition_id`（= `workspace_id`）仅保留在 `WorkflowRun` 作为租户隔离字段，不再用于 `Jido.Persist` checkpoint；`jido_checkpoints`、`jido_thread_entries`、`jido_thread_meta` 及 `Thread journal` 审计源已退役，审计真源为 `SignalLog`（`signal_logs`）+ `ToolCallLog`） | 决策 6/7 |
+| D-A5 | 每 Workspace = 一个 partition；审计 context 数据源 = Thread journal（**2026-11-22 架构演进修订**：`partition_id`（= `workspace_id`）仅保留在 `WorkflowRun` 作为租户隔离字段，不再用于 `Jido.Persist` checkpoint；`JidoStoragePostgres` 与 `Thread journal` 审计源已退役，代码侧停止读写 `jido_checkpoints`、`jido_thread_entries`、`jido_thread_meta`（三张表由 #1331 在发布排空后迁移清理），审计真源为 `SignalLog`（`signal_logs`）+ `ToolCallLog`） | 决策 6/7 |
 | D-A6 | 同步写走 Action（8 成）、衍生/通知走 Signal 异步（2 成） | 决策 5 |
 | D-A7 | 连接器扩展自动配置 mcp.json（取代 D13 手动粘贴） | 出范围（onboarding/扩展落地侧，非本 ADR 引擎决策；后续由 #211 及扩展仓实现，GLOSSARY.md §1「连接器扩展」词条为现行描述） |
 
@@ -41,7 +41,7 @@
 6. **多租户 = Jido partition**：每个 Workspace = 一个 partition（registry identity、persistence、lineage、telemetry 隔离）；WorkflowRun 归属 partition。
    - **2026-11-22 架构演进修订**：`Jido.Persist` 及 Jido 运行时 `AgentServer`/registry 隔离已退役；`partition_id`（= `workspace_id`）仅保留在 `WorkflowRun` 作为租户隔离字段，不再用于 Jido Persist checkpoint。
 7. **审计 context 数据源 = Jido Storage Thread journal**：append-only + Checkpoint + Introspection 溯源链；AgentRun/ToolCallLog 概念对应关系保留并说明（ToolCallLog = MCP 接入审计，Thread journal = 引擎事件溯源，AgentRun = 按 Step 聚合的领域操作记录）。
-   - **2026-11-22 架构演进修订**：正式退役 `Jido.Persist`、`jido_checkpoints`、`jido_thread_entries`、`jido_thread_meta` 及 `Thread journal` 审计源；审计真源收敛为引擎侧 `SignalLog`（`signal_logs` 表）+ MCP 侧 `ToolCallLog`（并辅以 `AdminActionLog` 与 `PlatformAudit`），`AgentRun` 仍维持不建写模型、由 `ToolCallLog` 投影的语义。
+   - **2026-11-22 架构演进修订**：正式退役 `Jido.Persist`、`JidoStoragePostgres` 与 `Thread journal` 审计源，停用全部 `jido_checkpoints`、`jido_thread_entries`、`jido_thread_meta` 读写（数据库表由 #1331 在发布排空后清理）；审计真源收敛为引擎侧 `SignalLog`（`signal_logs` 表）+ MCP 侧 `ToolCallLog`（并辅以 `AdminActionLog` 与 `PlatformAudit`），`AgentRun` 仍维持不建写模型、由 `ToolCallLog` 投影的语义。
 8. **BYO 兼容**：引擎不跑 LLM；自动步骤是确定性 Action，人工步骤等的是"人"的信号；需 LLM 的步骤仍由用户侧 OpenClacky 完成（经 MCP 工具/信号回引擎）。D1/D3 不受影响。
 
 ## 后果（Consequences）
@@ -55,7 +55,7 @@
   - **人工步骤信号授权只认认证 actor（#4 教训）**：`resume_signal` 的授权与审计一律取 `changeset.context[:private][:actor]`，**不接受客户端传入的身份参数**（`actor_id` 已移除）——否则任何成员可伪造 owner id 放行 manual 门控。未来 MCP 工具暴露 `resume_signal` 时，actor 必须由服务端从认证上下文注入，禁止信任客户端身份；`start_run` 同组 bypass 但引擎执行 auto 步骤不授权（§4.3），无此漏洞。
 - **2026-11-22 架构演进修订（后果更新）**：
   - 保留 `Jido.Signal.Bus`（依赖收敛为 `{:jido_signal, "~> 2.2"}`）作为全站异步领域信号总线（2 成异步路径），避免在非编排层面重造异步事件总线；
-  - 以 `WorkflowRun` + 纯数据线性人工门控引擎（`Cgc2046.Workflows.Engine`）+ `SignalLog`（`signal_logs` 表）替代 `Runic.Workflow` DAG 与 `Jido.Persist` 检查点，彻底消除 `runic` `0.1.0-alpha` 实验期风险、闭包序列化脆性以及无用的 `jido` / `jido_runic` / `ash_jido` / `StepHandlerRegistry` / `jido_checkpoints` / `jido_thread_entries` / `jido_thread_meta` 运维与迁移负担；
+  - 以 `WorkflowRun` + 纯数据线性人工门控引擎（`Cgc2046.Workflows.Engine`）+ `SignalLog`（`signal_logs` 表）替代 `Runic.Workflow` DAG 与 `Jido.Persist` 检查点，彻底消除 `runic` `0.1.0-alpha` 实验期风险、闭包序列化脆性以及无用的 `jido` / `jido_runic` / `ash_jido` / `StepHandlerRegistry` / `JidoStoragePostgres` 运行时负担（保留 `jido_checkpoints` / `jido_thread_entries` / `jido_thread_meta` 至发布排空后由 #1331 删表）；
   - 生产中已不存在 `:auto` / `:gate` / `:sub_workflow` 自动 DAG，原有「auto 步骤」与「子 workflow 嵌套」相关前提不再适用；`resume_signal` 的认证 `actor` 注入约束继续生效。
 
 ## 决策依赖
