@@ -190,8 +190,11 @@ defmodule Cgc2046.Flashback.Recover do
     end
   end
 
-  defp people_sharing_email(%{email: email} = person) when is_binary(email) and email != "" do
-    Enum.uniq_by([person | match_people(:email, email, nil)], & &1.id)
+  defp people_sharing_email(%{email: email} = person) when is_binary(email) do
+    case email |> String.trim() |> String.downcase() do
+      "" -> [person]
+      normalized -> Enum.uniq_by([person | match_people(:email, normalized, nil)], & &1.id)
+    end
   end
 
   defp people_sharing_email(person), do: [person]
@@ -282,9 +285,11 @@ defmodule Cgc2046.Flashback.Recover do
   end
 
   defp match_people(:email, email, _nil) do
+    target = email |> String.trim() |> String.downcase()
+
     Person
     |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(email == ^email)
+    |> Ash.Query.filter(fragment("lower(btrim(?)) = ?", email, ^target))
     |> Ash.Query.sort(inserted_at: :asc)
     |> Ash.read!(authorize?: false)
   end
@@ -385,12 +390,19 @@ defmodule Cgc2046.Flashback.Recover do
     from = Keyword.get(config, :from, "no-reply@example.com")
     from_name = Keyword.get(config, :from_name, "CGC 2046")
 
+    html_body =
+      body
+      |> Plug.HTML.html_escape()
+      |> String.replace("\r\n", "\n")
+      |> String.replace("\n", "<br>\n")
+
     message =
       Swoosh.Email.new()
       |> Swoosh.Email.from({from_name, from})
       |> Swoosh.Email.to(email)
       |> Swoosh.Email.subject("你的闪念间档案入口")
       |> Swoosh.Email.text_body(body)
+      |> Swoosh.Email.html_body(html_body)
 
     case Mailer.deliver(message) do
       {:ok, _} ->

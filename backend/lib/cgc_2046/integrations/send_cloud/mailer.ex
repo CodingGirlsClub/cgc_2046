@@ -47,9 +47,20 @@ defmodule Cgc2046.Integrations.SendCloud.Mailer do
       "fromName" => config[:from_name],
       "to" => recipients(email.to),
       "subject" => email.subject,
-      "html" => email.html_body || ""
+      "html" => html_content(email)
     }
   end
+
+  defp html_content(%Email{html_body: html}) when is_binary(html) and html != "", do: html
+
+  defp html_content(%Email{text_body: text}) when is_binary(text) and text != "" do
+    text
+    |> Plug.HTML.html_escape()
+    |> String.replace("\r\n", "\n")
+    |> String.replace("\n", "<br>\n")
+  end
+
+  defp html_content(_), do: ""
 
   defp recipients(recipients) do
     Enum.map_join(recipients, ",", fn

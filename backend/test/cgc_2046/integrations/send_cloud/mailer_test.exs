@@ -32,6 +32,29 @@ defmodule Cgc2046.Integrations.SendCloud.MailerTest do
     assert form["html"] == "<p>Reset</p>"
   end
 
+  test "falls back to HTML-escaped text_body when html_body is absent" do
+    register_stub(fn conn, test_pid ->
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+      send(test_pid, {:request, conn.request_path, URI.decode_query(body)})
+      Req.Test.json(conn, %{"result" => true, "info" => "message-id"})
+    end)
+
+    email =
+      new()
+      |> from("sender@example.com")
+      |> to("recipient@example.com")
+      |> subject("你的闪念间档案入口")
+      |> text_body("第一行 <token>\n第二行：https://example.com/flashback/enter?token=fb_123")
+
+    assert {:ok, %{"result" => true}} =
+             Mailer.deliver(email, @config ++ [req_options: [plug: {Req.Test, @stub}]])
+
+    assert_receive {:request, "/apiv2/mail/send", form}
+
+    assert form["html"] ==
+             "第一行 &lt;token&gt;<br>\n第二行：https://example.com/flashback/enter?token=fb_123"
+  end
+
   test "returns an error when SendCloud reports a failed result" do
     register_stub(fn conn, _test_pid ->
       Req.Test.json(conn, %{"result" => false, "message" => "invalid credentials"})
