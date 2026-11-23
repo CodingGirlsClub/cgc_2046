@@ -2683,6 +2683,18 @@ impl RootView {
         }
     }
 
+    /// Settings 的充值入口：切回 native 对话并打开钱包/收银台面板。
+    pub(crate) fn open_native_wallet(&mut self, cx: &mut Context<Self>) {
+        self.agent_panel_open = true;
+        self.dismiss_terminal_for_chat(cx);
+        self.set_native_chat_mode(true);
+        if let Some(view) = self.native_agent_view.clone() {
+            view.update(cx, |view, cx| view.open_wallet_panel(cx));
+        }
+        self.activate_window(cx);
+        cx.notify();
+    }
+
     /// 记录上次可见的面板条目，供下次启动恢复（budget=1）。
     fn persist_panel_intent(&self) {
         match screens::panel_content(self) {
@@ -3900,6 +3912,26 @@ impl RootView {
                 self.session.fail_sign_in(&error);
                 self.login_error = Some(LoginError::from_auth_error(&error));
             }
+        }
+    }
+
+    /// 账号切换/登出时清掉设置窗口里上一账号的托管余额与目录状态。
+    pub(in crate::root_view) fn reset_settings_account_state(&mut self, cx: &mut Context<Self>) {
+        let views: Vec<_> = cx
+            .windows()
+            .into_iter()
+            .filter_map(|window| {
+                let root = window.downcast::<gpui_kit::base::Root>()?;
+                root.read(cx)
+                    .ok()?
+                    .view()
+                    .clone()
+                    .downcast::<crate::settings_window::SettingsWindowView>()
+                    .ok()
+            })
+            .collect();
+        for view in views {
+            view.update(cx, |view, cx| view.reset_cgc_cloud_account(cx));
         }
     }
 

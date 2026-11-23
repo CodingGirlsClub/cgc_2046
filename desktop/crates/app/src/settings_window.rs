@@ -14,7 +14,7 @@ use cgc_agent_provider::{
     ProviderErrorCategory, ProviderProtocol, ThinkingMode,
 };
 use cgc_agent_store::{
-    builtin_providers, is_builtin_provider_id, next_provider_id, normalized_provider_name,
+    builtin_byok_providers, is_builtin_provider_id, next_provider_id, normalized_provider_name,
     ModelPrefs, ProviderPrefs,
 };
 use gpui_kit::component::button::{Button, ButtonVariants};
@@ -38,6 +38,7 @@ use crate::preferences::{self, CursorBlinkPreference};
 use crate::provider_fetch::{fill_missing_efforts, merge_remote_models, now_unix};
 use crate::provider_settings::{ProviderPrefsChange, ProviderSettings};
 use crate::root_view::{title_bar_left_inset, TITLEBAR_HEIGHT};
+use crate::settings_cgc_cloud::{self, CgcCloudHandlers, CgcCloudSettingsState};
 use crate::settings_checkpoint::{self, CheckpointSettingsState};
 use crate::settings_provider::{
     append_reasoning_efforts, catalog_status, edited_models, efforts_in_text, format_model_lines,
@@ -85,6 +86,8 @@ pub struct SettingsWindowView {
     clear_acp_history_notice: Arc<Mutex<Option<String>>>,
     /// Git 检查点对象库占用与手动清理状态。
     checkpoint_storage: Arc<Mutex<CheckpointSettingsState>>,
+    /// CGC Cloud 托管卡片：目录、开关覆盖与钱包摘要。
+    cgc_cloud: Arc<Mutex<CgcCloudSettingsState>>,
     /// 「重置当前工作台布局」的二次确认状态与结果提示。
     reset_workspace_layout_armed: Arc<AtomicBool>,
     reset_workspace_layout_notice: Arc<Mutex<Option<String>>>,
@@ -108,16 +111,8 @@ impl SettingsWindowView {
     ) -> Self {
         let provider_settings = ProviderSettings::new();
         let prefs = provider_settings.load();
-        let mut drafts: Vec<ProviderDraft> = builtin_providers()
-            .iter()
-            .map(ProviderDraft::from_prefs)
-            .collect();
-        for provider in &prefs.providers {
-            match drafts.iter_mut().find(|draft| draft.id == provider.id) {
-                Some(slot) => *slot = ProviderDraft::from_prefs(provider),
-                None => drafts.push(ProviderDraft::from_prefs(provider)),
-            }
-        }
+        let drafts = crate::settings_provider::drafts_from_prefs(&prefs);
+        let cgc_cloud = Arc::new(Mutex::new(settings_cgc_cloud::state_from_prefs(&prefs)));
         let checkpoint_storage = Arc::new(Mutex::new(CheckpointSettingsState::for_runtime(
             runtime.is_some(),
         )));
@@ -144,6 +139,7 @@ impl SettingsWindowView {
             clear_acp_history_armed: Arc::new(AtomicBool::new(false)),
             clear_acp_history_notice: Arc::new(Mutex::new(None)),
             checkpoint_storage: checkpoint_storage.clone(),
+            cgc_cloud,
             reset_workspace_layout_armed: Arc::new(AtomicBool::new(false)),
             reset_workspace_layout_notice: Arc::new(Mutex::new(None)),
             root,
@@ -160,6 +156,7 @@ impl SettingsWindowView {
         self.settings_page = SETTINGS_PAGE_AI;
         self.settings_nonce = self.settings_nonce.wrapping_add(1);
         self.refresh_checkpoint_storage(cx);
+        self.refresh_cgc_cloud(cx);
         cx.notify();
     }
 
@@ -214,7 +211,158 @@ impl SettingsWindowView {
         self.ai_view = AiRoute::Providers;
         self.settings_page = SETTINGS_PAGE_AI;
         self.settings_nonce = self.settings_nonce.wrapping_add(1);
+        self.refresh_cgc_cloud(cx);
         cx.notify();
+    }
+
+    fn sync_cgc_cloud_state(&mut self) {
+        let prefs = self.provider_settings.load();
+        let status = cgc_platform::gateway::catalog_status();
+        if let Ok(mut state) = self.cgc_cloud.lock() {
+            state.signed_in = cgc_platform::gateway::current_user_id().is_some();
+            state.apply_prefs(&prefs);
+            state.models = status.models;
+            state.fetched_at = status.fetched_at;
+            state.last_error = status.last_error;
+            state.syncing = status.syncing;
+        }
+    }
+
+    /// 刷新托管目录与钱包；`request_serial` 丢弃被新请求取代的回调。
+    pub(crate) fn refresh_cgc_cloud(&mut self, cx: &mut Context<Self>) {
+        self.sync_cgc_cloud_state();
+        // 无论登录态都推进序号：登出后旧回调不再覆盖卡片。
+        let serial = self
+            .cgc_cloud
+            .lock()
+            .map(|mut state| {
+                state.request_serial = state.request_serial.wrapping_add(1);
+                state.request_serial
+            })
+            .unwrap_or_default();
+        let Some(user_id) = cgc_platform::gateway::current_user_id() else {
+            cx.notify();
+            return;
+        };
+        if let Ok(mut state) = self.cgc_cloud.lock() {
+            state.wallet_loading = true;
+            state.wallet_error = None;
+        }
+        let state_handle = self.cgc_cloud.clone();
+        let runtime = self.runtime.clone();
+        let catalog_task = cx
+            .background_executor()
+            .spawn(async { cgc_platform::gateway::fetch_models() });
+        let wallet_task = cx
+            .background_executor()
+            .spawn(async { cgc_platform::gateway::wallet() });
+        cx.spawn(async move |this, cx| {
+            let runtime_result = match runtime {
+                Some(runtime) => {
+                    crate::native_runtime::refresh_catalog_and_providers(
+                        runtime,
+                        Some(catalog_task),
+                    )
+                    .await
+                    .runtime
+                }
+                None => {
+                    let _ = catalog_task.await;
+                    Ok(())
+                }
+            };
+            let wallet = wallet_task.await;
+            let status = cgc_platform::gateway::catalog_status();
+            let _ = this.update(cx, |this, cx| {
+                let prefs = this.provider_settings.load();
+                let Ok(mut state) = state_handle.lock() else {
+                    return;
+                };
+                let current_user_id = cgc_platform::gateway::current_user_id();
+                if !state.accepts_response(&user_id, current_user_id.as_deref(), serial) {
+                    return;
+                }
+                state.signed_in = true;
+                state.models = status.models;
+                state.fetched_at = status.fetched_at;
+                state.last_error = status.last_error;
+                state.syncing = status.syncing;
+                state.wallet_loading = false;
+                match wallet {
+                    Ok(wallet) => {
+                        state.wallet = Some(wallet);
+                        state.wallet_error = None;
+                    }
+                    Err(error) => state.wallet_error = Some(error.diagnostic()),
+                }
+                state.apply_prefs(&prefs);
+                drop(state);
+                if let Err(error) = runtime_result {
+                    this.error = Some(format!("模型配置刷新失败：{error}"));
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 账号切换/登出时由 RootView 调用：清掉上一账号的余额与目录，保留本机覆盖。
+    pub(crate) fn reset_cgc_cloud_account(&mut self, cx: &mut Context<Self>) {
+        if let Ok(mut state) = self.cgc_cloud.lock() {
+            state.clear_account_scoped();
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn set_cgc_cloud_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        match self
+            .provider_settings
+            .apply(ProviderPrefsChange::SetManagedProviderEnabled { enabled })
+        {
+            Ok(()) => {
+                self.sync_cgc_cloud_state();
+                self.refresh_provider_runtime(
+                    if enabled {
+                        "CGC Cloud 已启用".to_string()
+                    } else {
+                        "CGC Cloud 已停用".to_string()
+                    },
+                    cx,
+                );
+            }
+            Err(error) => {
+                self.error = Some(error.to_string());
+                cx.notify();
+            }
+        }
+    }
+
+    pub(crate) fn set_cgc_model_enabled(
+        &mut self,
+        model_id: String,
+        enabled: bool,
+        cx: &mut Context<Self>,
+    ) {
+        match self
+            .provider_settings
+            .apply(ProviderPrefsChange::SetManagedModelEnabled {
+                model_id: model_id.clone(),
+                enabled,
+            }) {
+            Ok(()) => {
+                self.sync_cgc_cloud_state();
+                let message = if enabled {
+                    format!("{model_id} 已启用")
+                } else {
+                    format!("{model_id} 已停用")
+                };
+                self.refresh_provider_runtime(message, cx);
+            }
+            Err(error) => {
+                self.error = Some(error.to_string());
+                cx.notify();
+            }
+        }
     }
 
     pub fn focus_handle(&self) -> FocusHandle {
@@ -526,7 +674,7 @@ impl SettingsWindowView {
             return;
         };
         self.cancel_validation_for(&draft.id);
-        let Some(default) = builtin_providers()
+        let Some(default) = builtin_byok_providers()
             .into_iter()
             .find(|provider| provider.id == draft.id)
         else {
@@ -560,7 +708,7 @@ impl SettingsWindowView {
             self.cancel_validation_for(&id);
             let prefs = self.provider_settings.load();
             let restored = prefs.provider(&id).cloned().or_else(|| {
-                builtin_providers()
+                builtin_byok_providers()
                     .into_iter()
                     .find(|provider| provider.id == id)
             });
@@ -1338,7 +1486,7 @@ impl SettingsWindowView {
             return;
         };
         let chosen: std::collections::BTreeSet<String> = std::iter::once(id.to_string()).collect();
-        let catalog: Vec<ModelPrefs> = builtin_providers()
+        let catalog: Vec<ModelPrefs> = builtin_byok_providers()
             .into_iter()
             .flat_map(|provider| provider.model_params)
             .collect();
@@ -1394,7 +1542,7 @@ impl SettingsWindowView {
         }
         let params = if draft.remote_models.iter().any(|remote| remote.id == id) {
             let chosen: std::collections::BTreeSet<String> = std::iter::once(id.clone()).collect();
-            let catalog: Vec<ModelPrefs> = builtin_providers()
+            let catalog: Vec<ModelPrefs> = builtin_byok_providers()
                 .into_iter()
                 .flat_map(|provider| provider.model_params)
                 .collect();
@@ -2039,6 +2187,9 @@ impl SettingsWindowView {
         let providers_weak = weak.clone();
         let providers_drafts = drafts.clone();
         let providers_validating = self.key_validation.provider().map(str::to_owned);
+        let providers_cgc_cloud = self.cgc_cloud.clone();
+        let providers_root = self.root.clone();
+        let native_agent_available = crate::root_view::RootView::native_agent_available();
         let providers_item = SettingItem::render(move |_options, _window, cx| {
             let palette = theme::palette_from_theme(cx);
             render_provider_list(
@@ -2049,6 +2200,9 @@ impl SettingsWindowView {
                 notice.clone(),
                 error.clone(),
                 providers_validating.as_deref(),
+                providers_cgc_cloud.clone(),
+                providers_root.clone(),
+                native_agent_available,
             )
         });
         let providers_header = {
@@ -2300,6 +2454,7 @@ impl SettingsWindowView {
                         .on_click(move |_, _, cx| {
                             let _ = weak.update(cx, |this, cx| {
                                 this.ai_view = AiRoute::Providers;
+                                this.refresh_cgc_cloud(cx);
                                 cx.notify();
                             });
                         }),
@@ -2506,6 +2661,7 @@ fn provider_validation_message(error: &ProviderError) -> &'static str {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_provider_list(
     _cx: &mut App,
     weak: &WeakEntity<SettingsWindowView>,
@@ -2514,6 +2670,9 @@ fn render_provider_list(
     notice: Option<String>,
     error: Option<String>,
     validating_provider: Option<&str>,
+    cgc_cloud: Arc<Mutex<CgcCloudSettingsState>>,
+    root: WeakEntity<crate::root_view::RootView>,
+    native_agent_available: bool,
 ) -> AnyElement {
     let mut rows: Vec<AnyElement> = Vec::new();
     for (index, draft) in drafts.iter().enumerate() {
@@ -2645,52 +2804,32 @@ fn render_provider_list(
                 .into_any_element(),
         );
     }
+    let toggle_weak = weak.clone();
+    let model_weak = weak.clone();
+    let refresh_weak = weak.clone();
+    let handlers = CgcCloudHandlers {
+        toggle_provider: Box::new(move |enabled, _window, cx| {
+            let _ = toggle_weak.update(cx, |this, cx| this.set_cgc_cloud_enabled(enabled, cx));
+        }),
+        toggle_model: Box::new(move |model_id, enabled, _window, cx| {
+            let _ = model_weak.update(cx, |this, cx| {
+                this.set_cgc_model_enabled(model_id, enabled, cx);
+            });
+        }),
+        refresh: Box::new(move |_window, cx| {
+            let _ = refresh_weak.update(cx, |this, cx| this.refresh_cgc_cloud(cx));
+        }),
+        open_wallet: Box::new(move |_window, cx| {
+            let _ = root.update(cx, |root, cx| root.open_native_wallet(cx));
+        }),
+    };
+    let cgc_cloud_card =
+        settings_cgc_cloud::render_card(&cgc_cloud, handlers, native_agent_available, palette);
     div()
         .flex()
         .flex_col()
         .gap(space(1))
-        .child(
-            div()
-                .id("settings-cgc-placeholder")
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap(space(2))
-                .p(space(1))
-                .rounded(px(RADIUS_MEDIUM))
-                .border_1()
-                .border_color(palette.line)
-                .child(
-                    div()
-                        .flex_1()
-                        .flex()
-                        .flex_col()
-                        .gap(px(1.0))
-                        .child(div().text_size(px(13.0)).child("CGC - 程序媛汇"))
-                        .child(
-                            div()
-                                .text_size(px(10.0))
-                                .text_color(palette.ink_3)
-                                .child("程序媛汇账号托管模型（网关接入中，占位）"),
-                        ),
-                )
-                .child(
-                    div()
-                        .id("settings-cgc-start")
-                        .role(Role::Button)
-                        .aria_label("开始使用 CGC")
-                        .px(space(2))
-                        .py(px(4.0))
-                        .rounded(px(RADIUS_MEDIUM))
-                        .bg(palette.accent)
-                        .text_color(palette.canvas)
-                        .text_size(px(11.0))
-                        .child("开始使用")
-                        .on_click(move |_, _, cx| {
-                            cx.open_url("https://codingirlsclub.com/");
-                        }),
-                ),
-        )
+        .child(cgc_cloud_card)
         .children(rows)
         .children(notice.map(|notice| {
             div()

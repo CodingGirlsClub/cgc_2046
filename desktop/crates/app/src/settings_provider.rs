@@ -2,7 +2,9 @@
 
 use cgc_agent_provider::probe::RemoteModel;
 use cgc_agent_provider::{ProviderError, ProviderProtocol, ThinkingMode};
-use cgc_agent_store::{ModelPrefs, ProviderPrefs};
+use cgc_agent_store::{
+    builtin_byok_providers, is_managed_provider_id, AgentPrefs, ModelPrefs, ProviderPrefs,
+};
 use gpui_kit::component::input::{InputState, TextareaState};
 use gpui_kit::*;
 
@@ -78,6 +80,26 @@ pub(crate) enum CatalogTab {
     #[default]
     All,
     Selected,
+}
+
+/// Settings 的 BYOK 草稿：内置目录 + 用户保存的自定义 provider。
+///
+/// 托管网关（`cgc-cloud`）由独立卡片管理，绝不进入 BYOK 列表与表单。
+pub(crate) fn drafts_from_prefs(prefs: &AgentPrefs) -> Vec<ProviderDraft> {
+    let mut drafts: Vec<ProviderDraft> = builtin_byok_providers()
+        .iter()
+        .map(ProviderDraft::from_prefs)
+        .collect();
+    for provider in &prefs.providers {
+        if is_managed_provider_id(&provider.id) {
+            continue;
+        }
+        match drafts.iter_mut().find(|draft| draft.id == provider.id) {
+            Some(slot) => *slot = ProviderDraft::from_prefs(provider),
+            None => drafts.push(ProviderDraft::from_prefs(provider)),
+        }
+    }
+    drafts
 }
 
 /// 空串视为未设置，避免把空白地址写进 prefs。
@@ -341,10 +363,29 @@ impl KeyValidation {
 
 #[cfg(test)]
 mod tests {
+    use cgc_agent_store::{cgc_cloud_provider, ProviderPrefs, CGC_CLOUD_PROVIDER_ID};
+
     use super::{
-        edited_models, efforts_in_text, next_provider_name, KeyValidation, KeyValidationAction,
-        ProviderDraft,
+        drafts_from_prefs, edited_models, efforts_in_text, next_provider_name, KeyValidation,
+        KeyValidationAction, ProviderDraft,
     };
+
+    #[test]
+    fn byok_drafts_exclude_the_managed_provider() {
+        let mut prefs = cgc_agent_store::AgentPrefs::default();
+        prefs.upsert_provider(cgc_cloud_provider());
+        prefs.upsert_provider(ProviderPrefs {
+            id: "custom-1".to_string(),
+            name: "Custom".to_string(),
+            ..ProviderPrefs::default()
+        });
+
+        let drafts = drafts_from_prefs(&prefs);
+        let ids: Vec<&str> = drafts.iter().map(|draft| draft.id.as_str()).collect();
+        assert!(!ids.contains(&CGC_CLOUD_PROVIDER_ID));
+        assert!(ids.contains(&"deepseek"));
+        assert!(ids.contains(&"custom-1"));
+    }
 
     #[test]
     fn copied_provider_gets_a_free_name() {

@@ -1056,6 +1056,55 @@ fn non_cgc_model_hides_all_quota_ui_and_switching_back_restores_badge(cx: &mut T
 }
 
 #[gpui_kit::test]
+fn settings_wallet_entry_shows_quota_card_for_byok(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let (handle, probe) = cx.update(|cx| {
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds {
+                    origin: Default::default(),
+                    size: size(px(440.0), px(640.0)),
+                })),
+                ..Default::default()
+            },
+            cx,
+            |window, cx| cx.new(|cx| NativeComposerProbe::new(window, cx)),
+        )
+        .unwrap()
+    });
+    let byok = cgc_agent_store::ProviderPrefs {
+        id: "deepseek".into(),
+        name: "DeepSeek BYOK".into(),
+        models: vec!["deepseek-chat".into()],
+        has_key: true,
+        enabled: true,
+        model_params: vec![cgc_agent_store::ModelPrefs::new("deepseek-chat")],
+        ..Default::default()
+    };
+    cx.update_window(handle, |_, window, cx| {
+        let view = probe.read(cx).view.clone();
+        view.update(cx, |view, cx| {
+            set_probe_active_model(
+                view,
+                "deepseek",
+                "DeepSeek BYOK",
+                "deepseek-chat",
+                "deepseek-chat",
+                vec![byok],
+            );
+            view.open_wallet_panel(cx);
+        });
+        window.render_frame(cx);
+        assert!(view.read(cx).wallet_panel_from_settings);
+        assert!(
+            window.try_find("native-agent-quota-card").is_some(),
+            "Settings 入口应允许 BYOK 用户查看额度/充值"
+        );
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
 fn model_picker_renders_cgc_cloud_gateway_models_alongside_byok_with_display_names(
     cx: &mut TestAppContext,
 ) {
