@@ -45,6 +45,7 @@ pub mod qr;
 pub mod registration;
 pub mod root_view;
 pub mod routing;
+pub(crate) mod settings_checkpoint;
 pub(crate) mod settings_provider;
 pub mod settings_window;
 pub mod theme;
