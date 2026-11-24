@@ -49,11 +49,13 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 ### Changed
 
 - [Backend] GraphQL 模块拆分：auth 变更、llm_gateway、account、invitation、mcp、initiatives、readiness 各自独立 schema 文件，单文件保持 500 行以内。
+- [Backend] 工作流引擎用纯数据的手动 gate 引擎替换 `jido_runic` checkpoint 依赖，移除 `jido_runic` / `ash_jido` 运行时；ADR 与术语表同步。
 
 ### Fixed
 
 - [Backend] SendCloud 邮件在缺少 `text_body` 时回退正文，恢复邮件找回流程。
 - [Backend] `admin_list_audit_logs` 增加 SQL 投影，避免整行加载；清理过期 moduledoc 与无用的 Fanout 兼容层。
+- [Backend] 删除 jido 表的迁移延后到 rollout 之后，避免灰度期间旧实例写入已删除的表。
 
 ## [Desktop v0.1.0-dev.20261121]
 
