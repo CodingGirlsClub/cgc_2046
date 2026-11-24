@@ -1,8 +1,10 @@
 # ADR-0003：基于 pi 设计哲学重构 CGC 架构方向
 
-> 日期：2026-08-05 ｜ 状态：**已接受（Accepted，方向性）** ｜ 决策者：用户（方伯）+ Leader
+> 日期：2026-08-05 ｜ 状态：**已接受（Accepted，历史方向参考；2026-11-24 收口）** ｜ 决策者：用户（方伯）+ Leader
 > 关联：ADR-0001（BYO/MCP server）、ADR-0002（workflow-first + Jido）、issue #85（学习 Pi，重构 CGC 的架构设计）、Spec #22
 > 学习来源：pi-book 32 章（https://zhanghandong.github.io/pi-book/）+ 本地 pi-mono repo 四层架构源码印证
+
+> **2026-11-24 收口注记**：本 ADR 仅保留「薄内核 / 能力外置 / 事件驱动」设计哲学作为历史方向参考。正文中面向早期 Jido / slice 骨架的具体重构项（如 `StepHandlerRegistry` 两阶段初始化、`transformContext` 剥离 checkpoint、`beforeToolCall` 声明式审批 DSL、`jido_runic` 隔离、租户 Provider Trust Registry、可插拔 MCP 执行器及低风险清单项）均已被后续独立 ADR 与工程实现取代或自然消亡——详见 ADR-0002（PR #1330 收敛为纯数据线性人工门控引擎并移除 `jido` / `jido_runic` / `ash_jido` / `StepHandlerRegistry`）、ADR-0005、ADR-0009、ADR-0021、ADR-0026、ADR-0028。后续研发与 agent 不再按本清单推进未落地项。
 
 ---
 
