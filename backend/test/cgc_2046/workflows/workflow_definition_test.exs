@@ -293,7 +293,7 @@ defmodule Cgc2046.Workflows.WorkflowDefinitionTest do
       workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin)
 
-      attrs = %{definition_id: defn.id, step_key: "dup", title: "A", type: :auto}
+      attrs = %{definition_id: defn.id, step_key: "dup", title: "A", type: :manual}
 
       assert {:ok, _} =
                Step
@@ -308,6 +308,26 @@ defmodule Cgc2046.Workflows.WorkflowDefinitionTest do
       assert Enum.any?(errors, &match?(%Ash.Error.Changes.InvalidAttribute{}, &1))
     end
 
+    test "rejects retired step types (auto, gate, sub_workflow)" do
+      admin = Fixtures.platform_admin("wfdef")
+      workspace = Fixtures.create_workspace(admin)
+      {:ok, defn} = create_definition(workspace, admin)
+
+      for retired <- [:auto, :gate, :sub_workflow] do
+        assert {:error, %Ash.Error.Invalid{errors: errors}} =
+                 Step
+                 |> Ash.Changeset.for_create(:create, %{
+                   definition_id: defn.id,
+                   step_key: "retired_#{retired}",
+                   title: "Retired",
+                   type: retired
+                 })
+                 |> Ash.create(tenant: workspace.id, actor: admin)
+
+        assert Enum.any?(errors, &match?(%Ash.Error.Changes.InvalidAttribute{}, &1))
+      end
+    end
+
     test "definition has_many steps" do
       admin = Fixtures.platform_admin("wfdef")
       workspace = Fixtures.create_workspace(admin)
@@ -319,7 +339,7 @@ defmodule Cgc2046.Workflows.WorkflowDefinitionTest do
           definition_id: defn.id,
           step_key: key,
           title: key,
-          type: :auto
+          type: :manual
         })
         |> Ash.create!(tenant: workspace.id, actor: admin)
       end

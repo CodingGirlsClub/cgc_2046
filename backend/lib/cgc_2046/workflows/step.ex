@@ -5,19 +5,12 @@ defmodule Cgc2046.Workflows.Step do
   领域模型：Step 是独立资源（ER 有 STEP 实体 + FK），
   非 node_def 内嵌——这样 StepRole 通过 step_id 直接关联，#38 授权查询高效。
 
-  ## 四分类（#36，领域模型定稿 §4.3）
+  ## 步骤类型
 
-  - `:auto` 自动步骤——Jido Action（纯函数/可含副作用）
-  - `:manual` 人工步骤——SignalMatch 门控等待外部信号
-  - `:gate` 门控/分支——按 Fact 条件路由下游
-  - `:sub_workflow` 子 workflow——嵌套 DAG（sub_definition_id 指向另一 WorkflowDefinition）
+  - `:manual` 人工步骤——纯数据线性门控，等待外部信号（`"workflow.<step_key>"`）放行
 
-  ## ADR-0003 纪律
-
-  - `action` 是模块名字符串，指向经 `StepHandlerRegistry` 注册的 handler 模块。
-    引擎运行时解析 + 注册表白名单校验（#25：StepHandler behaviour 已删，
-    无实现者，注册表是唯一授权面）。
-  - 子 workflow 是 step type 的一种，不是核心原语（pi「不内建 sub-agents」同构）。
+  （注：历史 `:auto` / `:gate` / `:sub_workflow` 类型已退役；`action` 与
+  `sub_definition_id` 字段保留作滚动部署与历史数据兼容列。）
   """
 
   use Ash.Resource,
@@ -26,7 +19,7 @@ defmodule Cgc2046.Workflows.Step do
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.Workflows
 
-  @type_values [:auto, :manual, :gate, :sub_workflow]
+  @type_values [:manual]
 
   attributes do
     uuid_primary_key(:id)
@@ -64,24 +57,24 @@ defmodule Cgc2046.Workflows.Step do
       public?: true,
       writable?: true,
       constraints: [one_of: @type_values],
-      description: "步骤类型：auto 自动 / manual 人工 / gate 门控 / sub_workflow 子 workflow"
+      description: "步骤类型：当前仅支持 manual（人工门控）"
     )
 
-    # action 指向经 StepHandlerRegistry 注册的 handler 模块名（auto/gate 类型）；manual 可空（等信号，无 action）
+    # 历史兼容列（已退役的 auto/gate handler 模块名，保留列以兼容滚动部署）
     attribute(:action, :string,
       public?: true,
       writable?: true,
-      description: "经 StepHandlerRegistry 注册的模块名（auto/gate）；manual 可空"
+      description: "历史兼容列（已退役的自动步骤 handler 模块名，manual 步骤可空）"
     )
 
     # R2 裁决（2026-08-16）：agent_id 删除——形态 X（BYO，ADR-0001）下平台不建模
     # Agent 实体，原列为无拍板的悬空引用（DRIFT-REPORT L1-1/R2）。
 
-    # 子 workflow 指向另一 WorkflowDefinition（type=sub_workflow）
+    # 历史兼容列（已退役的 sub_workflow 子定义引用，保留列以兼容滚动部署）
     attribute(:sub_definition_id, :uuid,
       public?: true,
       writable?: true,
-      description: "子 workflow 指向的 WorkflowDefinition ID（sub_workflow 类型）"
+      description: "历史兼容列（已退役的子 workflow 定义 ID，manual 步骤可空）"
     )
 
     # 该步骤输入参数 schema

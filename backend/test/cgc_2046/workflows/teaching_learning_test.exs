@@ -1,15 +1,13 @@
 defmodule Cgc2046.Workflows.TeachingLearningTest do
   @moduledoc """
-  #39 教研 workflow 实例化 + sub_workflow 递归执行验收测试（阶段 6）。
+  #39 教研 workflow 实例化验收测试（阶段 6）。
 
   覆盖：
 
   1. 教研定义复用多实例：一个 curriculum WorkflowDefinition 实例化多个 Event，
      各自独立 WorkflowRun，facts 不串
-  2. 子 workflow 嵌套：父定义 sub_workflow 步骤递归执行子定义，facts 嵌套
-  3. Event launch 发信号：launch action → status=open + event.launched 信号已发
-  4. 幂等实例化：同一 Event 重复 launch → 同一 run
-  5. sub_workflow 无 sub_definition_id 透传（向后兼容阶段 3 stub 行为）
+  2. Event launch 发信号：launch action → status=open + event.launched 信号已发
+  3. 幂等实例化：同一 Event 重复 launch → 同一 run
   """
 
   use Cgc2046Web.ConnCase, async: false
@@ -22,16 +20,6 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
   alias Cgc2046.Workflows.WorkflowRun
   alias Cgc2046.Curriculum.Instantiator
   alias Cgc2046.Workflows.SignalSubscriber
-  alias Cgc2046.Workflows.StepHandlerRegistry
-  alias Cgc2046.Workflows.TestActions
-
-  setup do
-    # 注册测试 step handlers（ADR-0003 两阶段初始化）
-    StepHandlerRegistry.register(TestActions.Uppercase)
-    StepHandlerRegistry.register(TestActions.AppendExclamation)
-    StepHandlerRegistry.register(TestActions.AlwaysFail)
-    :ok
-  end
 
   defp create_definition(workspace, actor, attrs) do
     defaults = %{
@@ -96,53 +84,11 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
     perform_job(SignalPublishWorker, job.args)
   end
 
-  # 教研定义：uppercase → (manual approval) → append_exclamation
+  # 教研定义：纯 manual 门控
   defp curriculum_node_def do
     %{
       "steps" => [
-        %{
-          "id" => "uppercase",
-          "type" => "auto",
-          "action" => "Elixir.Cgc2046.Workflows.TestActions.Uppercase"
-        },
-        %{"id" => "approval", "type" => "manual"},
-        %{
-          "id" => "append_exclamation",
-          "type" => "auto",
-          "action" => "Elixir.Cgc2046.Workflows.TestActions.AppendExclamation"
-        }
-      ]
-    }
-  end
-
-  # 子定义：uppercase → append_exclamation（纯 auto，嵌套执行用）
-  defp child_node_def do
-    %{
-      "steps" => [
-        %{
-          "id" => "uppercase",
-          "type" => "auto",
-          "action" => "Elixir.Cgc2046.Workflows.TestActions.Uppercase"
-        },
-        %{
-          "id" => "append_exclamation",
-          "type" => "auto",
-          "action" => "Elixir.Cgc2046.Workflows.TestActions.AppendExclamation"
-        }
-      ]
-    }
-  end
-
-  # 父定义：sub_workflow（sub_definition_id → 子定义）。子 workflow facts 作为
-  # 本步骤产物（facts["sub"] 嵌套），验收只断言嵌套产物（计划 §Verification 2）。
-  defp parent_node_def(child_defn) do
-    %{
-      "steps" => [
-        %{
-          "id" => "sub",
-          "type" => "sub_workflow",
-          "sub_definition_id" => child_defn.id
-        }
+        %{"id" => "approval", "type" => "manual"}
       ]
     }
   end
@@ -157,7 +103,7 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
       event_1 = force_open_event(create_event(workspace, admin, %{title: "活动一"}) |> elem(1))
       event_2 = force_open_event(create_event(workspace, admin, %{title: "活动二"}) |> elem(1))
 
-      # 各自实例化 → 独立 run，均 waiting（执行到人工步骤）
+      # 各自实例化 → 独立 run，均 waiting（等待人工门控）
       assert {:ok, run_1} =
                Instantiator.launch(
                  workspace.id,
@@ -187,10 +133,26 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
       assert run_2.status == :waiting
       assert run_1.input_snapshot["key"] == "event_#{event_1.id}"
       assert run_2.input_snapshot["key"] == "event_#{event_2.id}"
-      assert run_1.facts["uppercase"] == %{"text" => "HI"}
-      assert run_2.facts["uppercase"] == %{"text" => "HI"}
 
-      # 各自放行 → 各自 succeeded，facts 独立
+      # 写入各自独立的 MCP facts，再分别放行 → 各自 succeeded，facts 不串
+      {:ok, run_1} =
+        run_1
+        |> Ash.Changeset.for_update(
+          :update_facts_for_mcp,
+          %{facts: %{"approval" => %{"event" => "one"}}},
+          actor: admin
+        )
+        |> Ash.update(tenant: workspace.id, actor: admin)
+
+      {:ok, run_2} =
+        run_2
+        |> Ash.Changeset.for_update(
+          :update_facts_for_mcp,
+          %{facts: %{"approval" => %{"event" => "two"}}},
+          actor: admin
+        )
+        |> Ash.update(tenant: workspace.id, actor: admin)
+
       {:ok, done_1} =
         run_1
         |> Ash.Changeset.for_update(
@@ -211,102 +173,10 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
 
       assert done_1.status == :succeeded
       assert done_2.status == :succeeded
-      assert done_1.facts["append_exclamation"] == %{"text" => "HI!"}
-      assert done_2.facts["append_exclamation"] == %{"text" => "HI!"}
+      assert done_1.facts["approval"] == %{"event" => "one"}
+      assert done_2.facts["approval"] == %{"event" => "two"}
       assert done_1.facts["key"] == nil
       assert done_2.facts["key"] == nil
-    end
-  end
-
-  describe "子 workflow 嵌套（#39 验收）" do
-    test "父定义 sub_workflow 步骤递归执行子定义，facts 嵌套" do
-      admin = Fixtures.platform_admin("tl")
-      workspace = Fixtures.create_workspace(admin)
-
-      # 子定义（纯 auto）publish
-      {:ok, child} = create_definition(workspace, admin, %{node_def: child_node_def()})
-      {:ok, child_published} = publish_definition(child, workspace, admin)
-
-      # 父定义（sub_workflow → uppercase）publish
-      {:ok, parent} =
-        create_definition(workspace, admin, %{
-          name: "父教研 workflow",
-          node_def: parent_node_def(child_published)
-        })
-
-      {:ok, parent_published} = publish_definition(parent, workspace, admin)
-
-      event = force_open_event(create_event(workspace, admin) |> elem(1))
-
-      assert {:ok, run} =
-               Instantiator.launch(
-                 workspace.id,
-                 parent_published.id,
-                 %{
-                   "event_id" => event.id,
-                   "title" => event.title,
-                   "research_requirements" => event.curriculum_requirements,
-                   "text" => "hi"
-                 }
-               )
-
-      assert run.status == :succeeded
-
-      # 子 workflow facts 作为父 step 的 fact value（嵌套）
-      assert run.facts["sub"] == %{
-               "uppercase" => %{"text" => "HI"},
-               "append_exclamation" => %{"text" => "HI!"}
-             }
-    end
-
-    test "子 workflow 失败 → 父 run failed（#3 回归）" do
-      admin = Fixtures.platform_admin("tl")
-      workspace = Fixtures.create_workspace(admin)
-
-      # 子定义含 AlwaysFail（auto 步骤失败）
-      {:ok, child} =
-        create_definition(workspace, admin, %{
-          node_def: %{
-            "steps" => [
-              %{
-                "id" => "boom",
-                "type" => "auto",
-                "action" => "Elixir.Cgc2046.Workflows.TestActions.AlwaysFail"
-              }
-            ]
-          }
-        })
-
-      {:ok, child_published} = publish_definition(child, workspace, admin)
-
-      # 父定义（sub_workflow → 失败子定义）publish
-      {:ok, parent} =
-        create_definition(workspace, admin, %{
-          name: "父教研 workflow（子失败）",
-          node_def: parent_node_def(child_published)
-        })
-
-      {:ok, parent_published} = publish_definition(parent, workspace, admin)
-
-      event = force_open_event(create_event(workspace, admin) |> elem(1))
-
-      # buggy 代码：子 workflow 的 {:error, :sub_workflow_failed} 被 runic 当作
-      # 普通 fact 值，父 run 标 succeeded 且错误 tuple 嵌入 facts（#3）。
-      # 修复后：子失败 → 父 run failed。
-      assert {:ok, run} =
-               Instantiator.launch(
-                 workspace.id,
-                 parent_published.id,
-                 %{
-                   "event_id" => event.id,
-                   "title" => event.title,
-                   "research_requirements" => event.curriculum_requirements,
-                   "text" => "hi"
-                 }
-               )
-
-      assert run.status == :failed
-      refute is_nil(run.finished_at)
     end
   end
 
@@ -638,34 +508,6 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
       assert length(runs) == 1
       assert hd(runs).definition_id == pub_b.id
       refute hd(runs).definition_id == pub_a.id
-    end
-  end
-
-  describe "sub_workflow 无 sub_definition_id 透传（向后兼容）" do
-    test "step 无 sub_definition_id → 透传 data，不报错" do
-      admin = Fixtures.platform_admin("tl")
-      workspace = Fixtures.create_workspace(admin)
-      {:ok, defn} = create_definition(workspace, admin, %{node_def: curriculum_node_def()})
-      {:ok, _published} = publish_definition(defn, workspace, admin)
-      {:ok, _event} = create_event(workspace, admin)
-
-      # 直接经 Engine 跑含无 sub_definition_id 的 sub_workflow 步骤的 node_def
-      node_def = %{
-        "steps" => [
-          %{"id" => "sub", "type" => "sub_workflow", "next" => ["uppercase"]},
-          %{
-            "id" => "uppercase",
-            "type" => "auto",
-            "action" => "Elixir.Cgc2046.Workflows.TestActions.Uppercase"
-          }
-        ]
-      }
-
-      assert {:ok, facts, _workflow} =
-               Cgc2046.Workflows.Engine.run(node_def, %{"text" => "hi"})
-
-      assert facts["sub"] == %{"text" => "hi"}
-      assert facts["uppercase"] == %{text: "HI"}
     end
   end
 end

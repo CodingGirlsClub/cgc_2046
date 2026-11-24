@@ -1,231 +1,211 @@
 defmodule Cgc2046.Workflows.StepTest do
   @moduledoc """
-  #36 Step 四分类 + 顺序解锁（阶段 3）验收测试。
+  纯数据线性人工门控引擎（`Cgc2046.Workflows.Engine`）单测。
 
-  覆盖：四分类（auto/manual/gate/sub_workflow）构建与执行、`next` 顺序解锁、
-  `next` 回退数组顺序、gate 条件路由、input_schema 校验、sub_workflow stub、
-  next 引用完整性。
+  覆盖：单步/多步线性门控、`next` 拓扑排序与数组回退、`unknown_next`、
+  `invalid_next`、`cycle_detected`、`duplicate_step_id`、`unsupported_step_type`
+  （含 `"auto"`/`"gate"`/`"sub_workflow"` 被拒）、`invalid_step_id`、无 BEAM atom
+  创建（SC2-003）、错序信号不提前放行、`prepare_all` `input_schema` 校验。
   """
 
   use ExUnit.Case, async: true
 
-  alias Cgc2046.Workflows.{Engine, JidoAdapter, StepHandlerRegistry, TestActions}
+  alias Cgc2046.Workflows.Engine
 
-  setup do
-    # 注册测试 step handlers（ADR-0003 两阶段初始化：引擎只执行显式注册的模块）
-    StepHandlerRegistry.register(TestActions.Uppercase)
-    StepHandlerRegistry.register(TestActions.AppendExclamation)
-    StepHandlerRegistry.register(TestActions.AlwaysFail)
-    :ok
-  end
-
-  defp uppercase_step(extra \\ %{}) do
-    Map.merge(
-      %{
-        "id" => "uppercase",
-        "type" => "auto",
-        "action" => "Elixir.Cgc2046.Workflows.TestActions.Uppercase"
-      },
-      extra
-    )
-  end
-
-  defp append_step(extra \\ %{}) do
-    Map.merge(
-      %{
-        "id" => "append_exclamation",
-        "type" => "auto",
-        "action" => "Elixir.Cgc2046.Workflows.TestActions.AppendExclamation"
-      },
-      extra
-    )
-  end
-
-  describe "四分类：auto/manual/gate/sub_workflow" do
-    test "auto step builds and executes" do
-      node_def = %{"steps" => [uppercase_step()]}
-
-      assert {:ok, workflow} = JidoAdapter.build_workflow(node_def)
-      assert {:ok, workflow} = JidoAdapter.react_until_satisfied(workflow, %{"text" => "hi"})
-      assert JidoAdapter.run_status(workflow) == :succeeded
-      assert JidoAdapter.list_run_facts(workflow)["uppercase"] == %{text: "HI"}
+  describe "validate_and_order_steps/1" do
+    test "rejects nil, missing steps, non-list steps, or empty steps" do
+      assert {:error, :no_steps} = Engine.validate_and_order_steps(nil)
+      assert {:error, :no_steps} = Engine.validate_and_order_steps(%{})
+      assert {:error, :no_steps} = Engine.validate_and_order_steps(%{"steps" => nil})
+      assert {:error, :no_steps} = Engine.validate_and_order_steps(%{"steps" => "bad"})
+      assert {:error, :no_steps} = Engine.validate_and_order_steps(%{"steps" => []})
     end
 
-    test "manual step builds and waits for signal" do
-      node_def = %{"steps" => [%{"id" => "approval", "type" => "manual"}]}
+    test "rejects non-map step or step missing required id/type" do
+      assert {:error, {:step_missing_required_fields, "approval"}} =
+               Engine.validate_and_order_steps(%{"steps" => ["approval"]})
 
-      assert {:ok, workflow} = JidoAdapter.build_workflow(node_def)
-      assert {:ok, workflow} = JidoAdapter.react_until_satisfied(workflow, %{"text" => "hi"})
-      assert JidoAdapter.run_status(workflow) == :waiting
+      assert {:error, {:step_missing_required_fields, %{"type" => "manual"}}} =
+               Engine.validate_and_order_steps(%{"steps" => [%{"type" => "manual"}]})
+
+      assert {:error, {:step_missing_required_fields, %{"id" => "", "type" => "manual"}}} =
+               Engine.validate_and_order_steps(%{"steps" => [%{"id" => "", "type" => "manual"}]})
+
+      assert {:error, {:step_missing_required_fields, %{"id" => "a1"}}} =
+               Engine.validate_and_order_steps(%{"steps" => [%{"id" => "a1"}]})
     end
 
-    test "gate step builds and routes by condition" do
+    test "rejects invalid step id (SC2-002)" do
+      for bad_id <- ["BadID", "1start", "has space", "bad-dash", String.duplicate("a", 65)] do
+        assert {:error, {:invalid_step_id, ^bad_id}} =
+                 Engine.validate_and_order_steps(%{
+                   "steps" => [%{"id" => bad_id, "type" => "manual"}]
+                 })
+      end
+    end
+
+    test "rejects duplicate step id" do
       node_def = %{
         "steps" => [
-          %{
-            "id" => "check",
-            "type" => "gate",
-            "condition" => %{"field" => "status", "equals" => "full"},
-            "next" => ["uppercase"]
-          },
-          uppercase_step()
+          %{"id" => "approval", "type" => "manual"},
+          %{"id" => "approval", "type" => "manual"}
         ]
       }
 
-      assert {:ok, workflow} = JidoAdapter.build_workflow(node_def)
-
-      assert {:ok, workflow} =
-               JidoAdapter.react_until_satisfied(workflow, %{"status" => "full", "text" => "hi"})
-
-      assert JidoAdapter.run_status(workflow) == :succeeded
-      assert JidoAdapter.list_run_facts(workflow)["uppercase"] == %{text: "HI"}
+      assert {:error, {:duplicate_step_id, "approval"}} =
+               Engine.validate_and_order_steps(node_def)
     end
 
-    test "sub_workflow step builds and passes input through (v1 stub)" do
-      node_def = %{"steps" => [%{"id" => "sub", "type" => "sub_workflow"}]}
-
-      assert {:ok, workflow} = JidoAdapter.build_workflow(node_def)
-      assert {:ok, workflow} = JidoAdapter.react_until_satisfied(workflow, %{"text" => "hi"})
-      assert JidoAdapter.run_status(workflow) == :succeeded
-      assert JidoAdapter.list_run_facts(workflow)["sub"] == %{"text" => "hi"}
-    end
-  end
-
-  describe "next 顺序解锁" do
-    test "next declares order independent of array order" do
-      # 数组顺序是 [append, uppercase]，但 next 声明 uppercase → append：
-      # 执行必须按 next 拓扑（uppercase 先跑），而非数组顺序
-      node_def = %{
-        "steps" => [
-          append_step(),
-          Map.put(uppercase_step(), "next", ["append_exclamation"])
-        ]
-      }
-
-      assert {:ok, workflow} = JidoAdapter.build_workflow(node_def)
-      assert {:ok, workflow} = JidoAdapter.react_until_satisfied(workflow, %{"text" => "hi"})
-      assert JidoAdapter.run_status(workflow) == :succeeded
-
-      facts = JidoAdapter.list_run_facts(workflow)
-      assert facts["uppercase"] == %{text: "HI"}
-      assert facts["append_exclamation"] == %{text: "HI!"}
+    test "rejects unsupported step types including retired auto, gate, sub_workflow" do
+      for bad_type <- ["auto", "gate", "sub_workflow", "mystery", :manual] do
+        assert {:error, {:unsupported_step_type, ^bad_type}} =
+                 Engine.validate_and_order_steps(%{
+                   "steps" => [%{"id" => "step_1", "type" => bad_type}]
+                 })
+      end
     end
 
-    test "downstream step does not run before upstream completes" do
-      # approval（manual）next → uppercase：信号未到前 uppercase 不执行
-      node_def = %{
-        "steps" => [
-          %{"id" => "approval", "type" => "manual", "next" => ["uppercase"]},
-          uppercase_step()
-        ]
-      }
-
-      assert {:ok, workflow} = JidoAdapter.build_workflow(node_def)
-      assert {:ok, workflow} = JidoAdapter.react_until_satisfied(workflow, %{"text" => "hi"})
-      assert JidoAdapter.run_status(workflow) == :waiting
-      refute Map.has_key?(JidoAdapter.list_run_facts(workflow), "uppercase")
-
-      # 信号放行 → 下游执行
-      assert {:ok, workflow} =
-               JidoAdapter.feed_signal(workflow, %{
-                 "signal_type" => "workflow.approval",
-                 "text" => "hi"
+    test "rejects unknown next and malformed next" do
+      assert {:error, {:unknown_next, "ghost"}} =
+               Engine.validate_and_order_steps(%{
+                 "steps" => [%{"id" => "a1", "type" => "manual", "next" => ["ghost"]}]
                })
 
-      assert JidoAdapter.run_status(workflow) == :succeeded
-      assert JidoAdapter.list_run_facts(workflow)["uppercase"] == %{text: "HI"}
+      assert {:error, {:invalid_next, "a2"}} =
+               Engine.validate_and_order_steps(%{
+                 "steps" => [
+                   %{"id" => "a1", "type" => "manual", "next" => "a2"},
+                   %{"id" => "a2", "type" => "manual"}
+                 ]
+               })
+
+      assert {:error, {:invalid_next, [123]}} =
+               Engine.validate_and_order_steps(%{
+                 "steps" => [%{"id" => "a1", "type" => "manual", "next" => [123]}]
+               })
     end
 
-    test "next fallback: no next field uses array order (phase 2 compat)" do
-      node_def = %{"steps" => [uppercase_step(), append_step()]}
+    test "detects cycles in next graph" do
+      self_loop = %{
+        "steps" => [%{"id" => "a1", "type" => "manual", "next" => ["a1"]}]
+      }
 
-      assert {:ok, workflow} = JidoAdapter.build_workflow(node_def)
-      assert {:ok, workflow} = JidoAdapter.react_until_satisfied(workflow, %{"text" => "hi"})
-      assert JidoAdapter.run_status(workflow) == :succeeded
+      assert {:error, :cycle_detected} = Engine.validate_and_order_steps(self_loop)
 
-      facts = JidoAdapter.list_run_facts(workflow)
-      assert facts["uppercase"] == %{text: "HI"}
-      assert facts["append_exclamation"] == %{text: "HI!"}
-    end
-
-    test "next referencing unknown step fails at build" do
-      node_def = %{
+      two_cycle = %{
         "steps" => [
-          Map.put(uppercase_step(), "next", ["ghost"])
+          %{"id" => "a1", "type" => "manual", "next" => ["a2"]},
+          %{"id" => "a2", "type" => "manual", "next" => ["a1"]}
         ]
       }
 
-      assert {:error, {:unknown_next, "ghost"}} = JidoAdapter.build_workflow(node_def)
+      assert {:error, :cycle_detected} = Engine.validate_and_order_steps(two_cycle)
+    end
+
+    test "orders steps via Kahn topological sort when next is present, preserving array order for ties" do
+      node_def = %{
+        "steps" => [
+          %{"id" => "step_b", "type" => "manual"},
+          %{"id" => "step_a", "type" => "manual", "next" => ["step_b"]}
+        ]
+      }
+
+      assert {:ok, [%{"id" => "step_a"}, %{"id" => "step_b"}]} =
+               Engine.validate_and_order_steps(node_def)
+    end
+
+    test "falls back to array order when no step has non-empty next" do
+      node_def = %{
+        "steps" => [
+          %{"id" => "first", "type" => "manual", "next" => []},
+          %{"id" => "second", "type" => "manual"}
+        ]
+      }
+
+      assert {:ok, [%{"id" => "first"}, %{"id" => "second"}]} =
+               Engine.validate_and_order_steps(node_def)
     end
   end
 
-  describe "gate 条件路由" do
-    test "condition satisfied releases downstream" do
-      node_def = %{
-        "steps" => [
-          %{
-            "id" => "check",
-            "type" => "gate",
-            "condition" => %{"field" => "status", "equals" => "full"},
-            "next" => ["uppercase"]
-          },
-          uppercase_step()
-        ]
-      }
+  describe "Engine.run/2 and Engine.resume/3" do
+    test "single manual step: run waits, matching signal completes" do
+      node_def = %{"steps" => [%{"id" => "approval", "type" => "manual"}]}
 
-      assert {:ok, facts, _workflow} = Engine.run(node_def, %{"status" => "full", "text" => "hi"})
-      assert facts["uppercase"] == %{text: "HI"}
+      assert {:waiting, %{}} = Engine.run(node_def, %{"text" => "hi"})
+      assert {:waiting, %{}} = Engine.resume(node_def, [], %{"signal_type" => "workflow.other"})
+      assert {:ok, %{}} = Engine.resume(node_def, [], %{"signal_type" => "workflow.approval"})
     end
 
-    test "condition not satisfied consumes fact, downstream does not run" do
+    test "multi-step with next topological order: out-of-order signal does not skip gate" do
       node_def = %{
         "steps" => [
-          %{
-            "id" => "check",
-            "type" => "gate",
-            "condition" => %{"field" => "status", "equals" => "full"},
-            "next" => ["uppercase"]
-          },
-          uppercase_step()
+          %{"id" => "second", "type" => "manual"},
+          %{"id" => "first", "type" => "manual", "next" => ["second"]}
         ]
       }
 
-      assert {:ok, facts, _workflow} =
-               Engine.run(node_def, %{"status" => "partial", "text" => "hi"})
+      assert {:waiting, %{}} = Engine.run(node_def, %{})
 
-      refute Map.has_key?(facts, "uppercase")
+      # Waiting for "first"; sending "workflow.second" early must NOT advance or unlock "second"
+      assert {:waiting, %{}} = Engine.resume(node_def, [], "workflow.second")
+
+      # Even after "first" arrives, "second" was sent earlier while waiting on "first", so still waiting
+      assert {:waiting, %{}} = Engine.resume(node_def, ["workflow.second"], "workflow.first")
+
+      # Once "workflow.second" arrives in order after "workflow.first", completes
+      assert {:ok, %{}} =
+               Engine.resume(node_def, ["workflow.second", "workflow.first"], "workflow.second")
     end
 
-    test "gate with action runs action then checks condition on its output" do
-      node_def = %{
-        "steps" => [
-          %{
-            "id" => "check",
-            "type" => "gate",
-            "action" => "Elixir.Cgc2046.Workflows.TestActions.Uppercase",
-            "condition" => %{"field" => "text", "equals" => "HI"},
-            "next" => ["append_exclamation"]
-          },
-          append_step()
-        ]
-      }
+    test "nil or non-string signal does not advance gate" do
+      node_def = %{"steps" => [%{"id" => "a1", "type" => "manual"}]}
 
-      # 条件基于 action 产物（text == "HI"）判断，满足 → 放行下游
-      assert {:ok, facts, _workflow} = Engine.run(node_def, %{"text" => "hi"})
-      assert facts["check"] == %{text: "HI"}
-      assert facts["append_exclamation"] == %{text: "HI!"}
+      assert {:waiting, %{}} = Engine.resume(node_def, [], nil)
+      assert {:waiting, %{}} = Engine.resume(node_def, [], %{})
+
+      assert {:waiting, %{}} =
+               Engine.resume(node_def, [%{"bad" => 1}, nil], %{"signal_type" => 123})
     end
 
-    test "gate without condition always passes through" do
-      node_def = %{
-        "steps" => [
-          %{"id" => "check", "type" => "gate", "next" => ["uppercase"]},
-          uppercase_step()
-        ]
-      }
+    test "invalid node_def returns {:error, reason} on run and resume" do
+      bad_def = %{"steps" => [%{"id" => "a1", "type" => "auto"}]}
 
-      assert {:ok, facts, _workflow} = Engine.run(node_def, %{"text" => "hi"})
-      assert facts["uppercase"] == %{text: "HI"}
+      assert {:error, {:unsupported_step_type, "auto"}} = Engine.run(bad_def, %{})
+
+      assert {:error, {:unsupported_step_type, "auto"}} =
+               Engine.resume(bad_def, [], "workflow.a1")
+    end
+
+    test "unknown signal_type and dynamic step ids do not create BEAM atoms (SC2-003)" do
+      unique = System.unique_integer([:positive])
+      dyn_step = "dyn_step_#{unique}"
+      dyn_sig = "workflow.unknown_#{unique}"
+      node_def = %{"steps" => [%{"id" => dyn_step, "type" => "manual"}]}
+
+      # Warm up once
+      assert {:waiting, %{}} = Engine.resume(node_def, [], %{"signal_type" => "workflow.warmup"})
+
+      before = :erlang.system_info(:atom_count)
+
+      for i <- 1..1000 do
+        assert {:waiting, %{}} =
+                 Engine.resume(node_def, [], %{"signal_type" => "workflow.unknown_#{unique}_#{i}"})
+      end
+
+      after_ = :erlang.system_info(:atom_count)
+      assert after_ - before < 100
+
+      assert_raise ArgumentError, fn ->
+        :erlang.binary_to_existing_atom(dyn_step, :utf8)
+      end
+
+      assert_raise ArgumentError, fn ->
+        :erlang.binary_to_existing_atom(dyn_sig, :utf8)
+      end
+
+      assert_raise ArgumentError, fn ->
+        :erlang.binary_to_existing_atom("workflow.unknown_#{unique}_500", :utf8)
+      end
     end
   end
 
@@ -233,36 +213,40 @@ defmodule Cgc2046.Workflows.StepTest do
     test "missing required field fails prepare" do
       node_def = %{
         "steps" => [
-          Map.put(uppercase_step(), "input_schema", %{"text" => "string"})
+          %{"id" => "approval", "type" => "manual", "input_schema" => %{"text" => "string"}}
         ]
       }
 
-      assert {:error, {:prepare_failed, {:missing_field, "uppercase", "text"}}} =
+      assert {:error, {:prepare_failed, {:missing_field, "approval", "text"}}} =
                Engine.run(node_def, %{})
     end
 
     test "type mismatch fails prepare" do
       node_def = %{
         "steps" => [
-          Map.put(uppercase_step(), "input_schema", %{"text" => "string"})
+          %{"id" => "approval", "type" => "manual", "input_schema" => %{"text" => "string"}}
         ]
       }
 
       assert {:error,
-              {:prepare_failed, {:type_mismatch, "uppercase", "text", "string", "integer"}}} =
+              {:prepare_failed, {:type_mismatch, "approval", "text", "string", "integer"}}} =
                Engine.run(node_def, %{"text" => 123})
     end
 
     test "all supported types validate" do
       node_def = %{
         "steps" => [
-          Map.put(uppercase_step(), "input_schema", %{
-            "text" => "string",
-            "count" => "integer",
-            "flag" => "boolean",
-            "meta" => "map",
-            "tags" => "list"
-          })
+          %{
+            "id" => "approval",
+            "type" => "manual",
+            "input_schema" => %{
+              "text" => "string",
+              "count" => "integer",
+              "flag" => "boolean",
+              "meta" => "map",
+              "tags" => "list"
+            }
+          }
         ]
       }
 
@@ -274,42 +258,14 @@ defmodule Cgc2046.Workflows.StepTest do
         "tags" => ["x", "y"]
       }
 
-      assert {:ok, facts, _workflow} = Engine.run(node_def, input)
-      assert facts["uppercase"] == %{text: "HI"}
+      assert :ok = Engine.prepare_all(node_def, input)
+      assert {:waiting, %{}} = Engine.run(node_def, input)
     end
 
     test "step without input_schema skips validation" do
-      node_def = %{"steps" => [uppercase_step()]}
-      assert {:ok, _facts, _workflow} = Engine.run(node_def, %{"text" => "hi"})
-    end
-  end
-
-  describe "sub_workflow 透传（无 sub_definition_id）" do
-    test "passes input through and chains to downstream" do
-      node_def = %{
-        "steps" => [
-          %{"id" => "sub", "type" => "sub_workflow", "next" => ["uppercase"]},
-          uppercase_step()
-        ]
-      }
-
-      assert {:ok, facts, _workflow} = Engine.run(node_def, %{"text" => "hi"})
-      assert facts["sub"] == %{"text" => "hi"}
-      assert facts["uppercase"] == %{text: "HI"}
-    end
-  end
-
-  describe "next 引用完整性（Engine 层）" do
-    test "next referencing unknown step fails run" do
-      node_def = %{
-        "steps" => [
-          Map.put(uppercase_step(), "next", ["ghost"])
-        ]
-      }
-
-      # #10：next 校验唯一实现是 JidoAdapter.build_workflow（构建期），
-      # Engine 不再重复校验——错误直接透传。
-      assert {:error, {:unknown_next, "ghost"}} = Engine.run(node_def, %{"text" => "hi"})
+      node_def = %{"steps" => [%{"id" => "approval", "type" => "manual"}]}
+      assert :ok = Engine.prepare_all(node_def, %{"text" => "hi"})
+      assert {:waiting, %{}} = Engine.run(node_def, %{"text" => "hi"})
     end
   end
 end

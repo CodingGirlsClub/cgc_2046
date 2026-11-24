@@ -18,6 +18,15 @@ develop→main 发布时把该段改名为 `## [发布日期]` 并重新立一�
 commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `miniprogram`）。
 ## [Unreleased]
 
+## [Desktop v0.1.0-dev.20261124]
+
+> 桌面客户端内测版由 tag `desktop-v*` 触发发布，不走 develop→main 的 Web/后端发布流程。
+
+### Added
+
+- [Desktop] checkpoint 存储用量展示与手动清理入口。
+- [Desktop] 客户端发送版本头，配合服务端版本门；收到 426 时展示升级提示并保留升级元数据。
+
 ### Changed
 
 - [Desktop] CGC Cloud 托管模型改为独立设置卡片：总开关、单模型启停、目录同步状态、算力余额与充值入口；BYOK 列表不再重复出现 CGC Cloud，保存 BYOK 不再清空已选托管模型。
@@ -26,8 +35,10 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 - [Desktop] 网关模型目录同步失败时保留上次成功目录并展示原因；登录后按账号恢复本地目录快照，打开模型选择器时自动补拉。
 - [Desktop] 托管模型全部停用后回退到已配置的 BYOK provider，不再显示「未配置模型」。
-- [Desktop] 托管 provider 返回 426 时保留升级元数据并提示升级；客户端按版本头发送，配合服务端版本门与 kill switch。
-- [Desktop] checkpoint 存储增加用量展示与手动清理，按仓库共享 git 锁、GC 后失效索引、修剪引用保留。
+- [Desktop] 账号切换时丢弃旧账号的钱包与目录缓存，避免跨账号串数据。
+- [Desktop] checkpoint 按仓库共享 git 锁、GC 后失效索引、修剪引用保留，并为变更检查与 diff 增加对象存储预算护栏。
+- [Desktop] Windows 命令策略、进程树终止与路径/环境/子进程/终端兼容加固；升级遮罩期间阻断提交。
+- [Desktop] 目录变为符号链接时清理缓存后代；AgentIntent CTA 降级为纯文本。
 
 ## [2026-11-24]
 
@@ -38,11 +49,13 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 ### Changed
 
 - [Backend] GraphQL 模块拆分：auth 变更、llm_gateway、account、invitation、mcp、initiatives、readiness 各自独立 schema 文件，单文件保持 500 行以内。
+- [Backend] 工作流引擎用纯数据的手动 gate 引擎替换 `jido_runic` checkpoint 依赖，移除 `jido_runic` / `ash_jido` 运行时；ADR 与术语表同步。
 
 ### Fixed
 
 - [Backend] SendCloud 邮件在缺少 `text_body` 时回退正文，恢复邮件找回流程。
 - [Backend] `admin_list_audit_logs` 增加 SQL 投影，避免整行加载；清理过期 moduledoc 与无用的 Fanout 兼容层。
+- [Backend] 删除 jido 表的迁移延后到 rollout 之后，避免灰度期间旧实例写入已删除的表。
 
 ## [Desktop v0.1.0-dev.20261121]
 

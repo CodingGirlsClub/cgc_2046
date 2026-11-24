@@ -63,10 +63,8 @@ defmodule Cgc2046.MixProject do
       {:ash_authentication, "~> 4.14"},
       {:ash_authentication_phoenix, "~> 2.4"},
       {:ash_admin, "~> 1.2"},
-      # Slice C workflow engine（ADR-0002 Jido 选型；jido_runic 底层 runic 仍 alpha，经 JidoAdapter 适配层隔离）
-      {:jido, "~> 2.3"},
-      {:jido_runic, "~> 1.0"},
-      {:ash_jido, "~> 1.0"},
+      # Workflow 异步信号总线（ADR-0002 决策 5 的异步路径；纯数据人工门控引擎不再依赖 jido / jido_runic / ash_jido）
+      {:jido_signal, "~> 2.2"},
       # SAT solver：Ash 策略授权求解用 NIF 版 PicoSAT（crux 优先选 Picosat），
       # 替代纯 Elixir 的 simple_sat——199 条 policy 的测试段 CPU 显著下降
       {:picosat_elixir, "~> 0.2"},
