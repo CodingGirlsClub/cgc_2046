@@ -6,20 +6,9 @@ defmodule Cgc2046.Workflows.WorkflowRunTest do
   alias Cgc2046.Workflows.WorkflowDefinition
   alias Cgc2046.Workflows.WorkflowRun
   alias Cgc2046.Workflows.Engine
-  alias Cgc2046.Workflows.JidoAdapter
-  alias Cgc2046.Workflows.StepHandlerRegistry
-  alias Cgc2046.Workflows.TestActions
   alias Cgc2046.MiniprogramFixtures.Barrier
 
   require Ash.Query
-
-  setup do
-    # 注册测试 step handlers（ADR-0003 两阶段初始化：引擎只执行显式注册的模块）
-    StepHandlerRegistry.register(TestActions.Uppercase)
-    StepHandlerRegistry.register(TestActions.AppendExclamation)
-    StepHandlerRegistry.register(TestActions.AlwaysFail)
-    :ok
-  end
 
   defp create_definition(workspace, actor, attrs \\ %{}) do
     defaults = %{
@@ -59,39 +48,21 @@ defmodule Cgc2046.Workflows.WorkflowRunTest do
     |> Ash.create(tenant: workspace.id, actor: actor)
   end
 
-  # 双自动步骤链：uppercase → append_exclamation
-  defp auto_node_def do
+  # 单步人工门控
+  defp manual_node_def do
     %{
       "steps" => [
-        %{
-          "id" => "uppercase",
-          "type" => "auto",
-          "action" => "Elixir.Cgc2046.Workflows.TestActions.Uppercase"
-        },
-        %{
-          "id" => "append_exclamation",
-          "type" => "auto",
-          "action" => "Elixir.Cgc2046.Workflows.TestActions.AppendExclamation"
-        }
+        %{"id" => "approval", "type" => "manual"}
       ]
     }
   end
 
-  # 自动步骤 + 人工步骤门控：uppercase → (manual approval) → append_exclamation
+  # 双步人工门控：a1 → a2
   defp gated_node_def do
     %{
       "steps" => [
-        %{
-          "id" => "uppercase",
-          "type" => "auto",
-          "action" => "Elixir.Cgc2046.Workflows.TestActions.Uppercase"
-        },
-        %{"id" => "approval", "type" => "manual"},
-        %{
-          "id" => "append_exclamation",
-          "type" => "auto",
-          "action" => "Elixir.Cgc2046.Workflows.TestActions.AppendExclamation"
-        }
+        %{"id" => "a1", "type" => "manual"},
+        %{"id" => "a2", "type" => "manual"}
       ]
     }
   end
@@ -351,111 +322,100 @@ defmodule Cgc2046.Workflows.WorkflowRunTest do
   end
 
   describe "engine execution" do
-    test "auto steps produce facts, run completes" do
+    test "manual definition runs via Engine.run/2 + Engine.resume/3 and completes via start_run/resume_signal" do
       admin = Fixtures.platform_admin("wfrun-admin")
       workspace = Fixtures.create_workspace(admin)
-      {:ok, defn} = create_definition(workspace, admin, %{node_def: auto_node_def()})
+      {:ok, defn} = create_definition(workspace, admin, %{node_def: manual_node_def()})
       {:ok, published} = publish_definition(defn, workspace, admin)
       {:ok, run} = create_run(workspace, admin, published, %{input_snapshot: %{"text" => "hi"}})
 
-      {:ok, running} =
+      # 纯函数验证：Engine.run 进入 waiting，Engine.resume 放行完成
+      assert {:waiting, %{}} = Engine.run(published.node_def, run.input_snapshot)
+
+      assert {:ok, %{}} =
+               Engine.resume(published.node_def, [], %{"signal_type" => "workflow.approval"})
+
+      # 壳资源全链路：start_run → waiting → resume_signal → succeeded
+      {:ok, waiting} =
         run
-        |> Ash.Changeset.for_update(:start, %{}, actor: admin)
+        |> Ash.Changeset.for_update(:start_run, %{}, actor: admin)
         |> Ash.update(tenant: workspace.id, actor: admin)
 
-      assert {:ok, facts, _workflow} = Engine.run(published.node_def, running.input_snapshot)
-
-      assert facts["uppercase"] == %{text: "HI"}
-      assert facts["append_exclamation"] == %{text: "HI!"}
+      assert waiting.status == :waiting
 
       {:ok, succeeded} =
-        running
-        |> Ash.Changeset.for_update(:complete, %{facts: facts}, actor: admin)
+        waiting
+        |> Ash.Changeset.for_update(
+          :resume_signal,
+          %{signal_type: "workflow.approval", payload: %{"approved_by" => "u1"}},
+          actor: admin
+        )
         |> Ash.update(tenant: workspace.id, actor: admin)
 
       assert succeeded.status == :succeeded
-      assert succeeded.facts["append_exclamation"] == %{"text" => "HI!"}
+      refute is_nil(succeeded.finished_at)
     end
 
-    test "manual step gates downstream until signal (waiting → resume → complete)" do
+    test "manual step gates downstream until signals (waiting → resume_signal → succeeded)" do
       admin = Fixtures.platform_admin("wfrun-admin")
       workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin, %{node_def: gated_node_def()})
       {:ok, published} = publish_definition(defn, workspace, admin)
       {:ok, run} = create_run(workspace, admin, published, %{input_snapshot: %{"text" => "hi"}})
 
-      {:ok, running} =
-        run
-        |> Ash.Changeset.for_update(:start, %{}, actor: admin)
-        |> Ash.update(tenant: workspace.id, actor: admin)
-
-      # 执行到人工步骤 → waiting，上游 facts 已产出
-      assert {:waiting, facts, workflow} = Engine.run(published.node_def, running.input_snapshot)
-      assert facts["uppercase"] == %{text: "HI"}
-      refute Map.has_key?(facts, "append_exclamation")
+      assert {:waiting, %{}} = Engine.run(published.node_def, run.input_snapshot)
+      assert {:waiting, %{}} = Engine.resume(published.node_def, [], "workflow.a1")
+      assert {:ok, %{}} = Engine.resume(published.node_def, ["workflow.a1"], "workflow.a2")
 
       {:ok, waiting} =
-        running
-        |> Ash.Changeset.for_update(:wait, %{}, actor: admin)
+        run
+        |> Ash.Changeset.for_update(:start_run, %{}, actor: admin)
         |> Ash.update(tenant: workspace.id, actor: admin)
 
-      # 信号放行 → 下游继续（#7：Engine.feed_signal/2 已删，零生产调用者；
-      # 直接经 JidoAdapter 验证内存 workflow 的信号门控）
-      assert {:ok, wf2} =
-               JidoAdapter.feed_signal(workflow, %{
-                 "signal_type" => "workflow.approval",
-                 "approved_by" => "u1"
-               })
+      assert waiting.status == :waiting
 
-      assert JidoAdapter.run_status(wf2) == :succeeded
-      assert JidoAdapter.list_run_facts(wf2)["append_exclamation"] == %{text: "HI!"}
-
-      facts2 = JidoAdapter.list_run_facts(wf2)
-
-      {:ok, resumed} =
+      {:ok, waiting2} =
         waiting
-        |> Ash.Changeset.for_update(:resume, %{}, actor: admin)
+        |> Ash.Changeset.for_update(:resume_signal, %{signal_type: "workflow.a1"}, actor: admin)
         |> Ash.update(tenant: workspace.id, actor: admin)
+
+      assert waiting2.status == :waiting
 
       {:ok, succeeded} =
-        resumed
-        |> Ash.Changeset.for_update(:complete, %{facts: facts2}, actor: admin)
+        waiting2
+        |> Ash.Changeset.for_update(:resume_signal, %{signal_type: "workflow.a2"}, actor: admin)
         |> Ash.update(tenant: workspace.id, actor: admin)
 
       assert succeeded.status == :succeeded
     end
 
-    test "failing step returns {:error, :step_failed}" do
+    test "invalid or corrupted node_def returns {:error, reason} and marks run failed" do
       admin = Fixtures.platform_admin("wfrun-admin")
       workspace = Fixtures.create_workspace(admin)
 
-      node_def = %{
+      bad_node_def = %{
         "steps" => [
-          %{
-            "id" => "always_fail",
-            "type" => "auto",
-            "action" => "Elixir.Cgc2046.Workflows.TestActions.AlwaysFail"
-          }
+          %{"id" => "legacy_auto", "type" => "auto"}
         ]
       }
 
-      {:ok, defn} = create_definition(workspace, admin, %{node_def: node_def})
+      {:ok, defn} = create_definition(workspace, admin, %{node_def: bad_node_def})
       {:ok, published} = publish_definition(defn, workspace, admin)
       {:ok, run} = create_run(workspace, admin, published)
 
-      {:ok, running} =
-        run
-        |> Ash.Changeset.for_update(:start, %{}, actor: admin)
-        |> Ash.update(tenant: workspace.id, actor: admin)
+      assert {:error, {:unsupported_step_type, "auto"}} =
+               Engine.run(published.node_def, run.input_snapshot)
 
-      assert {:error, :step_failed} = Engine.run(published.node_def, running.input_snapshot)
+      assert {:error, {:unsupported_step_type, "auto"}} =
+               Engine.resume(published.node_def, [], "workflow.legacy_auto")
 
       {:ok, failed} =
-        running
-        |> Ash.Changeset.for_update(:fail, %{}, actor: admin)
+        run
+        |> Ash.Changeset.for_update(:start_run, %{}, actor: admin)
         |> Ash.update(tenant: workspace.id, actor: admin)
 
       assert failed.status == :failed
+      refute is_nil(failed.finished_at)
     end
   end
 

@@ -90,7 +90,7 @@ defmodule Cgc2046.Curriculum.ReaperTest do
     workspace = Fixtures.create_workspace(admin)
     event = EventFixtures.create_event(workspace, admin)
 
-    # manual-only 定义 → start_run 直达 waiting（无需 StepHandlerRegistry）
+    # manual-only 定义 → start_run 直达 waiting
     run = launch_curriculum_run(workspace, admin, event, :event)
     assert run.status == :waiting
 

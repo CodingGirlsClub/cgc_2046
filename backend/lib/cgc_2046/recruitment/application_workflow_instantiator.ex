@@ -3,7 +3,7 @@ defmodule Cgc2046.Recruitment.ApplicationWorkflowInstantiator do
   志愿者申请的 workflow run 实例化（U3；KTD1 申请行是状态权威、run 是执行镜像）。
 
   一个申请 = 一个 run：run 持**四个人工信号门控**（submitted / interview /
-  training / assigned，manual-only 定义，无需 StepHandlerRegistry），逐段镜像
+  training / assigned，manual-only 定义），逐段镜像
   R12 状态机：
 
   - create → start_run → waiting（submitted 门控，等初审）

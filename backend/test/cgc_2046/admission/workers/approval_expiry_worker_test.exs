@@ -27,17 +27,8 @@ defmodule Cgc2046.Admission.Workers.ApprovalExpiryWorkerTest do
   alias Cgc2046.Accounts.WorkspaceApplication
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Admission.Workers.ApprovalExpiryWorker
-  alias Cgc2046.Workflows.JidoAdapter
-  alias Cgc2046.Workflows.StepHandlerRegistry
-  alias Cgc2046.Workflows.TestActions
   alias Cgc2046.Workflows.WorkflowDefinition
   alias Cgc2046.Workflows.WorkflowRun
-
-  setup do
-    StepHandlerRegistry.register(TestActions.Uppercase)
-    StepHandlerRegistry.register(TestActions.AppendExclamation)
-    :ok
-  end
 
   defp create_join_request(workspace, user) do
     assert {:ok, join_request} =
@@ -87,21 +78,11 @@ defmodule Cgc2046.Admission.Workers.ApprovalExpiryWorkerTest do
       )
   end
 
-  # 自动步骤 + 人工步骤门控：uppercase → (manual approval) → append_exclamation
+  # 纯人工步骤门控：manual approval
   defp gated_node_def do
     %{
       "steps" => [
-        %{
-          "id" => "uppercase",
-          "type" => "auto",
-          "action" => "Elixir.Cgc2046.Workflows.TestActions.Uppercase"
-        },
-        %{"id" => "approval", "type" => "manual"},
-        %{
-          "id" => "append_exclamation",
-          "type" => "auto",
-          "action" => "Elixir.Cgc2046.Workflows.TestActions.AppendExclamation"
-        }
+        %{"id" => "approval", "type" => "manual"}
       ]
     }
   end
@@ -131,7 +112,7 @@ defmodule Cgc2046.Admission.Workers.ApprovalExpiryWorkerTest do
     published
   end
 
-  # 建 run 并 start_run 推进到 waiting（hibernate，checkpoint 落 Postgres）
+  # 建 run 并 start_run 推进到 waiting
   defp create_waiting_run(workspace, admin, published) do
     assert {:ok, run} =
              WorkflowRun
@@ -352,22 +333,18 @@ defmodule Cgc2046.Admission.Workers.ApprovalExpiryWorkerTest do
     end
   end
 
-  # 补测 POC-2 G1 缺口（原文见模块 moduledoc）：hibernate 期间 deadline 到点 →
-  # 唤醒 → cancel 的完整链路。唤醒 = Oban worker 扫描；cancel = WorkflowRun :expire。
-  describe "POC-2 G1 补测：hibernate→thaw→cancel 链路" do
-    test "waiting hibernate（checkpoint 可 thaw 恢复）→ deadline 过点 → worker 唤醒转 expired → checkpoint 清理 → 信号放行被拒" do
+  # 补测 POC-2 G1 缺口（原文见模块 moduledoc）：waiting 期间 deadline 到点 →
+  # 唤醒 → expire → 信号放行被拒的完整链路。
+  describe "POC-2 G1 补测：waiting→expire→信号放行被拒链路" do
+    test "waiting → deadline 过点 → worker 唤醒转 expired → 信号放行被拒" do
       admin = Fixtures.platform_admin("expiry-admin")
       workspace = Fixtures.create_workspace(admin)
       published = create_published_definition(workspace, admin, 3_600)
       waiting = create_waiting_run(workspace, admin, published)
 
-      # hibernate 实证：checkpoint 已持久化，thaw 可恢复 workflow（G1 A2 语义：
-      # status=waiting、上游 facts 保留）
-      assert {:ok, restored} = JidoAdapter.thaw(waiting.id, waiting.partition_id)
-      assert JidoAdapter.run_status(restored) == :waiting
-      assert JidoAdapter.list_run_facts(restored)["uppercase"] == %{text: "HI"}
+      assert waiting.status == :waiting
 
-      # hibernate 期间 deadline 到点（审批超时 1h，waiting 已挂起 2h）
+      # waiting 期间 deadline 到点（审批超时 1h，waiting 已挂起 2h）
       backdate_run_updated_at(waiting, "2 hours")
 
       # 唤醒路径：Oban worker 扫描到过点 waiting run → 走既有 :expire 领域 action
@@ -377,9 +354,6 @@ defmodule Cgc2046.Admission.Workers.ApprovalExpiryWorkerTest do
       expired = Ash.get!(WorkflowRun, waiting.id, authorize?: false)
       assert expired.status == :expired
       refute is_nil(expired.finished_at)
-
-      # 终态 checkpoint 清理（#16 语义）：thaw 不再可恢复
-      assert {:error, _} = JidoAdapter.thaw(waiting.id, waiting.partition_id)
 
       # 迟到的审批信号被拒（终态不可 resume_signal）
       assert {:error, %Ash.Error.Invalid{}} =
@@ -392,7 +366,7 @@ defmodule Cgc2046.Admission.Workers.ApprovalExpiryWorkerTest do
                |> Ash.update(tenant: workspace.id, actor: admin)
     end
 
-    test "deadline 未过点的 hibernated run 不被唤醒 cancel（thaw 后仍可正常放行）" do
+    test "deadline 未过点的 waiting run 不被唤醒 expire（仍可正常放行）" do
       admin = Fixtures.platform_admin("expiry-admin")
       workspace = Fixtures.create_workspace(admin)
       published = create_published_definition(workspace, admin, 604_800)
@@ -400,13 +374,10 @@ defmodule Cgc2046.Admission.Workers.ApprovalExpiryWorkerTest do
 
       assert :ok = perform_job(ApprovalExpiryWorker, %{})
 
-      # 未过点：run 仍 waiting，checkpoint 仍在，thaw 恢复后信号放行链路完好
+      # 未过点：run 仍 waiting，信号放行链路完好
       # （带 tenant 重读：resume_signal 的 StepAuthorization 需从 changeset.tenant 取工作台）
       reloaded = Ash.get!(WorkflowRun, waiting.id, tenant: workspace.id, authorize?: false)
       assert reloaded.status == :waiting
-
-      assert {:ok, restored} = JidoAdapter.thaw(waiting.id, waiting.partition_id)
-      assert JidoAdapter.run_status(restored) == :waiting
 
       assert {:ok, succeeded} =
                reloaded

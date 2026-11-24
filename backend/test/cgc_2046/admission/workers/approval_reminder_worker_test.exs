@@ -20,18 +20,10 @@ defmodule Cgc2046.Admission.Workers.ApprovalReminderWorkerTest do
   alias Cgc2046.Admission.Workers.ApprovalExpiryWorker
   alias Cgc2046.Admission.Workers.ApprovalReminderWorker
   alias Cgc2046.Workflows.SignalLog
-  alias Cgc2046.Workflows.StepHandlerRegistry
-  alias Cgc2046.Workflows.TestActions
   alias Cgc2046.Workflows.WorkflowDefinition
   alias Cgc2046.Workflows.WorkflowRun
 
   require Ash.Query
-
-  setup do
-    StepHandlerRegistry.register(TestActions.Uppercase)
-    StepHandlerRegistry.register(TestActions.AppendExclamation)
-    :ok
-  end
 
   # #847 批 3：approval_reminder 已迁耐久路径，行为面 = Delivery 行（伪 job 投影）
   defp reminder_jobs(user_id) do
@@ -46,17 +38,7 @@ defmodule Cgc2046.Admission.Workers.ApprovalReminderWorkerTest do
   defp gated_node_def do
     %{
       "steps" => [
-        %{
-          "id" => "uppercase",
-          "type" => "auto",
-          "action" => "Elixir.Cgc2046.Workflows.TestActions.Uppercase"
-        },
-        %{"id" => "approval", "type" => "manual"},
-        %{
-          "id" => "append_exclamation",
-          "type" => "auto",
-          "action" => "Elixir.Cgc2046.Workflows.TestActions.AppendExclamation"
-        }
+        %{"id" => "approval", "type" => "manual"}
       ]
     }
   end

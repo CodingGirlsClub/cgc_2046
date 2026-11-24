@@ -1,11 +1,10 @@
 defmodule Cgc2046.Workflows.Changes.TransitionTest do
   @moduledoc """
   Transition change 契约单测（PR-G D7）：from 匹配 force_change / from 不匹配
-  add_error（错误串逐字「cannot <verb> from status=<s>」）/ cleanup 开关
-  （cleanup_checkpoint: true 挂 after_transaction）。
+  add_error（错误串逐字「cannot <verb> from status=<s>」）。
 
   纯 changeset 级（apply_action，不落库）；复杂执行闭环（start_run/resume_signal
-  调引擎）不在此覆盖——守卫语义由 workflow_run_test 98-349 既有用例守护。
+  调引擎）不在此覆盖——守卫语义由 workflow_run_test 既有用例守护。
   """
 
   use ExUnit.Case, async: true
@@ -34,7 +33,7 @@ defmodule Cgc2046.Workflows.Changes.TransitionTest do
       assert Ash.Changeset.get_attribute(cs, :status) == :running
     end
 
-    test "complete: waiting → succeeded（cleanup_checkpoint: true 的守卫本身）" do
+    test "complete: waiting → succeeded" do
       cs = run_changeset(:waiting, :complete)
       assert Ash.Changeset.get_attribute(cs, :status) == :succeeded
     end
@@ -54,23 +53,6 @@ defmodule Cgc2046.Workflows.Changes.TransitionTest do
     test "cancel from succeeded（from 列表外）→ cannot cancel from status=succeeded" do
       cs = run_changeset(:succeeded, :cancel)
       assert Enum.any?(cs.errors, &(&1.message == "cannot cancel from status=succeeded"))
-    end
-  end
-
-  describe "cleanup 开关" do
-    test "cleanup_checkpoint: true 挂 after_transaction（complete）" do
-      cs = run_changeset(:waiting, :complete)
-      refute cs.after_transaction == []
-    end
-
-    test "cleanup_checkpoint: true 挂 after_transaction（cancel）" do
-      cs = run_changeset(:waiting, :cancel)
-      refute cs.after_transaction == []
-    end
-
-    test "cleanup_checkpoint 缺省（false）不挂 after_transaction（start 非终态）" do
-      cs = run_changeset(:pending, :start)
-      assert cs.after_transaction == []
     end
   end
 end

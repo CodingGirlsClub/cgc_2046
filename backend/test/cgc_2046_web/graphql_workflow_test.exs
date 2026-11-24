@@ -18,21 +18,9 @@ defmodule Cgc2046Web.GraphqlWorkflowTest do
 
   alias Cgc2046.Curriculum.Instantiator
 
-  alias Cgc2046.Workflows.{
-    StepHandlerRegistry,
-    TestActions,
-    WorkflowDefinition
-  }
+  alias Cgc2046.Workflows.WorkflowDefinition
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
-
-  setup do
-    # 注册测试 step handlers（ADR-0003 两阶段初始化）
-    StepHandlerRegistry.register(TestActions.Uppercase)
-    StepHandlerRegistry.register(TestActions.AppendExclamation)
-    StepHandlerRegistry.register(TestActions.AlwaysFail)
-    :ok
-  end
 
   defp graphql_post(conn, query, token) do
     conn =
@@ -66,20 +54,11 @@ defmodule Cgc2046Web.GraphqlWorkflowTest do
     conn.resp_cookies["cgc_token"].value
   end
 
-  # 纯 auto 教研定义：uppercase → append_exclamation（start_run 直接 succeeded）
-  defp auto_node_def do
+  # 纯 manual 教研定义
+  defp manual_node_def do
     %{
       "steps" => [
-        %{
-          "id" => "uppercase",
-          "type" => "auto",
-          "action" => "Elixir.Cgc2046.Workflows.TestActions.Uppercase"
-        },
-        %{
-          "id" => "append_exclamation",
-          "type" => "auto",
-          "action" => "Elixir.Cgc2046.Workflows.TestActions.AppendExclamation"
-        }
+        %{"id" => "approval", "type" => "manual"}
       ]
     }
   end
@@ -126,11 +105,11 @@ defmodule Cgc2046Web.GraphqlWorkflowTest do
     Ash.get!(resource, record.id, authorize?: false)
   end
 
-  # 建 workspace + published 教研定义 + 已启动 run（succeeded）
+  # 建 workspace + published 教研定义 + 已启动 run（waiting）
   defp seeded_run do
     admin = Fixtures.platform_admin("gql-wf-admin")
     workspace = Fixtures.create_workspace(admin)
-    {:ok, defn} = create_definition(workspace, admin, auto_node_def())
+    {:ok, defn} = create_definition(workspace, admin, manual_node_def())
     {:ok, published} = publish_definition(defn, workspace, admin)
     event = force_open(create_event(workspace, admin) |> elem(1), :events)
 
