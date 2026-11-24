@@ -338,3 +338,39 @@ fn malformed_profile_fails_closed() {
     assert_eq!(probe_with(read), None);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn probe_and_find_dsh_support_windows_userprofile_without_home() {
+    let root = temp_dir("windows-userprofile");
+    let userprofile = root.join("userprofile");
+    let local_bin = userprofile.join(".local").join("bin");
+    std::fs::create_dir_all(&local_bin).unwrap();
+    let dsh_exe = local_bin.join("dsh.exe");
+    let dsh_unix = local_bin.join("dsh");
+    write_dsh_cli(&dsh_exe);
+    write_dsh_cli(&dsh_unix);
+    write_profile(&userprofile.join(".dsh"), "0.4.41");
+
+    let env = env_with(&[
+        ("HOME", PathBuf::new()),
+        ("USERPROFILE", userprofile.clone()),
+    ]);
+    let read = |key: &str| env.get(key).cloned();
+
+    assert_eq!(find_dsh_in(read, true), Some(dsh_exe.clone()));
+
+    let expected_dsh = if cfg!(windows) { dsh_exe } else { dsh_unix };
+    assert_eq!(
+        install_target_with(read),
+        Some((expected_dsh.clone(), userprofile.join(".dsh")))
+    );
+    assert_eq!(
+        probe_with(read),
+        Some(DshPlugin {
+            dsh: expected_dsh,
+            home: userprofile.join(".dsh"),
+            version: "0.4.41".to_string(),
+        })
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}

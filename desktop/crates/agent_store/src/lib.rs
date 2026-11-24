@@ -17,9 +17,9 @@ pub use conversations::{
 };
 pub use model_lines::{format_model_lines, normalized_provider_name, parse_model_lines};
 pub use prefs::{
-    builtin_providers, cgc_cloud_provider, cgc_cloud_provider_with_models, is_builtin_provider_id,
-    next_provider_id, provider_key_account, AgentPrefs, ModelPrefs, PrefsError, PrefsStore,
-    ProviderPrefs, CGC_CLOUD_PROVIDER_ID,
+    builtin_byok_providers, cgc_cloud_provider, cgc_cloud_provider_with_models,
+    is_builtin_provider_id, is_managed_provider_id, next_provider_id, provider_key_account,
+    AgentPrefs, ModelPrefs, PrefsError, PrefsStore, ProviderPrefs, CGC_CLOUD_PROVIDER_ID,
 };
 pub use sessions::{CheckpointRecord, SessionError, SessionStore, ThreadSummary};
 pub use snapshot::{SavedConversation, SnapshotSource};

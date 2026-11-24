@@ -198,10 +198,14 @@ pub(crate) fn terminate_process_group(pid: u32) {
         let _ = unsafe { kill(-(pid as i32), 9) };
     }
     #[cfg(windows)]
-    let _ = Command::new("taskkill")
-        .args(["/PID", &pid.to_string(), "/T", "/F"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
+    {
+        let mut command = Command::new("taskkill");
+        command
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        crate::process::hide_console_window(&mut command);
+        let _ = command.status();
+    }
 }

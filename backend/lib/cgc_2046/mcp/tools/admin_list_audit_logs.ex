@@ -66,13 +66,15 @@ defmodule Cgc2046.Mcp.Tools.AdminListAuditLogs do
   defp parse_source(_source),
     do: {:error, "invalid source (expected one of #{Enum.join(@sources, "|")})"}
 
-  # 三源同一读取纪律：for_read(:read) + actor 授权（platform_admin policy）+
-  # 倒序 + 封顶；投影在 to_row 白名单内，params/metadata 列不进入返回值。
+  # 三源同一读取纪律：for_read(:read) + Ash.Query.select/2 SQL 列级裁剪 +
+  # actor 授权（platform_admin policy）+ 倒序 + 封顶；配合 to_row/2 白名单双重兜底，
+  # params / summary / metadata 列不从数据库读出也不进入返回值。
   defp read_source(source, actor) do
     resource = resource_for(source)
 
     resource
     |> Ash.Query.for_read(:read)
+    |> Ash.Query.select(select_fields(source))
     |> AdminList.recent()
     |> Ash.read(actor: actor)
     |> case do
@@ -85,6 +87,29 @@ defmodule Cgc2046.Mcp.Tools.AdminListAuditLogs do
       {:error, _} ->
         {:error, "failed to list audit logs"}
     end
+  end
+
+  defp select_fields("tool_calls") do
+    [
+      :id,
+      :user_id,
+      :tool,
+      :result_status,
+      :error_message,
+      :latency_ms,
+      :pending_operation_id,
+      :client_name,
+      :session_id,
+      :inserted_at
+    ]
+  end
+
+  defp select_fields("pending_operations") do
+    [:id, :user_id, :tool, :status, :expires_at, :resolved_at, :inserted_at]
+  end
+
+  defp select_fields("admin_actions") do
+    [:id, :actor_id, :action, :target_type, :target_id, :result, :inserted_at]
   end
 
   defp resource_for("tool_calls"), do: ToolCallLog

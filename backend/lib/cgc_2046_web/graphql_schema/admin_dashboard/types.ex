@@ -1,7 +1,7 @@
 defmodule Cgc2046Web.GraphqlSchema.AdminDashboard.Types do
   @moduledoc """
   Admin Dashboard 域 GraphQL 类型：admin 面 16 个投影/payload 类型
-  （admin_workspace_application 归用户侧留 schema）；仅本域 notation
+  （`admin_workspace_application` 归用户侧，已迁至 `Account.Types`）；仅本域 notation
   模块 import_types 使用。
   """
 

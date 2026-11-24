@@ -414,7 +414,19 @@ impl RootView {
                         this.handle_notification_response(response, cx)
                     });
                 }
-                let token = root.update(cx, |this, _| this.notification_token());
+                let upgrade_active = root.update(cx, |this, cx| {
+                    let latched = cgc_platform::api::upgrade_notice();
+                    if this.upgrade_notice != latched {
+                        this.upgrade_notice = latched;
+                        cx.notify();
+                    }
+                    this.upgrade_notice.is_some()
+                });
+                let token = if upgrade_active {
+                    None
+                } else {
+                    root.update(cx, |this, _| this.notification_token())
+                };
                 if let Some(token) = token {
                     let should_fetch = last_fetch
                         .map(|last| last.elapsed() >= std::time::Duration::from_secs(60))
@@ -444,13 +456,19 @@ impl RootView {
             .filter(|token| !token.is_empty())
     }
 
-    fn handle_notification_feed(
+    pub(in crate::root_view) fn handle_notification_feed(
         &mut self,
         result: Result<Vec<cgc_platform::notifications::Notification>, cgc_platform::api::ApiError>,
         cx: &mut Context<Self>,
     ) {
         let items = match result {
             Ok(items) => items,
+            Err(cgc_platform::api::ApiError::UpgradeRequired(notice)) => {
+                if self.apply_upgrade_notice(notice) {
+                    cx.notify();
+                }
+                return;
+            }
             Err(error) => {
                 if !matches!(error, cgc_platform::api::ApiError::Unauthorized) {
                     log::warn!(target: "notifications", "通知列表拉取失败：{error:?}");
@@ -940,9 +958,111 @@ impl RootView {
             let result = task.await;
             if let Ok(false) = result {
                 let _ = this.update(cx, |this, cx| this.force_sign_out(cx));
+            } else if result.is_err() {
+                if let Some(notice) = cgc_platform::api::upgrade_notice() {
+                    let _ = this.update(cx, |this, cx| {
+                        this.upgrade_notice = Some(notice);
+                        cx.notify();
+                    });
+                }
             }
         })
         .detach();
+    }
+
+    pub(in crate::root_view) fn apply_upgrade_notice(
+        &mut self,
+        notice: cgc_platform::api::UpgradeNotice,
+    ) -> bool {
+        if self.upgrade_notice.as_ref() == Some(&notice) {
+            return false;
+        }
+        self.upgrade_notice = Some(notice);
+        true
+    }
+
+    pub(in crate::root_view) fn clear_upgrade_overlay_state(&mut self) {
+        cgc_platform::api::clear_upgrade_notice();
+        self.upgrade_notice = None;
+        self.update_check_started = false;
+        if self.is_signed_in() {
+            self.session_checked = false;
+            if matches!(
+                self.workspaces.state(),
+                WorkspaceListState::Failed(_) | WorkspaceListState::Idle
+            ) {
+                self.workspaces.reset();
+                self.workspaces_started = false;
+            }
+            if matches!(self.events.state(), ListState::Failed(_) | ListState::Idle) {
+                self.events.reset();
+                self.events_started = false;
+            }
+            if matches!(self.detail.state(), ListState::Failed(_) | ListState::Idle) {
+                self.detail.reset();
+                self.detail_started = false;
+            }
+            if matches!(
+                self.courses.state(),
+                CoursesListState::Failed(_) | CoursesListState::Idle
+            ) {
+                self.courses.reset();
+                self.courses_started = false;
+            }
+            if matches!(
+                self.course_detail.state(),
+                CoursesListState::Failed(_) | CoursesListState::Idle
+            ) {
+                self.course_detail.reset();
+                self.course_detail_started = false;
+            }
+            if matches!(
+                self.content.state(),
+                CourseContentState::Failed(_) | CourseContentState::Idle
+            ) {
+                self.content.reset();
+            }
+            if matches!(self.notes.state(), NotesState::Failed(_) | NotesState::Idle) {
+                self.notes.reset();
+                self.notes_started = false;
+            }
+            if matches!(
+                self.projection.state(),
+                ProjectionState::Failed(_) | ProjectionState::Idle
+            ) {
+                self.projection.reset();
+            }
+            if matches!(
+                self.nav_events.state(),
+                ListState::Failed(_) | ListState::Idle
+            ) {
+                self.nav_events.reset();
+                self.nav_events_started = false;
+            }
+            if matches!(
+                self.nav_courses.state(),
+                CoursesListState::Failed(_) | CoursesListState::Idle
+            ) {
+                self.nav_courses.reset();
+                self.nav_courses_started = false;
+            }
+            if matches!(
+                self.enrollments_state,
+                EnrollmentsListState::Failed(_) | EnrollmentsListState::Idle
+            ) {
+                self.enrollments_state = EnrollmentsListState::Idle;
+                self.enrollments_started = false;
+            }
+        }
+    }
+
+    pub(in crate::root_view) fn retry_upgrade_gate(&mut self, cx: &mut Context<Self>) {
+        self.clear_upgrade_overlay_state();
+        self.maybe_start_update_check(cx);
+        if self.is_signed_in() && self.agent_authorization_error.is_some() {
+            self.prepare_agent_authorization(cx);
+        }
+        cx.notify();
     }
 
     pub(in crate::root_view) fn start_workspace_load(&mut self, cx: &mut Context<Self>) {
@@ -2130,7 +2250,7 @@ impl RootView {
     }
 
     pub(in crate::root_view) fn send_chat(&mut self, cx: &mut Context<Self>) -> bool {
-        if !self.chat.session.can_submit() {
+        if self.is_upgrade_gate_active() || !self.chat.session.can_submit() {
             return false;
         }
         let text = self
@@ -2154,6 +2274,9 @@ impl RootView {
         text: String,
         cx: &mut Context<Self>,
     ) -> bool {
+        if self.is_upgrade_gate_active() {
+            return false;
+        }
         self.refresh_page_context();
         if !self.chat.session.can_submit() || self.chat.session.session_id.is_none() {
             return false;
@@ -2207,6 +2330,9 @@ impl RootView {
         prompt: String,
         cx: &mut Context<Self>,
     ) -> bool {
+        if self.is_upgrade_gate_active() {
+            return false;
+        }
         self.refresh_page_context();
         if !self.chat.session.can_submit() || self.chat.session.session_id.is_none() {
             return false;
@@ -2555,6 +2681,18 @@ impl RootView {
             self.persist_panel_intent();
             cx.notify();
         }
+    }
+
+    /// Settings 的充值入口：切回 native 对话并打开钱包/收银台面板。
+    pub(crate) fn open_native_wallet(&mut self, cx: &mut Context<Self>) {
+        self.agent_panel_open = true;
+        self.dismiss_terminal_for_chat(cx);
+        self.set_native_chat_mode(true);
+        if let Some(view) = self.native_agent_view.clone() {
+            view.update(cx, |view, cx| view.open_wallet_panel(cx));
+        }
+        self.activate_window(cx);
+        cx.notify();
     }
 
     /// 记录上次可见的面板条目，供下次启动恢复（budget=1）。
@@ -3065,9 +3203,12 @@ impl RootView {
             Some((window, view))
         }) {
             let _ = existing.update(cx, |_, window, cx| {
-                if open_llm_providers {
-                    view.update(cx, |view, cx| view.open_llm_providers(cx));
-                }
+                view.update(cx, |view, cx| {
+                    view.refresh_checkpoint_storage(cx);
+                    if open_llm_providers {
+                        view.open_llm_providers(cx);
+                    }
+                });
                 window.activate_window();
             });
             return;
@@ -3693,6 +3834,19 @@ impl RootView {
             .clone()
     }
 
+    pub(in crate::root_view) fn ensure_upgrade_overlay_focus(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> FocusHandle {
+        self.upgrade_overlay_focus
+            .get_or_insert_with(|| cx.focus_handle())
+            .clone()
+    }
+
+    pub(in crate::root_view) fn is_upgrade_gate_active(&self) -> bool {
+        self.upgrade_notice.is_some() || cgc_platform::api::upgrade_notice().is_some()
+    }
+
     pub(in crate::root_view) fn submit_login(&mut self, cx: &mut Context<Self>) {
         if self.signing_in {
             return;
@@ -3761,6 +3915,26 @@ impl RootView {
         }
     }
 
+    /// 账号切换/登出时清掉设置窗口里上一账号的托管余额与目录状态。
+    pub(in crate::root_view) fn reset_settings_account_state(&mut self, cx: &mut Context<Self>) {
+        let views: Vec<_> = cx
+            .windows()
+            .into_iter()
+            .filter_map(|window| {
+                let root = window.downcast::<gpui_kit::base::Root>()?;
+                root.read(cx)
+                    .ok()?
+                    .view()
+                    .clone()
+                    .downcast::<crate::settings_window::SettingsWindowView>()
+                    .ok()
+            })
+            .collect();
+        for view in views {
+            view.update(cx, |view, cx| view.reset_cgc_cloud_account(cx));
+        }
+    }
+
     pub(in crate::root_view) fn sign_out(&mut self, cx: &mut Context<Self>) {
         self.session_epoch = self.session_epoch.wrapping_add(1);
         self.revoke_agent_authorization(cx);
@@ -3800,6 +3974,9 @@ impl RootView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.is_upgrade_gate_active() {
+            return;
+        }
         // 登录页是自绘输入框，没有 InputState 的剪贴板处理；显式支持
         // Cmd/Ctrl+V，否则从密码管理器复制的邮箱/密码只能手工重敲。
         if (event.keystroke.modifiers.platform || event.keystroke.modifiers.control)
@@ -4299,11 +4476,9 @@ fn next_terminal_session_id() -> String {
     format!("term-{millis}-{}", COUNTER.fetch_add(1, Ordering::Relaxed))
 }
 
-/// 用户 home：macOS/Linux 用 `HOME`，Windows 用 `USERPROFILE`。
+/// 用户 home：委托 [`cgc_platform::paths::home_dir`]（支持 `HOME` / `USERPROFILE` / `HOMEDRIVE`+`HOMEPATH`）。
 pub(in crate::root_view) fn home_dir() -> Option<std::path::PathBuf> {
-    std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .map(std::path::PathBuf::from)
+    cgc_platform::paths::home_dir()
 }
 
 /// 新终端的默认工作目录优先级：上次关闭时的目录 → agent 工作区 → home。

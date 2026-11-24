@@ -92,12 +92,14 @@ mod offering_load;
 mod page_context_build;
 mod tab_lifecycle;
 pub(crate) use history_actions::notify_history_changed;
+pub(crate) use history_actions::notify_upgrade_notice;
 pub use history_actions::register_history_root;
 pub(crate) use history_actions::root_weak;
 mod history_sidebar;
 mod screens;
 mod state;
 mod terminal_panel;
+mod update_banner;
 
 #[cfg(all(test, cgc_ui_tests))]
 mod footer_tests;
@@ -105,12 +107,14 @@ mod footer_tests;
 mod panel_memory_tests;
 #[cfg(all(test, cgc_ui_tests))]
 mod titlebar_tests;
+#[cfg(all(test, cgc_ui_tests))]
+mod upgrade_overlay_ui_tests;
 
 /// UI 测试夹具：以演示账号进入 `SignedIn`（内存凭证存储，不碰 keychain）。
 ///
 /// 凭据取自 `FakeAuthApi::demo()` 自身，调用点因此不出现密码字面量——密码实参
 /// 写成字面量会被 CodeQL `rust/hard-coded-cryptographic-value` 判成硬编码凭证。
-#[cfg(all(test, cgc_ui_tests))]
+#[cfg(test)]
 pub(in crate::root_view) fn demo_signed_in() -> SessionService {
     let api = cgc_platform::session::FakeAuthApi::demo();
     let session = api.demo_session().expect("fake demo session");
@@ -516,6 +520,11 @@ impl std::ops::DerefMut for RootView {
 }
 
 impl RootView {
+    /// Settings 的充值入口是否可达（native 面板被偏好/环境关闭时不显示）。
+    pub(crate) fn native_agent_available() -> bool {
+        RootView::native_agent_enabled()
+    }
+
     /// 启动时恢复历史侧栏开关（main 读取 preferences 后传入；默认关闭）。
     pub fn set_history_sidebar_persisted(&mut self, open: bool) {
         if open {
@@ -832,6 +841,7 @@ impl Render for RootView {
             });
         }
         self.refresh_history_if_dirty(cx);
+        register_history_root(cx.entity().downgrade());
         if self.chat_input_pending_clear {
             self.chat_input_pending_clear = false;
             if let Some(input) = self.chat_input.clone() {
@@ -862,10 +872,15 @@ impl Render for RootView {
         if self.key_interceptor.is_none() {
             let root = cx.entity().downgrade();
             let subscription = cx.intercept_keystrokes(move |event, window, cx| {
+                if cgc_platform::api::upgrade_notice().is_some() {
+                    cx.stop_propagation();
+                    return;
+                }
                 let keystroke = event.keystroke.clone();
                 let handled = root
                     .update(cx, |this, cx| {
-                        this.handle_title_edit_escape(&keystroke, window, cx)
+                        this.is_upgrade_gate_active()
+                            || this.handle_title_edit_escape(&keystroke, window, cx)
                             || this.handle_slash_keystroke(&keystroke, window, cx)
                     })
                     .unwrap_or(false);
@@ -880,33 +895,39 @@ impl Render for RootView {
                 let subscription = cx.subscribe_in(
                     &input,
                     window,
-                    |this, state, event: &InputEvent, window, cx| match event {
-                        InputEvent::Change => {
-                            this.chat.focused = true;
-                            this.chat.input =
-                                crate::composer_context::command_text(&state.read(cx).content());
-                            this.chat.slash_selection = 0;
-                            this.chat.slash_dismissed = false;
-                            this.chat_input_pending_clear = false;
-                            cx.notify();
+                    |this, state, event: &InputEvent, window, cx| {
+                        if this.is_upgrade_gate_active() {
+                            return;
                         }
-                        InputEvent::PressEnter { shift, .. } if !shift => {
-                            this.chat.input =
-                                crate::composer_context::user_text(&state.read(cx).content());
-                            if this.send_chat(cx) {
-                                state.update(cx, |state, cx| state.set_value("", window, cx));
+                        match event {
+                            InputEvent::Change => {
+                                this.chat.focused = true;
+                                this.chat.input = crate::composer_context::command_text(
+                                    &state.read(cx).content(),
+                                );
+                                this.chat.slash_selection = 0;
+                                this.chat.slash_dismissed = false;
+                                this.chat_input_pending_clear = false;
+                                cx.notify();
                             }
-                            cx.notify();
+                            InputEvent::PressEnter { shift, .. } if !shift => {
+                                this.chat.input =
+                                    crate::composer_context::user_text(&state.read(cx).content());
+                                if this.send_chat(cx) {
+                                    state.update(cx, |state, cx| state.set_value("", window, cx));
+                                }
+                                cx.notify();
+                            }
+                            InputEvent::Focus => {
+                                this.chat.focused = true;
+                                cx.notify();
+                            }
+                            InputEvent::Blur => {
+                                this.chat.focused = false;
+                                cx.notify();
+                            }
+                            _ => {}
                         }
-                        InputEvent::Focus => {
-                            this.chat.focused = true;
-                            cx.notify();
-                        }
-                        InputEvent::Blur => {
-                            this.chat.focused = false;
-                            cx.notify();
-                        }
-                        _ => {}
                     },
                 );
                 self.chat_input_subscription = Some(subscription);
@@ -977,6 +998,7 @@ impl Render for RootView {
         let signed_in_as = translate(language, Key::AppAuthSignedInAs);
 
         let language_icon = AssetIcon::Languages;
+        self.maybe_start_update_check(cx);
 
         if is_signed_in {
             if !self.session_checked {
@@ -1180,6 +1202,7 @@ impl Render for RootView {
                 ),
             };
             root = root
+                .relative()
                 .size_full()
                 .flex()
                 .flex_col()
@@ -1200,6 +1223,7 @@ impl Render for RootView {
                         .bg(palette.canvas)
                         .border_color(palette.canvas),
                 )
+                .children(self.render_update_banner(language, &palette, cx))
                 .child(
                     div()
                         .flex_1()
@@ -1218,9 +1242,18 @@ impl Render for RootView {
                     &palette,
                     cx,
                 ));
+            if let Some(notice) = self
+                .upgrade_notice
+                .clone()
+                .or_else(cgc_platform::api::upgrade_notice)
+            {
+                root = root
+                    .child(self.render_upgrade_overlay(&notice, language, &palette, window, cx));
+            }
             root
         } else {
             root = root
+                .relative()
                 .size_full()
                 .flex()
                 .flex_col()
@@ -1300,125 +1333,128 @@ impl Render for RootView {
                             account_tooltip,
                             cx,
                         )),
-                )
-                .child({
-                    let agent_on_left =
-                        self.agent_panel_side == crate::preferences::PanelSide::Left;
-                    let dock_on_left = self.dock_side == crate::preferences::PanelSide::Left;
-                    let left_agent_group: Option<AnyElement> = agent_on_left.then(|| {
-                        div()
-                            .flex()
-                            .flex_row()
-                            .min_h(px(0.0))
-                            .children(self.history_sidebar.is_some().then(|| {
-                                self.render_history_sidebar(
-                                    crate::preferences::PanelSide::Left,
-                                    window,
-                                    cx,
-                                )
-                            }))
-                            .children(self.agent_panel_open.then(|| {
-                                screens::render_agent_panel(
-                                    &mut screens::ScreenContext::new(&mut self.state),
-                                    language,
-                                    &palette,
-                                    window,
-                                    cx,
-                                )
-                            }))
-                            .children(self.agent_panel_open.then(|| {
-                                render_panel_resize_handle(
-                                    ResizeSide::Left,
-                                    crate::preferences::PanelSide::Left,
-                                    &palette,
-                                    pane_header_visible,
-                                    cx,
-                                )
-                            }))
-                            .into_any_element()
-                    });
-                    let left_dock_group: Option<AnyElement> = dock_on_left.then(|| {
-                        div()
-                            .flex()
-                            .flex_row()
-                            .min_h(px(0.0))
-                            .children(self.right_panel_open.then(|| {
-                                screens::render_right_dock(
-                                    &mut screens::ScreenContext::new(&mut self.state),
-                                    language,
-                                    &palette,
-                                    window,
-                                    cx,
-                                )
-                            }))
-                            .children(self.right_panel_open.then(|| {
-                                render_panel_resize_handle(
-                                    ResizeSide::Right,
-                                    crate::preferences::PanelSide::Left,
-                                    &palette,
-                                    pane_header_visible && right_header_visible,
-                                    cx,
-                                )
-                            }))
-                            .into_any_element()
-                    });
-                    let right_dock_group: Option<AnyElement> = (!dock_on_left).then(|| {
-                        div()
-                            .flex()
-                            .flex_row()
-                            .min_h(px(0.0))
-                            .children(self.right_panel_open.then(|| {
-                                render_panel_resize_handle(
-                                    ResizeSide::Right,
-                                    crate::preferences::PanelSide::Right,
-                                    &palette,
-                                    pane_header_visible && right_header_visible,
-                                    cx,
-                                )
-                            }))
-                            .children(self.right_panel_open.then(|| {
-                                screens::render_right_dock(
-                                    &mut screens::ScreenContext::new(&mut self.state),
-                                    language,
-                                    &palette,
-                                    window,
-                                    cx,
-                                )
-                            }))
-                            .into_any_element()
-                    });
-                    let right_agent_group: Option<AnyElement> = (!agent_on_left).then(|| {
-                        div()
-                            .flex()
-                            .flex_row()
-                            .min_h(px(0.0))
-                            .children(self.agent_panel_open.then(|| {
-                                render_panel_resize_handle(
-                                    ResizeSide::Left,
-                                    crate::preferences::PanelSide::Right,
-                                    &palette,
-                                    pane_header_visible,
-                                    cx,
-                                )
-                            }))
-                            .children(self.agent_panel_open.then(|| {
-                                screens::render_agent_panel(
-                                    &mut screens::ScreenContext::new(&mut self.state),
-                                    language,
-                                    &palette,
-                                    window,
-                                    cx,
-                                )
-                            }))
-                            .children(self.history_sidebar.is_some().then(|| {
-                                self.render_history_sidebar(
-                                    crate::preferences::PanelSide::Right,
-                                    window,
-                                    cx,
-                                )
-                            }))
-                            .into_any_element()
-                    });
+                );
+            if let Some(banner) = self.render_update_banner(language, &palette, cx) {
+                root = root.child(banner);
+            }
+            {
+                let agent_on_left = self.agent_panel_side == crate::preferences::PanelSide::Left;
+                let dock_on_left = self.dock_side == crate::preferences::PanelSide::Left;
+                let left_agent_group: Option<AnyElement> = agent_on_left.then(|| {
+                    div()
+                        .flex()
+                        .flex_row()
+                        .min_h(px(0.0))
+                        .children(self.history_sidebar.is_some().then(|| {
+                            self.render_history_sidebar(
+                                crate::preferences::PanelSide::Left,
+                                window,
+                                cx,
+                            )
+                        }))
+                        .children(self.agent_panel_open.then(|| {
+                            screens::render_agent_panel(
+                                &mut screens::ScreenContext::new(&mut self.state),
+                                language,
+                                &palette,
+                                window,
+                                cx,
+                            )
+                        }))
+                        .children(self.agent_panel_open.then(|| {
+                            render_panel_resize_handle(
+                                ResizeSide::Left,
+                                crate::preferences::PanelSide::Left,
+                                &palette,
+                                pane_header_visible,
+                                cx,
+                            )
+                        }))
+                        .into_any_element()
+                });
+                let left_dock_group: Option<AnyElement> = dock_on_left.then(|| {
+                    div()
+                        .flex()
+                        .flex_row()
+                        .min_h(px(0.0))
+                        .children(self.right_panel_open.then(|| {
+                            screens::render_right_dock(
+                                &mut screens::ScreenContext::new(&mut self.state),
+                                language,
+                                &palette,
+                                window,
+                                cx,
+                            )
+                        }))
+                        .children(self.right_panel_open.then(|| {
+                            render_panel_resize_handle(
+                                ResizeSide::Right,
+                                crate::preferences::PanelSide::Left,
+                                &palette,
+                                pane_header_visible && right_header_visible,
+                                cx,
+                            )
+                        }))
+                        .into_any_element()
+                });
+                let right_dock_group: Option<AnyElement> = (!dock_on_left).then(|| {
+                    div()
+                        .flex()
+                        .flex_row()
+                        .min_h(px(0.0))
+                        .children(self.right_panel_open.then(|| {
+                            render_panel_resize_handle(
+                                ResizeSide::Right,
+                                crate::preferences::PanelSide::Right,
+                                &palette,
+                                pane_header_visible && right_header_visible,
+                                cx,
+                            )
+                        }))
+                        .children(self.right_panel_open.then(|| {
+                            screens::render_right_dock(
+                                &mut screens::ScreenContext::new(&mut self.state),
+                                language,
+                                &palette,
+                                window,
+                                cx,
+                            )
+                        }))
+                        .into_any_element()
+                });
+                let right_agent_group: Option<AnyElement> = (!agent_on_left).then(|| {
+                    div()
+                        .flex()
+                        .flex_row()
+                        .min_h(px(0.0))
+                        .children(self.agent_panel_open.then(|| {
+                            render_panel_resize_handle(
+                                ResizeSide::Left,
+                                crate::preferences::PanelSide::Right,
+                                &palette,
+                                pane_header_visible,
+                                cx,
+                            )
+                        }))
+                        .children(self.agent_panel_open.then(|| {
+                            screens::render_agent_panel(
+                                &mut screens::ScreenContext::new(&mut self.state),
+                                language,
+                                &palette,
+                                window,
+                                cx,
+                            )
+                        }))
+                        .children(self.history_sidebar.is_some().then(|| {
+                            self.render_history_sidebar(
+                                crate::preferences::PanelSide::Right,
+                                window,
+                                cx,
+                            )
+                        }))
+                        .into_any_element()
+                });
+                root = root.child(
                     div()
                         .flex()
                         .flex_row()
@@ -1620,19 +1656,28 @@ impl Render for RootView {
                                 ),
                         )
                         .children(right_dock_group)
-                        .children(right_agent_group)
-                })
-                .child(self.render_footer(
-                    language,
-                    true,
-                    language_icon,
-                    language_label,
-                    language_tooltip,
-                    &palette,
-                    cx,
-                ));
+                        .children(right_agent_group),
+                );
+            }
+            root = root.child(self.render_footer(
+                language,
+                true,
+                language_icon,
+                language_label,
+                language_tooltip,
+                &palette,
+                cx,
+            ));
             if let Some(popover) = self.selection_popover.clone() {
                 root = root.child(self.render_selection_popover(popover, window, cx));
+            }
+            if let Some(notice) = self
+                .upgrade_notice
+                .clone()
+                .or_else(cgc_platform::api::upgrade_notice)
+            {
+                root = root
+                    .child(self.render_upgrade_overlay(&notice, language, &palette, window, cx));
             }
             root
         }
@@ -3128,8 +3173,171 @@ fn render_loading_state(language: Language, key: Key, palette: &theme::Palette) 
         .into_any_element()
 }
 
+fn upgrade_overlay_title_key(notice: &cgc_platform::api::UpgradeNotice) -> Key {
+    if notice.is_kill_switch() {
+        Key::PlatformUpgradeDisabledTitle
+    } else if notice.is_blocked() {
+        Key::PlatformUpgradeBlockedTitle
+    } else {
+        Key::PlatformUpgradeTitle
+    }
+}
+
+fn upgrade_overlay_message(
+    notice: &cgc_platform::api::UpgradeNotice,
+    language: Language,
+) -> String {
+    let trimmed = notice.message.trim();
+    if !trimmed.is_empty() {
+        return trimmed.to_string();
+    }
+    translate(
+        language,
+        if notice.is_kill_switch() {
+            Key::PlatformUpgradeDisabledMessage
+        } else {
+            Key::PlatformUpgradeDefaultMessage
+        },
+    )
+    .to_string()
+}
+
+impl RootView {
+    fn render_upgrade_overlay(
+        &mut self,
+        notice: &cgc_platform::api::UpgradeNotice,
+        language: Language,
+        palette: &theme::Palette,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        use gpui_kit::component::button::ButtonVariants as _;
+        let overlay_focus = self.ensure_upgrade_overlay_focus(cx);
+        if !overlay_focus.is_focused(window) {
+            window.focus(&overlay_focus, cx);
+        }
+        let title = translate(language, upgrade_overlay_title_key(notice));
+        let message = upgrade_overlay_message(notice, language);
+        let current_line = format!(
+            "{}: {}",
+            translate(language, Key::PlatformUpgradeCurrentVersion),
+            cgc_platform::runtime::client_version()
+        );
+        let min_line = notice.min_version.as_deref().map(|version| {
+            format!(
+                "{}: {version}",
+                translate(language, Key::PlatformUpgradeMinVersion)
+            )
+        });
+        let download_url = notice.safe_download_url();
+        let retry_root = cx.entity().downgrade();
+
+        div()
+            .id("upgrade-gate-overlay")
+            .test_support()
+            .track_focus(&overlay_focus)
+            .on_key_down(|_, _, cx| {
+                cx.stop_propagation();
+            })
+            .absolute()
+            .top(px(TITLEBAR_HEIGHT))
+            .left_0()
+            .right_0()
+            .bottom_0()
+            .bg(Hsla {
+                h: 0.0,
+                s: 0.0,
+                l: 0.0,
+                a: 0.52,
+            })
+            .flex()
+            .items_center()
+            .justify_center()
+            .px(px(24.0))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                cx.stop_propagation();
+            })
+            .child(
+                div()
+                    .id("upgrade-gate-card")
+                    .test_support()
+                    .w(px(440.0))
+                    .max_w_full()
+                    .p(px(24.0))
+                    .rounded(px(RADIUS_MEDIUM))
+                    .border_1()
+                    .border_color(palette.line)
+                    .bg(palette.card)
+                    .shadow_sm()
+                    .flex()
+                    .flex_col()
+                    .gap(px(14.0))
+                    .child(
+                        div()
+                            .text_size(px(16.0))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(palette.ink)
+                            .child(title),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(13.0))
+                            .text_color(palette.ink_3)
+                            .child(message),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(4.0))
+                            .p(px(10.0))
+                            .rounded(px(RADIUS_SMALL))
+                            .bg(palette.canvas)
+                            .border_1()
+                            .border_color(palette.line)
+                            .text_size(px(12.0))
+                            .text_color(palette.ink_3)
+                            .child(current_line)
+                            .children(min_line),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .justify_end()
+                            .gap(px(8.0))
+                            .child(
+                                Button::new("upgrade-gate-retry")
+                                    .ghost()
+                                    .label(translate(language, Key::PlatformUpgradeRetry))
+                                    .on_click(move |_, _, cx| {
+                                        let _ = retry_root
+                                            .update(cx, |this, cx| this.retry_upgrade_gate(cx));
+                                    }),
+                            )
+                            .child(
+                                Button::new("upgrade-gate-download")
+                                    .primary()
+                                    .label(translate(language, Key::PlatformUpgradeDownload))
+                                    .on_click(move |_, _, cx| {
+                                        cx.open_url(&download_url);
+                                    }),
+                            ),
+                    ),
+            )
+            .into_any_element()
+    }
+}
+
 fn shortcut_kbd(stroke: &'static str) -> Kbd {
     Kbd::new(gpui_kit::Keystroke::parse(stroke).expect("valid shortcut"))
+}
+
+#[cfg(test)]
+pub(crate) fn upgrade_latch_test_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 #[cfg(test)]
@@ -4714,5 +4922,82 @@ mod tests {
 
         std::env::remove_var("CGC_CHAT_STATE_FILE");
         let _ = std::fs::remove_file(&state_file);
+    }
+
+    #[test]
+    fn upgrade_overlay_selects_expected_title_and_fallback_message() {
+        let upgrade = cgc_platform::api::UpgradeNotice {
+            code: "client_upgrade_required".into(),
+            message: "".into(),
+            min_version: Some("0.2.0".into()),
+            download_url: None,
+        };
+        assert_eq!(
+            super::upgrade_overlay_title_key(&upgrade),
+            Key::PlatformUpgradeTitle
+        );
+        assert_eq!(
+            super::upgrade_overlay_message(&upgrade, Language::Zh),
+            translate(Language::Zh, Key::PlatformUpgradeDefaultMessage)
+        );
+
+        let blocked = cgc_platform::api::UpgradeNotice {
+            code: "client_version_blocked".into(),
+            message: "已停用".into(),
+            min_version: None,
+            download_url: None,
+        };
+        assert_eq!(
+            super::upgrade_overlay_title_key(&blocked),
+            Key::PlatformUpgradeBlockedTitle
+        );
+
+        let disabled = cgc_platform::api::UpgradeNotice {
+            code: "desktop_client_disabled".into(),
+            message: "".into(),
+            min_version: None,
+            download_url: None,
+        };
+        assert_eq!(
+            super::upgrade_overlay_title_key(&disabled),
+            Key::PlatformUpgradeDisabledTitle
+        );
+        assert_eq!(
+            super::upgrade_overlay_message(&disabled, Language::En),
+            translate(Language::En, Key::PlatformUpgradeDisabledMessage)
+        );
+    }
+
+    #[test]
+    fn upgrade_overlay_state_preserves_signed_in_session_and_resets_validation_on_retry() {
+        let _guard = super::upgrade_latch_test_lock();
+        cgc_platform::api::clear_upgrade_notice();
+        let _isolation = isolate_workspace_state();
+
+        let mut root = view();
+        root.finish_login(Ok(fake_signed_in()));
+        root.session_checked = true;
+
+        let notice = cgc_platform::api::UpgradeNotice {
+            code: "desktop_client_disabled".into(),
+            message: "临时维护中".into(),
+            min_version: Some("0.2.0".into()),
+            download_url: Some("https://codingirlsclub.com/releases".into()),
+        };
+        cgc_platform::api::record_upgrade_notice(notice.clone());
+
+        assert!(root.apply_upgrade_notice(notice.clone()));
+        assert!(!root.apply_upgrade_notice(notice.clone()));
+        assert!(
+            root.is_signed_in(),
+            "426 upgrade/kill-switch 绝不可触发 force_sign_out"
+        );
+        assert_eq!(root.upgrade_notice.as_ref(), Some(&notice));
+
+        root.clear_upgrade_overlay_state();
+        assert!(root.is_signed_in(), "点击重试后仍应保持原登录会话");
+        assert_eq!(root.upgrade_notice, None);
+        assert!(!root.session_checked, "登录后重试应重新校验 session");
+        assert_eq!(cgc_platform::api::upgrade_notice(), None);
     }
 }

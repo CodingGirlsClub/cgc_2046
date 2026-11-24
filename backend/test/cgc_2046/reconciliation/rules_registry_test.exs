@@ -44,7 +44,7 @@ defmodule Cgc2046.Reconciliation.RulesRegistryTest do
       end
     end
 
-    test "四个生产方在注册表均有声明（空集假绿防线）" do
+    test "全部生产方在注册表均有声明（空集假绿防线）" do
       for producer <- @producers do
         assert RulesRegistry.by_producer(producer) != []
       end
@@ -86,9 +86,9 @@ defmodule Cgc2046.Reconciliation.RulesRegistryTest do
     end
   end
 
-  # 源文件静态提取：覆盖四个生产方当前的全部 rule atom 书写形态——
+  # 源文件静态提取：覆盖全部生产方当前的 rule atom 书写形态——
   #   ① @rule / @batch_alert_rule 属性定义（deposit / payment_recon）
-  #   ② Finding.apply_rule(:atom 字面量调用（settlement）
+  #   ② Finding.apply_rule(:atom 字面量调用（settlement / llm_settlement）
   #   ③ %{id: :atom 声明表条目（scan worker rules/0）
   # 新生产方/新书写形态出现时在此扩模式（白名单式提取，非全量语法分析）。
   defp producer_atoms(producer) do

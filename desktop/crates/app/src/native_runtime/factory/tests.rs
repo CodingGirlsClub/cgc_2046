@@ -471,6 +471,38 @@ fn login_preserves_saved_managed_model_enablement() {
 }
 
 #[test]
+fn disabling_all_managed_models_falls_back_to_configured_byok() {
+    let mut prefs = AgentPrefs::default();
+    let mut managed = cgc_cloud_provider_with_models(vec![
+        ModelPrefs {
+            enabled: false,
+            ..ModelPrefs::new("deepseek-chat")
+        },
+        ModelPrefs {
+            enabled: false,
+            ..ModelPrefs::new("claude-sonnet-4-5")
+        },
+    ]);
+    managed.enabled = true;
+    prefs.upsert_provider(managed);
+    prefs.selected_provider = Some(CGC_CLOUD_PROVIDER_ID.to_string());
+    prefs.upsert_provider(ProviderPrefs {
+        id: "deepseek".into(),
+        name: "DeepSeek".into(),
+        models: vec!["deepseek-flash".into()],
+        has_key: true,
+        enabled: true,
+        ..Default::default()
+    });
+
+    let managed_provider = sample_managed_provider(prefs.provider(CGC_CLOUD_PROVIDER_ID));
+    let (is_managed, active) = resolve_active_provider(&prefs, managed_provider);
+
+    assert!(!is_managed);
+    assert_eq!(active.expect("configured BYOK fallback").id, "deepseek");
+}
+
+#[test]
 fn explicitly_disabled_managed_provider_is_not_recreated() {
     let mut prefs = AgentPrefs::default();
     let mut managed = cgc_cloud_provider();
@@ -521,4 +553,30 @@ fn env_byok_credentials_override_managed_default_when_signed_in() {
     );
     assert!(!managed);
     assert_eq!(active.expect("BYOK provider").id, "deepseek");
+}
+
+#[test]
+fn managed_provider_config_attaches_desktop_client_headers() {
+    let model = Model::new(
+        ProviderId::new(CGC_CLOUD_PROVIDER_ID),
+        "CGC Cloud",
+        "deepseek-chat",
+        "DeepSeek Chat",
+        ModelLimits::new(128_000, 8_192),
+    );
+    let config = super::managed_provider_config(&model, "https://api.codingirlsclub.com/v1");
+    assert_eq!(
+        config.extra_headers,
+        vec![
+            ("x-cgc-client".to_string(), "desktop".to_string()),
+            (
+                "x-cgc-client-version".to_string(),
+                cgc_platform::runtime::client_version().to_string(),
+            ),
+            (
+                "x-cgc-client-platform".to_string(),
+                cgc_platform::runtime::client_platform().to_string(),
+            ),
+        ]
+    );
 }

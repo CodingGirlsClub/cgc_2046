@@ -252,13 +252,10 @@ crates/
   events/       场次、报名、支付、核销码
   courses/      课程目录、学习页、正文渲染
   agent_chat/   学习搭子对话、agent 选择
-  platform/     端口 trait（api / session / agent / registry / update / telemetry）
-  platform-macos/   macOS 的 OS 适配器（通知/深链/单实例/托盘/keychain/进程）
-  platform-windows/ Windows 的 OS 适配器
-  platform-linux/   Linux 的 OS 适配器
+  platform/     端口 trait 与 OS 适配（api / session / agent / registry / update / telemetry，keychain/托盘/单实例/路径/进程窗口隐藏按 `#[cfg(target_os = ...)]` 条件编译隔离）
 ```
 
-`app → 各 domain crate → platform`，`platform-{macos,windows,linux} → platform`；禁止 `platform → platform-*`，
+`app → 各 domain crate → platform`；禁止 `platform` 反向依赖 domain 或 `app`，
 禁止 domain crate 之间互相依赖。加功能的默认落点是已有 domain crate 的 module；
 只有「独立依赖面 / 被两个以上 crate 复用 / 需要并行隔离或独立发布」之一才新建 crate。
 CI 在 1.13 建立后由依赖边界检查兜底。
@@ -266,22 +263,23 @@ CI 在 1.13 建立后由依赖边界检查兜底。
 ## CI 与打包（story 1.13）
 
 - CI：`.github/workflows/ci.yml` 的 `desktop` job，三平台 matrix（`macos-15` / `windows-2022` / `ubuntu-24.04`），跑 `fmt` / `clippy -D warnings` / `test` / release build / cargo-packager。
-- 打包格式：macOS `dmg`，Windows `wix`（产物 `.msi`），Linux `deb,appimage`；产物在 `desktop/dist/`。
+- 打包格式：macOS `dmg`，Windows `wix`（产物 `.msi`）及便携 `.zip`，Linux `deb` 及由 `.deb` 解包生成的便携 `.tar.gz`（含 `register-protocol.sh`，已放弃 AppImage）；产物在 `desktop/dist/`。
 - 本地复现：
 
 ```bash
 cd desktop
 cargo install cargo-packager --locked --version =0.11.8
-cargo packager -p cgc-desktop-app --release -f dmg     # macOS（单架构）；Windows 用 -f wix，Linux 用 -f deb,appimage
+cargo packager -p cgc-desktop-app --release -f dmg     # macOS（单架构）；Windows 用 -f wix，Linux 用 -f deb
 # macOS universal（发版用）见下节「内测分发（无证书）」
 bash scripts/name-artifacts.sh                          # 重命名为 cgc2046_<version>_<commit>_<platform>-<arch>.*
-bash scripts/verify-package.sh                          # hdiutil / dpkg-deb / AppImage 结构校验
+bash scripts/verify-package.sh                          # hdiutil / dpkg-deb / tar.gz 结构与端点白名单校验
 bash scripts/smoke-package-runtime.sh                   # macOS：从 dmg 启动 release 二进制并确认存活
 CGC_DESKTOP_TOKEN=<jwt> bash scripts/verify-m0-backend.sh  # 真实后端 M0 冒烟（工作台/场次/课程/投影）
 bash scripts/verify-package.sh                          # Windows: pwsh scripts/verify-package.ps1
 ```
 
-- 产物未签名：证书暂无（ADR-0027 决策 2/3），签名、公证与自动更新归 epic-6（`epic-distribution-integration`）。
+- 版本门控与更新检查（ADR-0027 Phase 1，已落地）：所有第一方出口请求携带 `x-cgc-client: desktop`、`x-cgc-client-version`（取 `CGC_BUILD_VERSION`）与 `x-cgc-client-platform`；后端 `DesktopClientGatePlug` 支持 `DESKTOP_MIN_SUPPORTED_VERSION` / `DESKTOP_BLOCKED_VERSIONS` / `DESKTOP_KILL_SWITCH` 热控并返回 HTTP `426`；启动期通过 `GET /api/desktop/version` 做轻量版本检查与安全下载跳转。
+- 产物未签名：证书暂无（ADR-0027 决策 2/3），macOS Developer ID 签名公证、Windows 代码签名、`BUILTIN_PUBLIC_KEY` 生产公钥轮换与自动更新器 Phase 2 统一跟踪于 #1324（`epic-6`）。
 - macOS 产物为 **universal（arm64 + x86_64）**：CI 交叉编译两个架构再 `lipo -create`，Intel 机器不用另选包；本地单架构仍可直接 `cargo packager`。
 
 ## 内测分发（无证书）
@@ -424,7 +422,7 @@ CI 分工：PR 阶段 desktop 只跑 lint + 测试（快）；**打包在合并�
 - **ACP transcript 本地库**：`<data_root>/conversations.db`（0600、WAL，`thread_content` + `sidebar_threads`；另有 `native_archived` 表存 native 归档标记）。打开历史先显示本地记录，`session/load` 成功则回放替换，失败显示「外部 agent 无法恢复会话，以下为本地记录」。
 - **永久清空**：Settings → AI →「清空 ACP 对话历史」（二次确认，仅 ACP；native 不受影响）。Archive 只隐藏，不删除。
 - **审批规则**：`preferences.json` 的 `toolPermissions` **仅 native 生效**（详见上文「审批规则」）；external agent 的审批由 agent 自身模式决定。
-- **MCP（3.4a/b/c，2026-10-27）**：native MCP client 已落地 Streamable HTTP JSON-RPC（initialize/tools/list/tools/call，Bearer/SSE/超时/401/403 fail-closed，token 不进日志）。native-only 注入 5 个只读课程工具：`mcp:cgc-2046-learning:{get_course_content,get_course_revision,get_learning_state,get_role_playbook,get_enrollment_summary}`；白名单外不注册，无 lease/token 时 0 注册（fail-closed）。配置与 ACP 注入同源（`learning_host` lease + `mcp_endpoint(CGC_API_URL)`）；`CGC_MCP_ENDPOINT`/`CGC_MCP_TOKEN` 仅作 headless 测试 seam。**3.4d 真机待验**（真实平台 MCP server 的 tools/list 与工具调用）。
+- **MCP（3.4a/b/c，2026-10-27）**：native MCP client 已落地 Streamable HTTP JSON-RPC（initialize/tools/list/tools/call，Bearer/SSE/超时/401/403 fail-closed，token 不进日志）。native-only 注入与后端 `@learning_host_tools` 对齐的 5 个学习工具（命名 `mcp_cgc-2046-learning_<tool>`）：`get_role_playbook`、`get_learning_state`、`get_course_revision`、`start_learning_run`、`submit_learning_attempt`（其中前 4 个为 `Allow`，`submit_learning_attempt` 为 `Ask`，撤销 lease 返回 `Deny`）；白名单外不注册，无 lease/token 时 0 注册（fail-closed），无工作区时仅保留 `get_role_playbook`。配置与 ACP 注入同源（`learning_host` lease + `mcp_endpoint(CGC_API_URL)`）；`CGC_MCP_ENDPOINT`/`CGC_MCP_TOKEN` 仅作 headless 测试 seam。**3.4d 真机待验**（真实平台 MCP server 的 tools/list 与工具调用）。
 - **平台工具凭证恢复**：Native 与 ACP 共用按账号和 API 服务端隔离的钥匙串凭证。冷启动通过 `GET /mcp/token` 核实归属、类型和 token ID 后复用；旧版 `learning_host` 明文项核实后迁移，额度已满也可恢复。401 才按失效处理；网络错误／429／5xx 保留凭证且不增发。新凭证保存失败会撤销本次签发，登出只撤销本机记录，不批量撤销其他客户端。授权失败在 Tab 栏下方独立提示，`Retry` 重新尝试恢复，长诊断不再挤掉标签；文案按失败类别分流（后台不可达 / 凭据不可用 / 凭据额度满），GraphQL 与 MCP 授权失败同时落 `app.log`（operation + 端点 + 错误类别，不含凭证）；工作台列表拉取失败时概览页与切换器都给出失败态与重试入口（#1238）。
 - **授权回归验证**：凭证测试在 `crates/platform/src/mcp/credential/tests.rs`；真实 TabBar 测试在 `crates/app/src/root_view/screens/workspace/pane/tests.rs`。UI 测试默认不编译：需 `CGC_UI_TESTS=1`（`crates/app/build.rs` 打开 `cfg(cgc_ui_tests)`）并启用 Kit 的 `test-support`——`CGC_UI_TESTS=1 cargo test -p cgc-desktop-app --features gpui-kit/test-support --lib -- --test-threads=1 authorization_failure_and_long_notices`。该 feature 会把 `gpui-fast` 系拉进解析图，而 `gpui-fast 0.1.13` 对 `taffy` 精确 pin `=0.15.0`、`gpui-fast-web 0.1.13` 对 `unicode-properties` 精确 pin `=0.1.3`（`gpui-pre 0.3.11` 是 `^0.15.0` / `^0.1.3`，允许）。因此 `Cargo.lock` 把这两个包固定在 `0.15.0` / `0.1.3`：**不要 `cargo update` 它们**，回到补丁新版后该 feature 会解析失败。移除条件：`gpui-kit` 松开这两个 pin。CI 的 desktop-build 在 macOS 腿已跑这一步（Linux/Windows 的 headless 窗口未验证，暂不铺开）；`scripts/check_licenses.py` 以同一 feature 取 metadata，测试依赖也进许可门禁与 SBOM。写 UI 测试时**不要在子模块里 `use super::*`**：`root_view` 本身 glob 导入 `gpui_kit::*`，叠加后 `#[gpui_kit::test]` 的属性宏展开会递归，rustc 直接 SIGBUS（实测）；只导入用到的名字。
 - **侧栏状态**：历史侧栏开关会写入 `preferences.json`（`historySidebarOpen`），重启后恢复。

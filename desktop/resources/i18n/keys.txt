@@ -352,6 +352,8 @@ courses.learning.agent_prompt.run
 courses.learning.agent_prompt.inspect_artifact
 courses.learning.agent_prompt.submit
 courses.learning.agent_prompt.review
+courses.learning.agent_prompt.fallback
+courses.learning.agent_action_fallback_status
 courses.learning.agent_call.label
 courses.learning.agent_call.view_json
 courses.learning.agent_call.remove
@@ -477,6 +479,18 @@ platform.notice.unreachable
 platform.notice.credential
 platform.notice.credential_limit
 platform.notice.retry
+platform.upgrade.title
+platform.upgrade.blocked_title
+platform.upgrade.disabled_title
+platform.upgrade.current_version
+platform.upgrade.min_version
+platform.upgrade.download
+platform.upgrade.retry
+platform.upgrade.default_message
+platform.upgrade.disabled_message
+platform.update.available
+platform.update.download
+platform.update.dismiss
 agent_chat.auth.required
 agent_chat.auth.hint
 agent_chat.auth.methods

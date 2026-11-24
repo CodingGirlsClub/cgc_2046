@@ -98,6 +98,41 @@ impl RootView {
         }
     }
 
+    /// 未知 intent 等降级场景：只预填纯文本，绝不组装 `AgentCall` 也不触发 `AutoSend`。
+    pub(in crate::root_view) fn compose_plain_agent_prompt(
+        &mut self,
+        prompt: String,
+        notice: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.agent_panel_open = true;
+        let surface = agent_call_surface(
+            self.native_chat_mode,
+            Self::native_agent_enabled(),
+            self.native_agent_view.is_some(),
+        );
+        match surface {
+            AgentCallSurface::Native => {
+                if let Some(view) = self.native_agent_view.clone() {
+                    view.update(cx, |view, cx| {
+                        view.compose_plain_prompt(prompt, notice, window, cx);
+                    });
+                    cx.notify();
+                } else {
+                    self.show_agent_call_initializing_notice(cx);
+                }
+            }
+            AgentCallSurface::Initializing => {
+                self.show_agent_call_initializing_notice(cx);
+            }
+            AgentCallSurface::Acp => {
+                self.pane_notice = Some(notice);
+                self.prefill_chat_composer(None, prompt, window, cx);
+            }
+        }
+    }
+
     /// CTA 预填：pending chip + 覆盖输入框（含 auto page token 的 composer
     /// context 重置）。Compose 分支与 AutoSend 忙碌退化共用。
     fn prefill_chat_agent_call(
@@ -108,14 +143,21 @@ impl RootView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.chat.pending_agent_call = Some(crate::agent_call::PendingAgentCall::new(
-            call,
-            label,
-            prompt.clone(),
-        ));
+        let pending = crate::agent_call::PendingAgentCall::new(call, label, prompt.clone());
+        self.prefill_chat_composer(Some(pending), prompt, window, cx);
+    }
+
+    fn prefill_chat_composer(
+        &mut self,
+        pending: Option<crate::agent_call::PendingAgentCall>,
+        prompt: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.chat.pending_agent_call = pending;
         // set_value replaces the composer content, including the auto page
         // token. Reset the composer context so the next render re-attaches
-        // the active page context before the CTA prompt is sent.
+        // the active page context before the prompt is sent.
         self.chat.composer_context.reset();
         self.chat.input = prompt.clone();
         if let Some(input) = self.chat_input.clone() {

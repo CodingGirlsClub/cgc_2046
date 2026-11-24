@@ -50,9 +50,9 @@ Zed 的实践提供了直接参照：native agent 是进程内 Rust 实现，与
    - 海外 BYO：OpenAI / Anthropic / Google / OpenRouter；
    - 本地：Ollama / LM Studio；
    - 自定义：任意 OpenAI-compatible endpoint（含用户自己的中转站；CGC 不转售、不承担上游供给）。
-   凭据：API key 存 keychain 且与 `api_url` 绑定；**CGC 网关用登录会话 token**，照 Zed Cloud 的鉴权模式：服务端签发短时 LLM token（Bearer），响应带 `expired/outdated` 信号或 401 时刷新并只重试一次；402 映射为「订阅/额度不足」，429 映射为限流，403 映射为重新登录。**v1 不做 ChatGPT / Claude 订阅 OAuth**；key 不进 settings 与日志，登出清理。
+   凭据：API key 存 keychain 且与 `api_url` 绑定；**CGC 网关直接复用第一方登录会话 token（`SignedInSession` 签发的 7 天 `platform=desktop` JWT，2026-11-22 修订）**：由于 `/v1/*` 网关与 GraphQL 同属 Phoenix 单体（由 `LlmGatewayAuthPlug` 校验 `platform=desktop` claim），**正式放弃 Zed Cloud 的短时 LLM token 交换与 `expired/outdated` 401 自动刷新重试**；网关返回 401 时提示重新登录，402 映射为「额度余额不足」（弹出充值卡），403 映射为「额度账户冻结」，429 映射为并发/限流，426 由前置 `DesktopClientGatePlug` 触发客户端强升/止损覆盖层。**v1 不做 ChatGPT / Claude 订阅 OAuth**；key 不进 settings 与日志，登出清理。
    模型目录：客户端内置可版本化 JSON（context / tools / vision / thinking / 价格可选）+ 远程增量覆盖 + 用户可手填自定义模型。用量：本地 `TokenUsage` 展示；网关模式服务端计量配额。
-5. **工具与权限**：v1 工具为读文件、写 / 编辑、搜索、列目录、终端命令、课程与学习工具（经 MCP）、可选 web 搜索。审批沿用现有 permission 事件与卡片，危险命令内置规则。**OS 级沙箱（macOS Seatbelt / Linux bwrap / Windows WSL）在 P1 就要落地**，与终端工具同批交付；**沙箱不可用时（如 Windows 无 WSL）降级为逐条命令审批并显式提示风险**，不静默放行。参考 Zed 的实现路径但只取 approach（Zed 为 GPL-3.0-or-later，代码复用需人裁）。
+5. **工具与权限（2026-11-22 修订）**：v1 工具为读文件、写 / 编辑、搜索、列目录、终端命令、课程与学习工具（经 MCP）、可选 web 搜索。审批沿用现有 permission 事件与卡片，危险命令内置规则（同时覆盖 Unix 与 Windows 破坏性命令）。**OS 级沙箱在 macOS（Seatbelt）与 Linux（bwrap）落地**，与终端工具同批交付；**放弃 P1 Windows WSL 沙箱**（对普通学员安装门槛过高）——**Windows 及无 `bwrap` 的 Linux 统一降级为「无沙箱逐条强审批 + 显式风险提示」**：审批卡隐藏「本会话允许 / 允许前缀」仅保留「允许一次 / 拒绝」、禁止 `ApprovalMode::Auto` 与 `toolPermissions` 自动放行 `run_command`，并在卡片上醒目提示命令可访问网络及工作区外文件。参考 Zed 的实现路径但只取 approach（Zed 为 GPL-3.0-or-later，代码复用需人裁）。
 6. **平台工具经 MCP 获取（2026-10-25 修订）**：MCP 是**客户端资产**——客户端持有唯一的 MCP
    配置/注册表（形状对齐 Zed 的 `context_servers`：Stdio `{command,args,env}` / Http
    `{url,headers,timeout}`），按 session 物化后由两个 runtime 消费：ACP 轨序列化成
@@ -64,7 +64,7 @@ Zed 的实践提供了直接参照：native agent 是进程内 Rust 实现，与
    （P1b）交付，避免学员缺学习工具、双轨能力不等价。
 7. **会话存储**：native 会话只存本机（SQLite），不上传平台、不进遥测与日志；**不做应用层加密，依赖系统账户隔离**（数据库 0600、位于用户数据目录）；用户可清除。AD-16 从「客户端不落对话」改为「对话只存本机、由 native agent 持有；外部 agent 仍由各自持有」。
 8. **CGC 网关**：作为 native 的默认 Provider 与商业化路径；服务端计量与配额，复用现有支付与 Oban。平台自此提供模型服务，需同步修订 ADR-0001 的边界与隐私 / 合规口径。
-9. **变更审阅与 Checkpoint（P1，Git）**：照 Zed 的做法，每条用户消息绑定一个 Git checkpoint：turn 开始时用临时索引做快照（`add --update` + 未跟踪文件，排除 ignore 与 >2 MB 文件），`write-tree` 后创建 commit 对象，写入隐藏 ref `refs/cgc/checkpoints/<thread>/<seq>`，不移动分支、不污染用户 index。Keep/Reject 走 `git diff` 与 `git restore --source`；Restore Checkpoint = 取消生成 → 截断会话 → `git restore --source <sha> --worktree .`，用户手改冲突时提示覆盖或跳过。每线程保留最近 50 个 ref，超限删 ref 并 `git gc --auto`；assistant 仓库上限 500 MB、课程仓库软上限 200 MB。**不建自建 blob 存储**——Git 已提供内容寻址、压缩、delta 与 GC。
+9. **变更审阅与 Checkpoint（P1，Git；2026-11-22 修订）**：照 Zed 的做法，每条用户消息绑定一个 Git checkpoint：turn 开始时用临时索引做快照，先通过 `<git_dir>/info/exclude`（初始化幂等写入）与 `git ls-files -z` 在入库前过滤 ignore、二进制扩展名、构建/依赖目录（`node_modules/`、`target/`、`.venv/`、`__pycache__/`、`.next/`、`.cache/`、`.git/`）及 `>2 MiB` 文件（杜绝脏 blob 进 `.git/objects/`），`write-tree` 后创建 commit 对象，写入隐藏 ref `refs/cgc/checkpoints/<thread>/<seq>`，不移动分支、不污染用户 index。Keep/Reject 走 `git diff` 与 `git restore --source`；Restore Checkpoint (`rewind`) = 取消生成 → 截断会话 → `git restore --source <sha> --worktree .`，并同步删除 `seq >= ordinal` 的 Git 隐藏 ref 且将 SQLite `checkpoints` 标为 `invalid`。每线程保留最近 50 个 ref，仓库全局上限 200 个 ref（超限先淘汰最旧的其它线程 ref，且始终保留当前线程最新 1 条），并同步回标 SQLite；Git 操作串行持锁，在 turn 结束空闲期且满足 10 分钟冷却后于后台线程执行 `git -c gc.autoDetach=false gc --auto --quiet`。仓库对象库按 `git count-objects -v` 设统一 500 MiB 水位上限（Stage 3.5a 已统一工作区口径，废弃原 200 MB 课程仓库软上限）：超限时熔断并暂停新检查点（去重 Notice）、触发后台保守自救清理（删其它线程 ref + 当前线程最多保留 5 条，执行 `git -c gc.autoDetach=false gc --prune=1.hour.ago --quiet`；绝不触碰用户分支或提交）；回到预算内则自动解除熔断，若因用户自有提交/对象导致仍超限则维持熔断并提示一次不可恢复通知。设置页（AI → 通用）读取 `git count-objects -v` 展示当前占用与检查点总数，并提供二次确认的「清理全部历史检查点」按钮（仅保留当前对话最新 1 条 ref 并立即执行 `git -c gc.autoDetach=false gc --prune=now --quiet`，同步失效 SQLite 旧记录且绝不触碰用户分支或提交）。**不建自建 blob 存储**——Git 已提供内容寻址、压缩、delta 与 GC。
 10. **工作区与 Scope**：agent panel 全局可用（所有页面跟随 active tab），文件工作区按页面作用域解析：课程页用共享课程目录 `~/cgc2046_workspace/courses/<userId>/<courseId>`，其它页面用 `~/cgc2046_workspace/assistant/<userId>`（Windows 为 `%USERPROFILE%\...`）。native 与 external 共用这棵树（web Host 已于 2026-10-26、OMP 插件已于 2026-10-29 移除），会话按 canonical cwd 分桶；沙箱根 = 当前 scope 目录；页面上下文只提供受限元数据（route / tab / 选中实体 id），不塞整页数据。**线程按 scope 一条**（课程一条、助手一条），切换 scope 载入对应线程，同一 scope 内切页面不换线程；assistant 工作区上限 500 MB。桌面 ACP 现用的临时目录是偏差（AD-17 #1），native 起改用共享树并建议 ACP 同批切换。
 11. **Git 是 checkpoint 前提，不是 native agent 硬前提（2026-10-25 修订）**：native agent 在无 Git
     环境下仍可用，但 Checkpoint / Keep / Reject / Restore 不可用，并给一次显式提示；onboarding 仍
@@ -118,11 +118,11 @@ Zed 的实践提供了直接参照：native agent 是进程内 Rust 实现，与
 ## 落地
 
 - **P0（2 周）**：ADR 定稿 + `agent_provider` 四件套 + FakeProvider + 一个真 provider（DeepSeek 或 CGC 网关）跑通流式文本。验收：不烧 token 的单测 + 可交互 demo。
-- **P1a（6 周）**：`agent_core` turn loop + 读 / 写 / 终端工具 + 审批 + **OS 沙箱（Seatbelt / bwrap / WSL 同批，Windows 无 WSL 时降级审批）** + 本地会话 + **交互核心**（Commands / Events / confirm / notify + AppAction：打开页面、高亮）。验收：课程场景 E2E、审批卡复用、沙箱逃逸/越权用例、交互链路、崩溃恢复。
+- **P1a（6 周）**：`agent_core` turn loop + 读 / 写 / 终端工具 + 审批 + **OS 沙箱（macOS Seatbelt / Linux bwrap；Windows 及无 `bwrap` 环境走逐条强审批 + 显式风险提示 + 危险命令拦截）** + 本地会话 + **交互核心**（Commands / Events / confirm / notify + AppAction：打开页面、高亮）。验收：课程场景 E2E、审批卡复用、沙箱逃逸/越权用例、无沙箱强审批与风险提示用例、交互链路、崩溃恢复。
 - **P1b（2–3 周）**：Checkpoint / diff（文件快照、Keep/Reject、Restore）+ 课程页灰度替换 ACP（开关）
   + **native MCP client（与灰度同批，来源为 `learning_host` lease）**。验收：恢复/拒绝/大文件/
   工作区外路径用例、灰度验收、native 与 external 学习工具等价。
-- **P2（4–6 周）**：Provider 设置页、模型选择器、用量展示、compaction、CGC 网关配额与对账；**steering / follow-up、slash 命令面板、todo / plan / goal、subagent 进度、create_note AppAction**。验收：三平台真机（含沙箱在 Windows / Linux 的真机回归）。
+- **P2（4–6 周）**：Provider 设置页、模型选择器、用量展示、compaction、CGC 网关配额与对账；**steering / follow-up、slash 命令面板、todo / plan / goal、subagent 进度、create_note AppAction**。验收：三平台真机（含 macOS/Linux 沙箱与 Windows 无沙箱逐条强审批的真机回归）。
 - **P3**：多 mate 定义下发；OS 沙箱；web agent 退役评估。
 
 ## 参考
@@ -157,7 +157,7 @@ Stage 3 已按设计文档 `docs/plans/2026-10-26-1000-stage3-capability-converg
 
 ## MCP 与默认入口（2026-10-27）
 
-- **MCP 只读白名单（3.4a/b/c）**：native MCP client 走 Streamable HTTP JSON-RPC（initialize/tools/list/tools/call，Bearer、SSE/JSON、超时与 401/403 fail-closed、token 脱敏）。只注册 5 个只读课程工具（`mcp:cgc-2046-learning:*`：get_course_content / get_course_revision / get_learning_state / get_role_playbook / get_enrollment_summary）；白名单外一律不注册，只读工具审批分类为 `Allow`（不弹卡）。
+- **MCP `learning_host` 白名单与审批分级（3.4a/b/c）**：native MCP client 走 Streamable HTTP JSON-RPC（initialize/tools/list/tools/call，Bearer、SSE/JSON、超时与 401/403 fail-closed、token 脱敏）。白名单与后端 `backend/lib/cgc_2046/mcp/scopes.ex` `@learning_host_tools` 1:1 对齐，注册 5 个学习工具（`mcp_cgc-2046-learning_<tool>`：`get_role_playbook`、`get_learning_state`、`get_course_revision`、`start_learning_run`、`submit_learning_attempt`）；白名单外一律不注册（无工作区时仅保留 `get_role_playbook`）。审批分级：撤销 lease 优先返回 `Deny`；3 个只读工具与幂等 `start_learning_run` 为 `Allow`（不弹卡），`submit_learning_attempt` 为 `Ask`（触发共享权限卡确认，防误写不可变学习账本）。
 - **native-only 注入**：配置与 ACP `session/new` 注入同源（`learning_host` lease + `mcp_endpoint(CGC_API_URL)`），但当前只注入 native `ToolRegistry`；external ACP agent 的 MCP 注入保持原逻辑。无 lease/token → 0 工具（fail-closed），不 panic、不打印 token；`CGC_MCP_ENDPOINT/TOKEN` 仅作 headless 测试 seam。
 - **默认 native（3.5b）**：`preferences.nativeAgentEnabled` 默认 true，`resolve_native_agent_enabled` = `CGC_NATIVE_AGENT`（"0" 关闭）> 设置开关；课程页与非课程页同默认，关闭后回退 External Agent。3.4d（真实平台 MCP 工具调用）真机待验。
 - **demo 开关已移除（2026-10-30）**：`CGC_NATIVE_AGENT_DEMO` 的独立 identity / 附加窗口 / 临时数据根 / 强制 native 全部删除；本地调试统一用 `CGC_DATA_DIR` 隔离数据根 + 真实登录与 provider，不再保留无登录的 echo 视图。dev 环境仍允许 echo 作为未配置 provider 的兜底。

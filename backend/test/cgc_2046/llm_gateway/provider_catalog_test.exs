@@ -1,5 +1,6 @@
 defmodule Cgc2046.LlmGateway.ProviderCatalogTest do
-  use Cgc2046.DataCase, async: true
+  # 修改全局 :llm_gateway_catalog_cache_enabled 配置、共享 ETS 缓存与 capture_log，必须串行执行，避免与 async 测试竞争。
+  use Cgc2046.DataCase, async: false
 
   require Ash.Query
 

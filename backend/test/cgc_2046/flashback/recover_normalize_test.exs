@@ -10,6 +10,8 @@ defmodule Cgc2046.Flashback.RecoverNormalizeTest do
 
   use Cgc2046.DataCase, async: true
 
+  require Ash.Query
+
   alias Cgc2046.Flashback
   alias Cgc2046.Flashback.{Person, Recover}
 
@@ -72,7 +74,37 @@ defmodule Cgc2046.Flashback.RecoverNormalizeTest do
       # 恢复链接只发给预留邮箱；正文带脱敏档案署名（KTD2：明文 token 只进邮件）
       assert String.contains?(mail.text_body, "李*")
       assert String.contains?(mail.text_body, "/flashback/enter?token=")
+
+      assert is_binary(mail.html_body) and
+               String.contains?(mail.html_body, "/flashback/enter?token=")
     end
+  end
+
+  test "邮箱：库内档案邮箱含大写字母或首尾空白时，找回发起与贴链接绑定均大小写不敏感命中" do
+    archive1 = create_archive("recover-norm-case-1")
+    archive2 = create_archive("recover-norm-case-2")
+    p1 = create_person(archive1, %{email: "LiPan2000Girl@163.COM"})
+    p2 = create_person(archive2, %{email: " lipan2000girl@163.com "})
+
+    assert {:ok, %{dispatched: true}} = Recover.initiate("lipan2000girl@163.com", "5.6.7.8")
+
+    assert [mail] = collect_recovery_mails()
+    assert mail.to == [{"", "lipan2000girl@163.com"}]
+    assert is_binary(mail.html_body) and mail.html_body != ""
+
+    [_, token] = Regex.run(~r/token=(fb_[A-Za-z0-9_-]+)/, mail.text_body)
+    {:ok, user, _} = Cgc2046.Accounts.SignInFlow.find_or_create_user("+8613800006655")
+
+    assert {:ok, %{bound: true, cards: cards}} = Recover.claim_link_for_user(token, user)
+    assert length(cards) == 2
+
+    reloaded_ids =
+      Person
+      |> Ash.Query.filter(id in ^[p1.id, p2.id])
+      |> Ash.read!(authorize?: false)
+      |> Enum.map(& &1.user_id)
+
+    assert reloaded_ids == [user.id, user.id]
   end
 
   test "不成对包裹符不误剥：同形返回且不向错误地址发信" do

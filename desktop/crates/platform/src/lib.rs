@@ -21,4 +21,5 @@ pub mod runtime;
 pub mod session;
 pub mod telemetry;
 pub mod tray;
+pub mod update;
 pub mod workspace;

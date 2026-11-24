@@ -1,6 +1,9 @@
-//! 3.4b：MCP 工具适配 —— 把 MCP server 的只读工具包装成第一方 `Tool`。
+//! 3.4b：MCP 工具适配 —— 把后端 `@learning_host_tools` 包装成第一方 `Tool`。
 //!
-//! 白名单 fail-closed：只有 5 个只读课程工具会被注册；其它工具一律不暴露给模型。
+//! 白名单 fail-closed：仅注册与后端 `backend/lib/cgc_2046/mcp/scopes.ex`
+//! `@learning_host_tools` 1:1 对齐的 5 个学习工具；其它工具一律不暴露给模型。
+//! 审批分级：已撤销 lease 返回 `Approval::Deny`；`submit_learning_attempt` 不可变写入
+//! `LearningAttempt` 账本，返回 `Approval::Ask`；其余 4 个工具返回 `Approval::Allow`。
 //! MCP 调用失败（超时/401/403/协议错误/isError）以 error 文本回灌模型，不 panic。
 //!
 //! Layering：本模块依赖 `cgc_platform::mcp::client`（client 是最底层传输，
@@ -39,23 +42,23 @@ impl McpLeaseGuard {
     }
 }
 
-/// 只读课程工具白名单（3.4b；白名单外一律不注册）。
-pub const READ_ONLY_MCP_TOOLS: [&str; 5] = [
-    "get_course_content",
-    "get_course_revision",
-    "get_learning_state",
+/// `learning_host` 课程学习工具白名单（对齐后端 `backend/lib/cgc_2046/mcp/scopes.ex` `@learning_host_tools`；白名单外一律不注册）。
+pub const LEARNING_HOST_MCP_TOOLS: [&str; 5] = [
     "get_role_playbook",
-    "get_enrollment_summary",
+    "get_learning_state",
+    "get_course_revision",
+    "start_learning_run",
+    "submit_learning_attempt",
 ];
 
-/// 是否在白名单内（纯函数，fail-closed）。
-pub fn is_read_only_mcp_tool(name: &str) -> bool {
-    READ_ONLY_MCP_TOOLS.contains(&name)
+/// 是否在 `learning_host` 白名单内（纯函数，fail-closed）。
+pub fn is_learning_host_mcp_tool(name: &str) -> bool {
+    LEARNING_HOST_MCP_TOOLS.contains(&name)
 }
 
 /// 把客户端注入的固定参数补进模型给出的 args（仅补齐缺失的顶层字段）。
 ///
-/// 只读课程工具的后端 schema 要求 `workspace_id`，而模型上下文里通常没有，
+/// 除 `get_role_playbook` 外的学习工具后端 schema 要求 `workspace_id`，而模型上下文里通常没有，
 /// 由客户端注入当前工作台，避免工具因缺参不可用。
 pub fn merge_injected_args(mut args: Value, injected: Option<&Value>) -> Value {
     let (Some(injected), Some(object)) = (injected, args.as_object_mut()) else {
@@ -105,7 +108,8 @@ impl Tool for McpTool {
         self.schema.clone()
     }
 
-    /// 白名单内全部是只读课程工具：默认 Allow，不弹审批卡。
+    /// 审批分级：已撤销 lease 优先返回 `Deny`；`submit_learning_attempt` 写入不可变
+    /// `LearningAttempt` 账本，返回 `Ask` 触发共享权限卡确认；其余 4 个工具返回 `Allow`。
     fn approval(&self, _args: &Value) -> Approval {
         if self
             .lease_guard
@@ -113,6 +117,8 @@ impl Tool for McpTool {
             .is_some_and(McpLeaseGuard::is_revoked)
         {
             Approval::Deny("平台授权已撤销".into())
+        } else if self.remote_name == "submit_learning_attempt" {
+            Approval::Ask
         } else {
             Approval::Allow
         }
@@ -184,18 +190,19 @@ fn mcp_tool_name(server_name: &str, tool_name: &str) -> String {
         .collect()
 }
 
-/// 连接 MCP server、握手、拉取 tools/list，并按白名单包装成工具。
+/// 连接 MCP server、握手、拉取 tools/list，并按 `learning_host` 白名单
+/// （后端 `backend/lib/cgc_2046/mcp/scopes.ex` `@learning_host_tools`）包装成工具。
 ///
 /// 握手/列表失败保留诊断错误且不注册任何工具；白名单外、schema 非法的工具跳过。
-pub fn discover_read_only_mcp_tools(
+pub fn discover_learning_host_mcp_tools(
     server_name: &str,
     client: McpHttpClient,
 ) -> Result<Vec<Arc<dyn Tool>>, McpClientError> {
-    discover_read_only_mcp_tools_with(server_name, client, None, None)
+    discover_learning_host_mcp_tools_with(server_name, client, None, None)
 }
 
-/// 同 [`discover_read_only_mcp_tools`]，额外注入固定参数（如 `workspace_id`）。
-pub fn discover_read_only_mcp_tools_with(
+/// 同 [`discover_learning_host_mcp_tools`]，额外注入固定参数（如 `workspace_id`）。
+pub fn discover_learning_host_mcp_tools_with(
     server_name: &str,
     mut client: McpHttpClient,
     injected: Option<Value>,
@@ -206,13 +213,13 @@ pub fn discover_read_only_mcp_tools_with(
     let client = Arc::new(Mutex::new(client));
     Ok(tools
         .into_iter()
-        .filter(|tool| is_read_only_mcp_tool(&tool.name))
+        .filter(|tool| is_learning_host_mcp_tool(&tool.name))
         .filter_map(|tool| {
             let schema = valid_tool_schema(&tool.input_schema)?;
             let name = mcp_tool_name(server_name, &tool.name);
             let description = tool
                 .description
-                .unwrap_or_else(|| format!("MCP 只读工具 {}", tool.name));
+                .unwrap_or_else(|| format!("MCP learning_host 工具 {}", tool.name));
             Some(Arc::new(McpTool {
                 name,
                 description,
@@ -226,24 +233,24 @@ pub fn discover_read_only_mcp_tools_with(
         .collect())
 }
 
-/// 把白名单内的 MCP 工具注册进 registry（返回注册数量）。
-pub fn register_read_only_mcp_tools(
+/// 把 `learning_host` 白名单内的 MCP 工具注册进 registry（返回注册数量）。
+pub fn register_learning_host_mcp_tools(
     registry: &mut crate::registry::ToolRegistry,
     server_name: &str,
     client: McpHttpClient,
 ) -> Result<usize, McpClientError> {
-    register_read_only_mcp_tools_with(registry, server_name, client, None, None)
+    register_learning_host_mcp_tools_with(registry, server_name, client, None, None)
 }
 
-/// 同 [`register_read_only_mcp_tools`]，额外注入固定参数（如 `workspace_id`）。
-pub fn register_read_only_mcp_tools_with(
+/// 同 [`register_learning_host_mcp_tools`]，额外注入固定参数（如 `workspace_id`）。
+pub fn register_learning_host_mcp_tools_with(
     registry: &mut crate::registry::ToolRegistry,
     server_name: &str,
     client: McpHttpClient,
     injected: Option<Value>,
     lease_guard: Option<McpLeaseGuard>,
 ) -> Result<usize, McpClientError> {
-    let tools = discover_read_only_mcp_tools_with(server_name, client, injected, lease_guard)?;
+    let tools = discover_learning_host_mcp_tools_with(server_name, client, injected, lease_guard)?;
     let count = tools.len();
     for tool in tools {
         registry.register(tool);
@@ -254,17 +261,24 @@ pub fn register_read_only_mcp_tools_with(
 /// 同源配置入口：endpoint（`platform::mcp::inject::mcp_endpoint`）+ lease token。
 ///
 /// 无 token/空 token 时不建连、不注册；连接错误交给调用者展示，不伪装成空授权集。
-pub fn register_read_only_mcp_tools_from_lease(
+pub fn register_learning_host_mcp_tools_from_lease(
     registry: &mut crate::registry::ToolRegistry,
     server_name: &str,
     endpoint: &str,
     token: Option<&str>,
 ) -> Result<usize, McpClientError> {
-    register_read_only_mcp_tools_from_lease_with(registry, server_name, endpoint, token, None, None)
+    register_learning_host_mcp_tools_from_lease_with(
+        registry,
+        server_name,
+        endpoint,
+        token,
+        None,
+        None,
+    )
 }
 
-/// 同 [`register_read_only_mcp_tools_from_lease`]，额外注入固定参数。
-pub fn register_read_only_mcp_tools_from_lease_with(
+/// 同 [`register_learning_host_mcp_tools_from_lease`]，额外注入固定参数。
+pub fn register_learning_host_mcp_tools_from_lease_with(
     registry: &mut crate::registry::ToolRegistry,
     server_name: &str,
     endpoint: &str,
@@ -276,7 +290,7 @@ pub fn register_read_only_mcp_tools_from_lease_with(
         return Ok(0);
     };
     let client = McpHttpClient::new(endpoint).with_bearer_token(token);
-    register_read_only_mcp_tools_with(registry, server_name, client, injected, lease_guard)
+    register_learning_host_mcp_tools_with(registry, server_name, client, injected, lease_guard)
 }
 
 /// MCP `inputSchema` 必须是 object；缺失/非法（Null/非 object）→ 跳过该工具。

@@ -6,17 +6,20 @@ mod factory;
 mod gateway;
 mod mcp;
 mod operations;
+mod provider_refresh;
+pub(crate) use provider_refresh::refresh_catalog_and_providers;
 #[cfg(test)]
 mod thinking_tests;
 mod title;
 mod worker;
 
-use cgc_agent_checkpoint::{Checkpoint, FileChange};
+use cgc_agent_checkpoint::{Checkpoint, CheckpointStorageSummary, FileChange, ReclaimReport};
 use cgc_agent_core::{AgentError, ImageAttachment, Thread, ToolTurnOutcome};
 use cgc_agent_host::{AgentEvent, NativeTurn, NativeTurnRuntime};
 use cgc_agent_provider::{Model, Provider, ProviderErrorCategory, ToolSchema};
 use cgc_agent_store::{ProviderPrefs, SessionStore};
 use cgc_agent_tools::{AgentState, AppAction, ToolContext, ToolRegistry};
+pub(crate) use checkpoint::format_bytes;
 use futures::{
     channel::{mpsc, oneshot},
     future::BoxFuture,
@@ -187,6 +190,25 @@ pub(crate) fn classify_turn_error(
     }
 }
 
+/// 仅当 CGC Cloud 托管 provider 返回 HTTP `426` 时置位全局升级提示 Latch（不误伤 BYOK）。
+pub(crate) fn maybe_record_upgrade_notice(error: &AgentError, managed_provider: bool) {
+    if !managed_provider {
+        return;
+    }
+    if let AgentError::Provider(cgc_agent_provider::ProviderError::Api {
+        status: Some(426),
+        message,
+        ..
+    }) = error
+    {
+        if cgc_platform::api::upgrade_notice().is_none() {
+            cgc_platform::api::record_upgrade_notice(cgc_platform::api::parse_upgrade_notice(
+                message,
+            ));
+        }
+    }
+}
+
 pub enum NativeRuntimeEvent {
     Snapshot {
         change: RuntimeChange,
@@ -218,6 +240,7 @@ pub enum NativeRuntimeError {
     StaleConnection,
     Closed,
     MissingThread,
+    WorkspaceChanged,
     Configuration(String),
     Storage(String),
     Checkpoint(String),
@@ -230,11 +253,18 @@ impl std::fmt::Display for NativeRuntimeError {
             Self::StaleConnection => f.write_str("连接已被新的会话替换"),
             Self::Closed => f.write_str("native runtime 已关闭"),
             Self::MissingThread => f.write_str("会话不存在"),
+            Self::WorkspaceChanged => f.write_str("当前工作区已切换，已取消清理并刷新，请重新确认"),
             Self::Configuration(message) => write!(f, "模型配置不可用：{message}"),
             Self::Storage(message) => write!(f, "会话存储失败：{message}"),
             Self::Checkpoint(message) => write!(f, "检查点操作失败：{message}"),
         }
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct WorkspaceCheckpointStorage {
+    pub repo: PathBuf,
+    pub summary: CheckpointStorageSummary,
 }
 
 pub struct PreparedNativeTurn {
@@ -292,6 +322,11 @@ enum Command {
         reply: Reply<Arc<NativeRuntimeSnapshot>>,
     },
     Checkpoint(CheckpointAction, Reply<Arc<NativeRuntimeSnapshot>>),
+    InspectCheckpointStorage(Reply<Option<WorkspaceCheckpointStorage>>),
+    PurgeCheckpointHistory {
+        expected_repo: PathBuf,
+        reply: Reply<ReclaimReport>,
+    },
     SelectModel {
         provider: String,
         model: String,
@@ -498,6 +533,22 @@ impl NativeRuntimeHandle {
     {
         self.request(|reply| Command::Checkpoint(action, reply))
     }
+    pub(crate) fn inspect_checkpoint_storage(
+        &self,
+    ) -> impl Future<Output = Result<Option<WorkspaceCheckpointStorage>, NativeRuntimeError>>
+           + Send
+           + 'static {
+        self.request(Command::InspectCheckpointStorage)
+    }
+    pub(crate) fn purge_checkpoint_history(
+        &self,
+        expected_repo: PathBuf,
+    ) -> impl Future<Output = Result<ReclaimReport, NativeRuntimeError>> + Send + 'static {
+        self.request(move |reply| Command::PurgeCheckpointHistory {
+            expected_repo,
+            reply,
+        })
+    }
     pub fn select_model(
         &self,
         provider: String,
@@ -584,7 +635,9 @@ impl Drop for NativeRuntimeConnection {
 
 #[cfg(test)]
 mod model_setup_tests {
-    use super::{classify_turn_error, ModelSetup, NativeTurnErrorKind};
+    use super::{
+        classify_turn_error, maybe_record_upgrade_notice, ModelSetup, NativeTurnErrorKind,
+    };
     use cgc_agent_core::AgentError;
     use cgc_agent_provider::{ProviderError, ProviderErrorCategory};
 
@@ -653,5 +706,35 @@ mod model_setup_tests {
             classify_turn_error(&AgentError::RuntimeBusy, true),
             NativeTurnErrorKind::Other
         );
+    }
+
+    #[test]
+    fn maybe_record_upgrade_notice_only_latches_for_managed_provider_426() {
+        let _guard = crate::root_view::upgrade_latch_test_lock();
+        cgc_platform::api::clear_upgrade_notice();
+
+        // BYOK 426 不应触发平台全局升级覆盖层
+        maybe_record_upgrade_notice(
+            &AgentError::Provider(ProviderError::api(426, "byok 426")),
+            false,
+        );
+        assert_eq!(cgc_platform::api::upgrade_notice(), None);
+
+        // CGC Cloud 426 应触发全局升级覆盖层并保留结构化载荷（code / min_version / download_url）
+        let structured_426 = r#"{"error":{"code":"desktop_client_disabled","message":"临时维护中","min_version":"0.2.0","download_url":"https://codingirlsclub.com/releases"}}"#;
+        maybe_record_upgrade_notice(
+            &AgentError::Provider(ProviderError::api(426, structured_426)),
+            true,
+        );
+        let notice = cgc_platform::api::upgrade_notice().expect("managed 426 latches notice");
+        assert_eq!(notice.code, "desktop_client_disabled");
+        assert!(notice.is_kill_switch());
+        assert_eq!(notice.message, "临时维护中");
+        assert_eq!(notice.min_version.as_deref(), Some("0.2.0"));
+        assert_eq!(
+            notice.safe_download_url(),
+            "https://codingirlsclub.com/releases"
+        );
+        cgc_platform::api::clear_upgrade_notice();
     }
 }

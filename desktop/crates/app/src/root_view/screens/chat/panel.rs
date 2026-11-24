@@ -901,15 +901,8 @@ pub(in crate::root_view) fn render_chat_panel(
                                 .map(|input| PickerSearch {
                                     input,
                                     scroll: config_scroll.clone(),
-                                    on_open: Some(Box::new({
-                                        let reset_root = root.clone();
-                                        move |window, cx| {
-                                            let _ = reset_root.update(cx, |this, cx| {
-                                                this.reset_config_search(window, cx)
-                                            });
-                                        }
-                                    })),
                                 });
+                            let open_root = root.clone();
                             render_picker_popover(PickerPopoverSpec {
                                 popover_id: SharedString::from(format!(
                                     "chat-config-popover-{index}"
@@ -926,6 +919,11 @@ pub(in crate::root_view) fn render_chat_panel(
                                 width: 260.0,
                                 list_max_height: Some(244.0),
                                 search,
+                                on_open: Some(Box::new(move |window, cx| {
+                                    let _ = open_root.update(cx, |this, cx| {
+                                        this.reset_config_search(window, cx)
+                                    });
+                                })),
                                 on_select: Box::new(move |selected, _window, cx| {
                                     let Some((value, _)) = options.get(selected).cloned() else {
                                         return;

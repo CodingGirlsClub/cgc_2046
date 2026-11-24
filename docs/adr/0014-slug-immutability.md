@@ -35,3 +35,16 @@
   - 非 draft 传「又非法又锁定」的 slug 从两个错误变为单个 `*_slug_locked`（行为微调，对齐 #588 既有语义）。
   - 显式传空字符串 `""` 的 slug 从静默放过变为格式拒绝（match validation 比原内联 change 更严，属收紧）。
 - **历史注记**：本 ADR 为补记——Event/Course 语义 2026-09-08 已生效（#453），Initiative 2026-09-15（#588/#604），#619 补齐 Event/Course 稳定 code 并将本 ADR 确立为三资源口径的权威出处（`plans/` 目录是 improve skill 的本地工作产物，经 `.git/info/exclude` 有意不入库，不构成仓内引用）。
+
+## 2026-11-22 补记
+
+1. **覆盖范围扩至第 4 个资源 `Cgc2046.Flashback.Person`**（`backend/lib/cgc_2046/flashback/person.ex`）：对公开路由段 `public_slug` 采用同一套不可变规律，锁定谓词为 `not is_nil(public_slug_published_at)`，错误码为 `flashback_slug_locked` 与 `flashback_slug_taken`（登记于 `backend/priv/error_codes_contract.json`），按唯一索引名 `flashback_people_unique_public_slug_index` 分派。
+2. **决策 6 实现细则**：`Event`、`Course`、`Flashback.Person` 均按 `ConstraintConflict.constraint_named?/2` 精确匹配唯一索引名；`Initiative`（`backend/lib/cgc_2046/initiatives/initiative.ex`）因当前仅单唯一约束，使用 `ConstraintConflict.unique_conflict?/1`。
+
+## 参考
+
+- `backend/lib/cgc_2046/events/event.ex`
+- `backend/lib/cgc_2046/courses/course.ex`
+- `backend/lib/cgc_2046/initiatives/initiative.ex`
+- `backend/lib/cgc_2046/flashback/person.ex`
+- `backend/priv/error_codes_contract.json`

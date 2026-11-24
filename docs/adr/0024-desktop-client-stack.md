@@ -17,7 +17,7 @@ date: 2026-10-19
 ## 决策（Decision）
 
 1. **技术栈 = Rust + GPUI，经 `gpui-kit` 0.7.3 使用**。工具链下限 **Rust 1.98+**，以 `rust-toolchain.toml` 固定到 1.98.1。依据是实测而非文档：`gpui-pre 0.3.9` 用到 `slice_as_array`（1.94 才稳定）与 `cold_path`（1.95 才稳定），在 1.92 / 1.94 上分别以 E0658 编译失败；1.98.1 下 fmt / clippy / test / 打包全部验证通过。gpui-kit 安装文档写的「1.92+」不成立。`gpui-kit` 以 `=0.3.9` 精确钉死 `gpui-pre`（zed@93d7456）；不得单独升级或覆盖其中某个 GPUI 包，也不得直接依赖 crates.io 的 `gpui` 0.2.2——两者不兼容，同时引入会产生两份 GPUI。
-2. **分层与依赖方向**：`crates/app`（组合根）→ 各 domain crate（account / events / courses / companion）；domain crate 只依赖 `platform` 的端口 trait；OS 适配器按 Zed 的 `gpui_platform` + `gpui_macos/linux/windows` 同构拆成 `platform-{macos,windows,linux}`，各自实现端口并依赖 `platform` 的端口类型；domain crate 之间不互相 import（脊柱 AD-1）。布局对齐 Zed：`crates/` 下每个子系统一个 crate，`app` 是唯一 binary crate；加功能默认进已有 crate 的 module，不按功能清单建 crate。
+2. **分层与依赖方向**：`crates/app`（组合根）→ 各 domain crate（account / events / courses / companion）；domain crate 只依赖 `platform` 的端口 trait；OS 适配器按 Zed 的 `gpui_platform` + `gpui_macos/linux/windows` 同构拆成 `platform-{macos,windows,linux}`，各自实现端口并依赖 `platform` 的端口类型；domain crate 之间不互相 import（脊柱 AD-1）。布局对齐 Zed：`crates/` 下每个子系统一个 crate，`app` 是唯一 binary crate；加功能默认进已有 crate 的 module，不按功能清单建 crate。**（2026-11-22 修订：由于 GPUI 底层绑定已由 `gpui-kit` 承载，`platform` 内跨平台适配仅 ~1.6K 行且仅有 `security-framework`/`windows` 两个平台依赖，已删除未使用的三个空壳 `platform-{macos,windows,linux}` crate，OS 适配统一在 `crates/platform` 内按 `#[cfg(target_os = ...)]` 条件编译隔离；仅当未来引入重型原生 OS FFI 子系统时再拆独立 crate。）**
 3. **业务数据单一来源 = 后端 GraphQL schema**：客户端用 schema 生成 Rust 类型，只写视图模型与可失效缓存（AD-2）；GraphQL 代码生成工具在 epic-2 选定并锁版（生成物只读）。
 4. **路由与 i18n 只追加**：并行 epic 向注册表追加条目，不修改共享文件的可变区域（AD-9）。
 5. **内容渲染**：Markdown/HTML 用 gpui-kit TextView；数学公式渲染方案在 epic-4 决定——候选 `ratex-gpui` 0.4.1（MIT），但须锁与 gpui-kit 相同的 `gpui-pre` 快照，否则改为预渲染 SVG；须用真实课程内容回归。
@@ -37,9 +37,18 @@ date: 2026-10-19
 - **代价/风险**：引入 Rust 为项目第三种主语言，团队与招人成本上升；UI 零复用，需重建设计系统与组件；上游 `gpui` 发布停滞，供应链实际依赖 gpui-kit 维护方，须锁版并保留自建 patch 路径；Windows 平台有已知 TitleBar 类 bug，需真机验收。
 - **回滚**：本 ADR 只约束新代码；若未来放弃 GPUI，客户端可整体替换，不影响后端与 web。
 
+## 现状补记（2026-11-22）
+
+1. **工具链与 UI 依赖（决策 1）**：Rust 工具链已随 ADR-0030 升级并 pin 至 **`1.100.0`**（`desktop/rust-toolchain.toml`），workspace MSRV 保持 `rust-version = "1.98"`（`desktop/Cargo.toml`）；`gpui-kit` 已升级至 **`=0.9.1`**（启用 `syntect` feature，底层 `gpui-pre 0.3.12`）。
+2. **Workspace 成员（决策 2）**：`desktop/Cargo.toml` 当前共 **16** 个成员 crate（`app`、`account`、`events`、`courses`、`agent_ui`、`agent_conversation`、`agent_provider`、`agent_core`、`agent_tools`、`agent_demo`、`agent_store`、`agent_host`、`agent_checkpoint`、`terminal`、`terminal_view`、`platform`；无 `crates/companion`，`agent_demo` 另提供开发联调二进制 `cgc-agent-demo`）。
+3. **GraphQL 契约校验（决策 3）**：未采用 Rust GraphQL codegen，客户端手写查询并由 `desktop/scripts/check_release_schema.py` 在发布前与后端 schema 做静态兼容门禁。
+4. **数学公式渲染（决策 5）**：已定型采用 `ratex-gpui 0.4`（`0.4.1`，见 `desktop/crates/app/Cargo.toml` 与 `desktop/crates/app/src/formula.rs`）。
+5. **许可门禁（决策 7）**：由 `desktop/scripts/check_licenses.py` 在 CI 中扫描 `cargo metadata` 强制 AGPL-3.0 兼容。
+
 ## 参考
 
-- 架构脊柱：`_bmad-output/initiative-desktop/architecture-desktop/architecture-desktop.md`
+- 架构脊柱：`_bmad-output/initiative-desktop/architecture-desktop/architecture-desktop.md`（本地规划产物，`.git/info/exclude` 忽略）
 - gpui-kit：https://gpui-kit.com/zh-CN/docs
 - Zed Windows 支持：https://zed.dev/blog/zed-for-windows-is-here
 - 依赖规则：`docs/开源合规/依赖引入规则.md`
+- 现存源码：`desktop/Cargo.toml`、`desktop/rust-toolchain.toml`、`desktop/crates/app/src/formula.rs`、`desktop/scripts/check_release_schema.py`、`desktop/scripts/check_licenses.py`

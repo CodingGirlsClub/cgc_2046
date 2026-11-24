@@ -22,7 +22,7 @@ use cgc_agent_provider::{StopReason, TokenUsage, ToolUse};
 use cgc_agent_ui::conversation::{ConversationThread, Entry};
 use cgc_desktop_app::agent_ingest::{apply_notice, apply_thread_event};
 use cgc_desktop_app::approval_rules::{
-    auto_permission_for_event, ApprovalRules, AutoPermission, ToolPermissionSettings,
+    auto_permission_for_event_with_sandbox, ApprovalRules, AutoPermission, ToolPermissionSettings,
 };
 use cgc_platform::acp::connection::{AcpHost, AcpHostConfig, HostEvent};
 use futures::future::BoxFuture;
@@ -186,16 +186,20 @@ struct TrackResult {
 /// native 轨驱动（与 `NativeAgentView::drain_acp_events` 一致：弹卡前先走
 /// settings 级 toolPermissions 规则，决定性 allow/deny 自动回传 + Notice + 不落 Permission 行）。
 fn drive_native_turn(host: &AcpHost, rules: &ApprovalRules) -> TrackResult {
-    drive_turn_with_auto(host, Some(rules))
+    drive_turn_with_auto(host, Some(rules), true)
 }
 
 /// external ACP 轨驱动（与 `RootView::drain_chat_events` 一致：**不做**规则自动
 /// 决定，收到 request_permission 一律进共享审批卡，由用户选 option 回传）。
 fn drive_acp_turn(host: &AcpHost) -> TrackResult {
-    drive_turn_with_auto(host, None)
+    drive_turn_with_auto(host, None, true)
 }
 
-fn drive_turn_with_auto(host: &AcpHost, auto_rules: Option<&ApprovalRules>) -> TrackResult {
+fn drive_turn_with_auto(
+    host: &AcpHost,
+    auto_rules: Option<&ApprovalRules>,
+    sandbox_enforcing: bool,
+) -> TrackResult {
     assert!(host.prompt("run"));
     let mut thread = ConversationThread::new("rules");
     let mut autos = Vec::new();
@@ -211,7 +215,9 @@ fn drive_turn_with_auto(host: &AcpHost, auto_rules: Option<&ApprovalRules>) -> T
         }
         let turn_end = matches!(event, HostEvent::TurnEnd { .. });
         // native 轨才走规则自动决定；ACP 轨此处恒为 None（客户端不拦截）。
-        if let Some(auto) = auto_rules.and_then(|rules| auto_permission_for_event(rules, &event)) {
+        if let Some(auto) = auto_rules.and_then(|rules| {
+            auto_permission_for_event_with_sandbox(rules, &event, sandbox_enforcing)
+        }) {
             assert!(
                 host.respond_permission_option(&auto.request_id, &auto.option_id),
                 "auto option must be answerable"
@@ -256,11 +262,16 @@ fn drive_turn_with_auto(host: &AcpHost, auto_rules: Option<&ApprovalRules>) -> T
 }
 
 fn start_native() -> AcpHost {
-    let server =
-        NativeAcpServer::new(Box::new(NativeApprovalRuntime)).with_config(NativeAcpServerConfig {
+    start_native_with_sandbox(true)
+}
+
+fn start_native_with_sandbox(sandbox_enforcing: bool) -> AcpHost {
+    let server = NativeAcpServer::new(Box::new(NativeApprovalRuntime))
+        .with_config(NativeAcpServerConfig {
             agent_name: "cgc-native".to_string(),
             version: "0.0.1".to_string(),
-        });
+        })
+        .with_sandbox_enforcing(sandbox_enforcing);
     AcpHost::start_in_process(AcpHostConfig::new("", temp_cwd("native")), server)
         .expect("start native host")
 }
@@ -469,5 +480,41 @@ fn confirm_beats_default_allow_and_forces_card() {
     );
     assert_eq!(result.manual_cards, 1);
     assert_eq!(permission_rows(&result.thread), 1);
+    host.shutdown();
+}
+
+#[test]
+fn unsandboxed_native_run_command_forces_manual_card_even_with_allow_rules() {
+    let host = start_native_with_sandbox(false);
+    wait_ready(&host);
+
+    for rules in [
+        rules_from(serde_json::json!({"default": "allow"})),
+        allow_ls_rules(),
+    ] {
+        let result = drive_turn_with_auto(&host, Some(&rules), false);
+        assert_turn_completed(&result);
+        assert!(
+            result.autos.is_empty(),
+            "无沙箱时即使配置了 allow 规则也不得静默放行 run_command"
+        );
+        assert_eq!(result.manual_cards, 1);
+        let option_ids = result
+            .thread
+            .entries
+            .iter()
+            .find_map(|entry| match entry {
+                Entry::Permission { options, .. } => Some(
+                    options
+                        .iter()
+                        .map(|opt| opt.id.as_str())
+                        .collect::<Vec<_>>(),
+                ),
+                _ => None,
+            })
+            .expect("permission entry recorded");
+        assert_eq!(option_ids, vec!["allow_once", "deny"]);
+    }
+
     host.shutdown();
 }

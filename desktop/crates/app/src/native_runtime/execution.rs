@@ -1,9 +1,26 @@
 use super::worker::{ActiveTurn, Job, Owner, TitleOutcome};
 use super::*;
-use cgc_agent_core::{ApprovalRequest, Approver, AutoApprover, ToolResultSummary, TurnObserver};
+use cgc_agent_core::{ApprovalRequest, Approver, ToolResultSummary, TurnObserver};
 use cgc_agent_provider::{TokenUsage, ToolUse};
 use futures::FutureExt;
 use std::sync::Weak;
+
+struct AutoApproverWithSandboxGuard {
+    manual: Arc<dyn Approver>,
+    sandbox_enforcing: bool,
+}
+
+impl Approver for AutoApproverWithSandboxGuard {
+    fn decide(
+        &self,
+        request: ApprovalRequest,
+    ) -> futures::future::BoxFuture<'static, cgc_agent_tools::ApprovalDecision> {
+        if !self.sandbox_enforcing && request.tool_name == "run_command" {
+            return self.manual.decide(request);
+        }
+        Box::pin(async { cgc_agent_tools::ApprovalDecision::AllowOnce })
+    }
+}
 
 impl Owner {
     pub(super) fn start_turn(
@@ -141,7 +158,10 @@ impl Owner {
                     inner: turn.observer,
                     commands,
                 };
-                let auto_approver = AutoApprover;
+                let auto_approver = AutoApproverWithSandboxGuard {
+                    manual: Arc::clone(&turn.approver),
+                    sandbox_enforcing: cgc_agent_tools::SandboxKind::detect().is_enforcing(),
+                };
                 let approver: &dyn Approver = if config.auto_approve {
                     &auto_approver
                 } else {
@@ -210,6 +230,7 @@ impl Owner {
                     if generation == self.generation && !matches!(error, AgentError::Cancelled) {
                         let managed_provider = self.config.model.provider_id.as_str()
                             == cgc_agent_store::CGC_CLOUD_PROVIDER_ID;
+                        maybe_record_upgrade_notice(error, managed_provider);
                         let kind = classify_turn_error(error, managed_provider);
                         self.emit(NativeRuntimeEvent::TurnError {
                             generation,
@@ -228,6 +249,7 @@ impl Owner {
                     // 迁移时漏接，标题因此退化成只能手动 Regenerate。
                     self.start_title(false);
                 }
+                self.maybe_start_checkpoint_gc();
             }
             Job::Title {
                 generation,
@@ -267,6 +289,16 @@ impl Owner {
                 self.publish(RuntimeChange::Activity);
             }
             Job::Mcp { context, result } => self.mcp_prepared(context, result),
+            Job::CheckpointGc {
+                repo,
+                request,
+                outcome,
+            } => self.checkpoint_gc_completed(repo, request, outcome),
+            Job::ManualCheckpointCleanup {
+                repo,
+                reply,
+                result,
+            } => self.manual_checkpoint_cleanup_completed(repo, reply, result),
         }
     }
 }
@@ -318,5 +350,49 @@ impl TurnObserver for Observed {
     }
     fn on_finished(&mut self, result: &ToolTurnOutcome) {
         self.inner.on_finished(result);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AutoApproverWithSandboxGuard;
+    use cgc_agent_core::{ApprovalRequest, Approver, DenyApprover};
+    use cgc_agent_tools::ApprovalDecision;
+    use futures::executor::block_on;
+    use std::sync::Arc;
+
+    fn request(tool_name: &str) -> ApprovalRequest {
+        ApprovalRequest {
+            tool_call_id: "tc-1".to_string(),
+            tool_name: tool_name.to_string(),
+            args: serde_json::json!({"command": "echo hi"}),
+        }
+    }
+
+    #[test]
+    fn auto_approver_falls_back_to_manual_for_unsandboxed_run_command() {
+        let manual: Arc<dyn Approver> = Arc::new(DenyApprover);
+
+        let unsandboxed = AutoApproverWithSandboxGuard {
+            manual: Arc::clone(&manual),
+            sandbox_enforcing: false,
+        };
+        assert_eq!(
+            block_on(unsandboxed.decide(request("run_command"))),
+            ApprovalDecision::Deny
+        );
+        assert_eq!(
+            block_on(unsandboxed.decide(request("write_file"))),
+            ApprovalDecision::AllowOnce
+        );
+
+        let sandboxed = AutoApproverWithSandboxGuard {
+            manual,
+            sandbox_enforcing: true,
+        };
+        assert_eq!(
+            block_on(sandboxed.decide(request("run_command"))),
+            ApprovalDecision::AllowOnce
+        );
     }
 }

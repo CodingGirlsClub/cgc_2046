@@ -951,3 +951,603 @@ fn base_tools_subagent_inherits_active_thread_affinity_session_id() {
 
     std::fs::remove_dir_all(root).ok();
 }
+
+#[test]
+fn checkpoint_prune_invalidates_sqlite_and_memory_entries() {
+    let root = std::env::temp_dir().join(format!("cgc-rt-prune-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let mut owner = configured_owner(&root);
+    owner.store = Some(SessionStore::open_in_memory().unwrap());
+    owner.freeze();
+    owner.checkpoint_manager = Some(
+        CheckpointManager::initialize(&root)
+            .unwrap()
+            .with_max_refs(2)
+            .with_max_total_refs(2),
+    );
+    let thread_id = owner.frozen.id.clone();
+    for seq in 1..=3 {
+        std::fs::write(root.join("note.txt"), format!("turn-{seq}")).unwrap();
+        owner.capture_checkpoint(&thread_id, seq);
+    }
+
+    let in_mem: Vec<usize> = owner.checkpoints.iter().map(|(seq, _)| *seq).collect();
+    assert_eq!(in_mem, vec![2, 3]);
+
+    let records = owner
+        .store
+        .as_ref()
+        .unwrap()
+        .list_checkpoints(&thread_id)
+        .unwrap();
+    assert_eq!(records.len(), 3);
+    assert_eq!(records[0].user_entry_seq, 1);
+    assert_eq!(records[0].state, "invalid");
+    assert_eq!(records[1].state, "active");
+    assert_eq!(records[2].state, "active");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn rewind_deletes_git_refs_from_ordinal_and_marks_sqlite_invalid() {
+    let root = std::env::temp_dir().join(format!("cgc-rt-rewind-refs-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let mut owner = configured_owner(&root);
+    owner.store = Some(SessionStore::open_in_memory().unwrap());
+    owner.checkpoint_manager = Some(CheckpointManager::initialize(&root).unwrap());
+    let thread_id = owner.frozen.id.clone();
+
+    std::fs::write(root.join("note.txt"), "v1").unwrap();
+    owner.capture_checkpoint(&thread_id, 1);
+
+    {
+        let thread = owner.agent.as_mut().unwrap().thread_mut();
+        thread.push_user("second user prompt");
+    }
+    std::fs::write(root.join("note.txt"), "v2").unwrap();
+    owner.capture_checkpoint(&thread_id, 2);
+
+    {
+        let thread = owner.agent.as_mut().unwrap().thread_mut();
+        thread.push_user("third user prompt");
+    }
+    std::fs::write(root.join("note.txt"), "v3").unwrap();
+    owner.capture_checkpoint(&thread_id, 3);
+    owner.freeze();
+
+    assert_eq!(
+        owner
+            .checkpoint_manager
+            .as_ref()
+            .unwrap()
+            .list(&thread_id)
+            .unwrap()
+            .into_iter()
+            .map(|c| c.seq)
+            .collect::<Vec<_>>(),
+        vec![1, 2, 3]
+    );
+
+    owner.rewind(2, true).expect("rewind to ordinal 2");
+
+    assert_eq!(
+        std::fs::read_to_string(root.join("note.txt")).unwrap(),
+        "v2"
+    );
+    let remaining_refs: Vec<u64> = owner
+        .checkpoint_manager
+        .as_ref()
+        .unwrap()
+        .list(&thread_id)
+        .unwrap()
+        .into_iter()
+        .map(|c| c.seq)
+        .collect();
+    assert_eq!(remaining_refs, vec![1]);
+
+    let records = owner
+        .store
+        .as_ref()
+        .unwrap()
+        .list_checkpoints(&thread_id)
+        .unwrap();
+    assert_eq!(records[0].state, "active");
+    assert_eq!(records[1].state, "invalid");
+    assert_eq!(records[2].state, "invalid");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn checkpoint_budget_circuit_breaker_dedups_notices_and_recovers_after_background_gc() {
+    use futures::StreamExt as _;
+
+    let root = std::env::temp_dir().join(format!("cgc-rt-budget-gc-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+
+    let manager = CheckpointManager::initialize(&root)
+        .unwrap()
+        .with_max_refs(50)
+        .with_max_total_refs(200)
+        .with_max_object_bytes(250 * 1024);
+
+    let mut state: u64 = 0x1234_5678_9ABC_DEF0;
+    let mut base = String::with_capacity(120 * 1024);
+    while base.len() < 120 * 1024 {
+        state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+        use std::fmt::Write as _;
+        let _ = writeln!(base, "{state:016x}");
+    }
+    for seq in 1..=5 {
+        std::fs::write(root.join("data.txt"), format!("{base}seq={seq}\n")).unwrap();
+        let _ = manager.snapshot_with_report("old-thread", seq);
+    }
+
+    let mut owner = configured_owner(&root);
+    owner.store = Some(SessionStore::open_in_memory().unwrap());
+    owner.freeze();
+    owner.checkpoint_manager = Some(manager.clone());
+
+    let (sub_tx, mut sub_rx) = mpsc::unbounded();
+    owner.command(Command::Subscribe(sub_tx));
+    let _ = block_on(sub_rx.next()); // initial snapshot
+
+    let thread_id = owner.frozen.id.clone();
+    owner.capture_checkpoint(&thread_id, 1);
+    assert!(owner.checkpoint_budget_exceeded);
+    assert!(owner.checkpoints.is_empty());
+
+    // 第二轮仍处于熔断状态时，不能重复弹 notice。
+    owner.capture_checkpoint(&thread_id, 2);
+
+    let mut notices = Vec::new();
+    while let Ok(event) = sub_rx.try_recv() {
+        if let NativeRuntimeEvent::Notice { message, .. } = &*event {
+            notices.push(message.clone());
+        }
+    }
+    assert_eq!(notices.len(), 1, "budget notice should be deduplicated");
+
+    // 触发并完成后台 reclaim GC 后，应自动解除熔断并重新放行快照。
+    owner.maybe_start_checkpoint_gc();
+    assert!(owner.checkpoint_gc_running);
+    let job = block_on(owner.jobs.next()).expect("checkpoint gc job");
+    owner.completed(job);
+
+    assert!(!owner.checkpoint_gc_running);
+    assert!(!owner.checkpoint_budget_exceeded);
+    assert!(owner.last_checkpoint_gc_at.is_some());
+
+    owner.capture_checkpoint(&thread_id, 1);
+    assert_eq!(owner.checkpoints.len(), 1);
+
+    // 不可恢复场景（用户 HEAD 自己已超限）：保持熔断，仅发一次不可恢复通知，绝不碰 HEAD。
+    std::fs::write(root.join("committed.txt"), &base).unwrap();
+    for args in [
+        &["add", "--all"][..],
+        &[
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-m",
+            "user commit",
+        ][..],
+    ] {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(out.status.success());
+    }
+    let impossible = manager.with_max_object_bytes(1);
+    owner.checkpoint_manager = Some(impossible);
+    owner.capture_checkpoint(&thread_id, 2);
+    assert!(owner.checkpoint_budget_exceeded);
+    owner.maybe_start_checkpoint_gc();
+    let job = block_on(owner.jobs.next()).expect("unrecoverable gc job");
+    owner.completed(job);
+    assert!(owner.checkpoint_budget_exceeded);
+
+    owner.capture_checkpoint(&thread_id, 3);
+    // 冷却时间内，不可恢复状态下不应重复触发后台 reclaim。
+    owner.maybe_start_checkpoint_gc();
+    assert!(!owner.checkpoint_gc_running);
+
+    owner.last_checkpoint_gc_at = None;
+    owner.maybe_start_checkpoint_gc();
+    let job2 = block_on(owner.jobs.next()).expect("second unrecoverable gc job");
+    owner.completed(job2);
+    assert!(owner.checkpoint_budget_exceeded);
+
+    let mut post_notices = Vec::new();
+    while let Ok(event) = sub_rx.try_recv() {
+        if let NativeRuntimeEvent::Notice { message, .. } = &*event {
+            post_notices.push(message.clone());
+        }
+    }
+    // 1 条首次超限 notice + 1 条不可恢复 notice（第二次仍不可恢复不重复刷屏）
+    assert_eq!(
+        post_notices.len(),
+        2,
+        "expected exactly 1 budget notice + 1 unrecoverable notice, got: {post_notices:?}"
+    );
+
+    // 即使仍保留有当前会话的检查点，熔断激活期间调用 `refresh_changes()` 也不能把新修改的文件写入对象库或额外刷屏报错。
+    let breaker_file = root.join("breaker-untracked.txt");
+    std::fs::write(
+        &breaker_file,
+        "unique-circuit-breaker-refresh-changes-content-must-not-be-hashed\n",
+    )
+    .unwrap();
+    let oid_out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&root)
+        .args(["hash-object", breaker_file.to_str().unwrap()])
+        .output()
+        .unwrap();
+    let breaker_oid = String::from_utf8_lossy(&oid_out.stdout).trim().to_string();
+    owner.refresh_changes();
+    let cat_out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&root)
+        .args(["cat-file", "-e", &breaker_oid])
+        .output()
+        .unwrap();
+    assert!(
+        !cat_out.status.success(),
+        "refresh_changes must not hash new blobs into git objects while circuit breaker is active"
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn manual_checkpoint_cleanup_purges_history_syncs_sqlite_clears_budget_and_rejects_when_busy() {
+    use futures::StreamExt as _;
+
+    let root = std::env::temp_dir().join(format!("cgc-rt-manual-purge-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+
+    let manager = CheckpointManager::initialize(&root)
+        .unwrap()
+        .with_max_refs(50)
+        .with_max_total_refs(200)
+        .with_max_object_bytes(250 * 1024);
+
+    let mut state: u64 = 0x55AA_55AA_1234_5678;
+    let mut base = String::with_capacity(120 * 1024);
+    while base.len() < 120 * 1024 {
+        state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+        use std::fmt::Write as _;
+        let _ = writeln!(base, "{state:016x}");
+    }
+
+    // 提交一个用户 HEAD 文件，确保手动清理绝不触碰用户历史。
+    std::fs::write(root.join("user.txt"), "keep user commit\n").unwrap();
+    for args in [
+        &["add", "--all"][..],
+        &[
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-m",
+            "user base",
+        ][..],
+    ] {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(out.status.success());
+    }
+    let head_before = manager.head().unwrap().expect("head");
+
+    let mut owner = configured_owner(&root);
+    owner.store = Some(SessionStore::open_in_memory().unwrap());
+    owner.freeze();
+    owner.checkpoint_manager = Some(manager.clone());
+
+    let thread_id = owner.frozen.id.clone();
+    std::fs::write(root.join("data.txt"), format!("{base}current=1\n")).unwrap();
+    owner.capture_checkpoint(&thread_id, 1);
+    std::fs::write(root.join("data.txt"), format!("{base}current=2\n")).unwrap();
+    owner.capture_checkpoint(&thread_id, 2);
+
+    // 另一条旧线程塞入多条快照（用未限额句柄模拟历史累积）后再触发当前会话预算超限熔断。
+    let seed_manager = CheckpointManager::open(&root).unwrap();
+    for seq in 1..=3 {
+        std::fs::write(root.join("data.txt"), format!("{base}other={seq}\n")).unwrap();
+        seed_manager.snapshot("old-thread", seq).unwrap();
+    }
+    owner.capture_checkpoint(&thread_id, 3);
+    assert!(owner.checkpoint_budget_exceeded);
+
+    let (inspect_tx, inspect_rx) = oneshot::channel();
+    owner.command(Command::InspectCheckpointStorage(inspect_tx));
+    let storage = block_on(inspect_rx)
+        .unwrap()
+        .unwrap()
+        .expect("storage summary");
+    assert_eq!(storage.repo, root);
+    assert_eq!(storage.summary.total_refs, 5);
+    assert!(storage.summary.stats.total_bytes() > 250 * 1024);
+
+    // 运行中（active 或 checkpoint_gc_running）拒绝手动清理。
+    owner.checkpoint_gc_running = true;
+    let (busy_tx, busy_rx) = oneshot::channel();
+    owner.command(Command::PurgeCheckpointHistory {
+        expected_repo: root.clone(),
+        reply: busy_tx,
+    });
+    assert_eq!(
+        block_on(busy_rx).unwrap().unwrap_err(),
+        NativeRuntimeError::Busy
+    );
+    owner.checkpoint_gc_running = false;
+
+    // 空闲态执行手动清理。
+    let (purge_tx, purge_rx) = oneshot::channel();
+    owner.command(Command::PurgeCheckpointHistory {
+        expected_repo: root.clone(),
+        reply: purge_tx,
+    });
+    assert!(owner.checkpoint_gc_running);
+    let job = block_on(owner.jobs.next()).expect("manual cleanup job");
+    owner.completed(job);
+
+    let report = block_on(purge_rx).unwrap().expect("purge report");
+    assert!(!owner.checkpoint_gc_running);
+    assert_eq!(report.pruned.len(), 4);
+    assert_eq!(report.remaining_refs, 1);
+    assert!(report.within_budget);
+    assert!(!owner.checkpoint_budget_exceeded);
+
+    let remaining_seqs: Vec<usize> = owner.checkpoints.iter().map(|(seq, _)| *seq).collect();
+    assert_eq!(remaining_seqs, vec![2]);
+    assert!(manager.list("old-thread").unwrap().is_empty());
+
+    let records = owner
+        .store
+        .as_ref()
+        .unwrap()
+        .list_checkpoints(&thread_id)
+        .unwrap();
+    assert_eq!(records[0].state, "invalid");
+    assert_eq!(records[1].state, "active");
+    assert_eq!(
+        manager.head().unwrap().as_deref(),
+        Some(head_before.as_str())
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn manual_cleanup_and_reclaim_invalidate_sqlite_records_even_after_scope_switch() {
+    use futures::StreamExt as _;
+
+    let root_a = std::env::temp_dir().join(format!("cgc-rt-scope-a-{}", std::process::id()));
+    let root_b = std::env::temp_dir().join(format!("cgc-rt-scope-b-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root_a);
+    let _ = std::fs::remove_dir_all(&root_b);
+    std::fs::create_dir_all(&root_a).unwrap();
+    std::fs::create_dir_all(&root_b).unwrap();
+
+    let mut owner = configured_owner(&root_a);
+    owner.store = Some(SessionStore::open_in_memory().unwrap());
+
+    let (sw_a_tx, sw_a_rx) = oneshot::channel();
+    owner.command(Command::SwitchScope(
+        AgentScope {
+            key: "scope-a".into(),
+            root: root_a.clone(),
+        },
+        sw_a_tx,
+    ));
+    let snap_a = block_on(sw_a_rx).unwrap().unwrap();
+    let thread_a = snap_a.thread.id.clone();
+
+    std::fs::write(root_a.join("a.txt"), "v1").unwrap();
+    owner.capture_checkpoint(&thread_a, 1);
+    std::fs::write(root_a.join("a.txt"), "v2").unwrap();
+    owner.capture_checkpoint(&thread_a, 2);
+
+    // 在 scope-a 发起手动清理，在后台任务完成前切换到 scope-b。
+    let (purge_tx, purge_rx) = oneshot::channel();
+    owner.command(Command::PurgeCheckpointHistory {
+        expected_repo: root_a.clone(),
+        reply: purge_tx,
+    });
+    assert!(owner.checkpoint_gc_running);
+
+    let (sw_b_tx, sw_b_rx) = oneshot::channel();
+    owner.command(Command::SwitchScope(
+        AgentScope {
+            key: "scope-b".into(),
+            root: root_b.clone(),
+        },
+        sw_b_tx,
+    ));
+    let _ = block_on(sw_b_rx).unwrap().unwrap();
+
+    let job = block_on(owner.jobs.next()).expect("manual cleanup job");
+    owner.completed(job);
+    let report = block_on(purge_rx).unwrap().expect("purge report");
+    assert_eq!(report.pruned.len(), 1);
+    assert_eq!(report.pruned[0].thread_id, thread_a);
+    assert_eq!(report.pruned[0].seq, 1);
+
+    // 即使完成时已不在 scope-a，SQLite 中 scope-a 被清理掉的 ordinal=1 也必须被标为 invalid。
+    let records_a = owner
+        .store
+        .as_ref()
+        .unwrap()
+        .list_checkpoints(&thread_a)
+        .unwrap();
+    assert_eq!(records_a.len(), 2);
+    assert_eq!(records_a[0].state, "invalid");
+    assert_eq!(records_a[1].state, "active");
+
+    let _ = std::fs::remove_dir_all(root_a);
+    let _ = std::fs::remove_dir_all(root_b);
+}
+
+#[test]
+fn manual_cleanup_and_reclaim_sync_sqlite_even_when_git_gc_fails_after_deleting_refs() {
+    use futures::StreamExt as _;
+
+    let root = std::env::temp_dir().join(format!("cgc-rt-gc-fail-sync-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+
+    let manager = CheckpointManager::initialize(&root).unwrap();
+    let mut owner = configured_owner(&root);
+    owner.store = Some(SessionStore::open_in_memory().unwrap());
+    owner.freeze();
+    owner.checkpoint_manager = Some(manager);
+
+    let thread_id = owner.frozen.id.clone();
+    std::fs::write(root.join("a.txt"), "v1").unwrap();
+    owner.capture_checkpoint(&thread_id, 1);
+    std::fs::write(root.join("a.txt"), "v2").unwrap();
+    owner.capture_checkpoint(&thread_id, 2);
+
+    // 注入非法 `gc.reflogExpire`，让 `purge_history_checkpoints` 在删除 ordinal=1 的 Git ref 后于 `git gc` 阶段报错。
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&root)
+        .args(["config", "gc.reflogExpire", "not-a-valid-date"])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+
+    let (purge_tx, purge_rx) = oneshot::channel();
+    owner.command(Command::PurgeCheckpointHistory {
+        expected_repo: root.clone(),
+        reply: purge_tx,
+    });
+    let job = block_on(owner.jobs.next()).expect("manual cleanup job");
+    owner.completed(job);
+
+    let err = block_on(purge_rx)
+        .unwrap()
+        .expect_err("purge must report git gc failure");
+    assert!(matches!(err, NativeRuntimeError::Checkpoint(_)));
+
+    // 尽管 `git gc` 报错，已从 Git 中删除的 ordinal=1 仍必须在内存和 SQLite 中同步标为 invalid。
+    let remaining_in_mem: Vec<usize> = owner.checkpoints.iter().map(|(seq, _)| *seq).collect();
+    assert_eq!(remaining_in_mem, vec![2]);
+
+    let records = owner
+        .store
+        .as_ref()
+        .unwrap()
+        .list_checkpoints(&thread_id)
+        .unwrap();
+    assert_eq!(records.len(), 2);
+    assert_eq!(records[0].state, "invalid");
+    assert_eq!(records[1].state, "active");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn manual_cleanup_rejects_stale_expected_repo_after_scope_switch() {
+    use futures::StreamExt as _;
+
+    let root_a = std::env::temp_dir().join(format!("cgc-rt-stale-repo-a-{}", std::process::id()));
+    let root_b = std::env::temp_dir().join(format!("cgc-rt-stale-repo-b-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root_a);
+    let _ = std::fs::remove_dir_all(&root_b);
+    std::fs::create_dir_all(&root_a).unwrap();
+    std::fs::create_dir_all(&root_b).unwrap();
+
+    let mut owner = configured_owner(&root_a);
+    owner.store = Some(SessionStore::open_in_memory().unwrap());
+
+    let (sw_a_tx, sw_a_rx) = oneshot::channel();
+    owner.command(Command::SwitchScope(
+        AgentScope {
+            key: "scope-a".into(),
+            root: root_a.clone(),
+        },
+        sw_a_tx,
+    ));
+    let snap_a = block_on(sw_a_rx).unwrap().unwrap();
+    let thread_a = snap_a.thread.id.clone();
+    for seq in 1..=2 {
+        std::fs::write(root_a.join("a.txt"), format!("a-{seq}")).unwrap();
+        owner.capture_checkpoint(&thread_a, seq);
+    }
+
+    let (inspect_tx, inspect_rx) = oneshot::channel();
+    owner.command(Command::InspectCheckpointStorage(inspect_tx));
+    let inspected_a = block_on(inspect_rx)
+        .unwrap()
+        .unwrap()
+        .expect("inspected storage for scope A");
+    assert_eq!(inspected_a.repo, root_a);
+    assert_eq!(inspected_a.summary.total_refs, 2);
+
+    // 切换到 scope-b 并写入 3 个检查点。
+    let (sw_b_tx, sw_b_rx) = oneshot::channel();
+    owner.command(Command::SwitchScope(
+        AgentScope {
+            key: "scope-b".into(),
+            root: root_b.clone(),
+        },
+        sw_b_tx,
+    ));
+    let snap_b = block_on(sw_b_rx).unwrap().unwrap();
+    let thread_b = snap_b.thread.id.clone();
+    for seq in 1..=3 {
+        std::fs::write(root_b.join("b.txt"), format!("b-{seq}")).unwrap();
+        owner.capture_checkpoint(&thread_b, seq);
+    }
+
+    // 使用从 scope-a 读到的 `expected_repo` 发起清理必须被拒绝，且 B 与 A 均不受影响。
+    let (stale_tx, mut stale_rx) = oneshot::channel();
+    owner.command(Command::PurgeCheckpointHistory {
+        expected_repo: inspected_a.repo.clone(),
+        reply: stale_tx,
+    });
+    assert!(!owner.checkpoint_gc_running);
+    assert_eq!(
+        stale_rx
+            .try_recv()
+            .expect("channel open")
+            .expect("immediate rejection reply")
+            .unwrap_err(),
+        NativeRuntimeError::WorkspaceChanged
+    );
+    let mgr_a = CheckpointManager::open(&root_a).unwrap();
+    let mgr_b = CheckpointManager::open(&root_b).unwrap();
+    assert_eq!(mgr_a.storage_summary().unwrap().total_refs, 2);
+    assert_eq!(mgr_b.storage_summary().unwrap().total_refs, 3);
+
+    // 重新确认 scope-b 后可正常清理 scope-b，scope-a 保持原样。
+    let (purge_b_tx, purge_b_rx) = oneshot::channel();
+    owner.command(Command::PurgeCheckpointHistory {
+        expected_repo: root_b.clone(),
+        reply: purge_b_tx,
+    });
+    let job = block_on(owner.jobs.next()).expect("manual cleanup job for scope-b");
+    owner.completed(job);
+    let report = block_on(purge_b_rx).unwrap().expect("purge b succeeds");
+    assert_eq!(report.pruned.len(), 2);
+    assert_eq!(mgr_b.storage_summary().unwrap().total_refs, 1);
+    assert_eq!(mgr_a.storage_summary().unwrap().total_refs, 2);
+
+    let _ = std::fs::remove_dir_all(root_a);
+    let _ = std::fs::remove_dir_all(root_b);
+}

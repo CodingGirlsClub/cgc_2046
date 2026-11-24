@@ -18,6 +18,48 @@ develop→main 发布时把该段改名为 `## [发布日期]` 并重新立一�
 commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `miniprogram`）。
 ## [Unreleased]
 
+### Changed
+
+- [Desktop] CGC Cloud 托管模型改为独立设置卡片：总开关、单模型启停、目录同步状态、算力余额与充值入口；BYOK 列表不再重复出现 CGC Cloud，保存 BYOK 不再清空已选托管模型。
+
+### Fixed
+
+- [Desktop] 网关模型目录同步失败时保留上次成功目录并展示原因；登录后按账号恢复本地目录快照，打开模型选择器时自动补拉。
+- [Desktop] 托管模型全部停用后回退到已配置的 BYOK provider，不再显示「未配置模型」。
+- [Desktop] 托管 provider 返回 426 时保留升级元数据并提示升级；客户端按版本头发送，配合服务端版本门与 kill switch。
+- [Desktop] checkpoint 存储增加用量展示与手动清理，按仓库共享 git 锁、GC 后失效索引、修剪引用保留。
+
+## [2026-11-24]
+
+### Added
+
+- [Backend] 新增 `DesktopClientGatePlug`：按客户端版本门控与 kill switch，可与 `DesktopVersion` 注册表配合做灰度/强制升级。
+
+### Changed
+
+- [Backend] GraphQL 模块拆分：auth 变更、llm_gateway、account、invitation、mcp、initiatives、readiness 各自独立 schema 文件，单文件保持 500 行以内。
+
+### Fixed
+
+- [Backend] SendCloud 邮件在缺少 `text_body` 时回退正文，恢复邮件找回流程。
+- [Backend] `admin_list_audit_logs` 增加 SQL 投影，避免整行加载；清理过期 moduledoc 与无用的 Fanout 兼容层。
+
+## [Desktop v0.1.0-dev.20261121]
+
+> 桌面客户端内测版由 tag `desktop-v*` 触发发布，不走 develop→main 的 Web/后端发布流程。
+
+### Changed
+
+- [Desktop] 供应商/模型目录改为对接后端数据库驱动的 Provider 目录。
+
+### Fixed
+
+- [Desktop] 沙箱不可用时改为按命令审批并给出风险提示。
+- [Desktop] native MCP 白名单对齐 `learning_host` 工具，并按风险分级审批。
+- [Desktop] DSH 卸载后镜像禁用状态；多账号场景增加隔离警告。
+
+## [2026-11-21]
+
 ### Added
 
 - [Backend] LLM Provider 目录改为数据库驱动：平台管理员在 `/admin/llm` 维护供应商、模型与定价预设，支持运行时增删改与批量保存。

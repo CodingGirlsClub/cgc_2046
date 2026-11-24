@@ -117,7 +117,12 @@ pub(super) fn merge_available_providers(
 ) -> Vec<ProviderPrefs> {
     let mut available = Vec::new();
     if let Some(managed) = managed_provider {
-        if managed.enabled && !managed.models.is_empty() {
+        if managed.enabled
+            && managed
+                .models
+                .iter()
+                .any(|id| managed.model_config(id).enabled)
+        {
             available.push(managed);
         }
     }
@@ -152,9 +157,14 @@ pub(super) fn resolve_active_provider_with_env(
         return (false, byok_active);
     }
     let saved_managed = prefs.provider(CGC_CLOUD_PROVIDER_ID);
-    let managed_available = managed_provider
-        .as_ref()
-        .is_some_and(|provider| provider.enabled && !provider.models.is_empty());
+    // 目录里有模型不等于可用：全部被用户停用时必须回退到已配置的 BYOK。
+    let managed_available = managed_provider.as_ref().is_some_and(|provider| {
+        provider.enabled
+            && provider
+                .models
+                .iter()
+                .any(|id| provider.model_config(id).enabled)
+    });
     let configured_byok = prefs
         .providers
         .iter()
@@ -378,11 +388,16 @@ pub(super) fn initialize_with_keychain(
     ))
 }
 
+pub(super) fn managed_provider_config(model: &Model, base_url: &str) -> OpenAiCompatibleConfig {
+    OpenAiCompatibleConfig::new(base_url.to_string(), String::new(), vec![model.clone()])
+        .with_token_source(super::gateway::token_source())
+        .with_extra_headers(cgc_platform::runtime::client_headers())
+}
+
 fn managed_provider(model: &Model, base_url: &str) -> Arc<dyn Provider> {
-    let config =
-        OpenAiCompatibleConfig::new(base_url.to_string(), String::new(), vec![model.clone()])
-            .with_token_source(super::gateway::token_source());
-    Arc::new(OpenAiCompatibleProvider::new(config))
+    Arc::new(OpenAiCompatibleProvider::new(managed_provider_config(
+        model, base_url,
+    )))
 }
 
 fn provider(
@@ -479,8 +494,8 @@ pub(super) fn save_model_selection(
     if model.provider_id.as_str() == CGC_CLOUD_PROVIDER_ID
         && prefs.provider(CGC_CLOUD_PROVIDER_ID).is_none()
     {
-        let fallback = cgc_cloud_provider_from_gateway(None).unwrap_or_else(cgc_cloud_provider);
-        prefs.upsert_provider(fallback);
+        // 只落覆盖记录；远端目录由内存/缓存提供，不能把当时目录写死进磁盘。
+        prefs.upsert_provider(cgc_cloud_provider());
     }
     prefs.selected_provider = Some(model.provider_id.as_str().to_string());
     prefs.selected_model = Some(SelectedModel::new(

@@ -49,6 +49,10 @@ impl NativeAgentView {
         // 用 keystroke interceptor 在 action dispatch 之前接管菜单导航。
         let interceptor_weak = cx.entity().downgrade();
         let key_interceptor = cx.intercept_keystrokes(move |event, window, cx| {
+            if cgc_platform::api::upgrade_notice().is_some() {
+                cx.stop_propagation();
+                return;
+            }
             let key = event.keystroke.key.as_str();
             if !matches!(key, "up" | "down" | "escape") {
                 return;
@@ -86,6 +90,9 @@ impl NativeAgentView {
             &input,
             window,
             |this, _state, event: &InputEvent, window, cx| {
+                if cgc_platform::api::upgrade_notice().is_some() {
+                    return;
+                }
                 if matches!(event, InputEvent::Focus | InputEvent::Blur) {
                     cx.notify();
                     return;
@@ -152,10 +159,12 @@ impl NativeAgentView {
             wallet: None,
             wallet_refresh_serial: 0,
             wallet_panel_open: false,
+            wallet_panel_from_settings: false,
             wallet_frozen_notice: None,
             insufficient_quota: false,
             quota_checkout: None,
             quota_checkout_serial: 0,
+            catalog_refresh: Default::default(),
             page_context,
             language,
             composer_context: Default::default(),
@@ -261,6 +270,9 @@ impl NativeAgentView {
     }
 
     pub(super) fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if cgc_platform::api::upgrade_notice().is_some() {
+            return;
+        }
         let content = self.input.read(cx).content();
         let text = crate::composer_context::user_text(&content);
         if text.is_empty() {
@@ -472,6 +484,9 @@ impl NativeAgentView {
 
     /// 重试上一轮失败的请求：不新增用户气泡，直接用同一 prompt 重跑。
     pub(super) fn retry_last_turn(&mut self, cx: &mut Context<Self>) {
+        if cgc_platform::api::upgrade_notice().is_some() {
+            return;
+        }
         if !self.ensure_model_configured(true, cx) {
             return;
         }

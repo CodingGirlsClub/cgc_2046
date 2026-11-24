@@ -277,7 +277,9 @@ fn pending_agent_call_clears_when_navigation_leaves_target(cx: &mut TestAppConte
         &cgc_courses::content::AgentActionSpec {
             id: "a-hint".into(),
             label: "Hint".into(),
-            intent: cgc_courses::content::AgentIntent::Hint,
+            intent: cgc_courses::content::AgentActionIntent::Known(
+                cgc_courses::content::AgentIntent::Hint,
+            ),
             primary: false,
         },
         crate::agent_call::LearningTarget::Objective {
@@ -286,7 +288,8 @@ fn pending_agent_call_clears_when_navigation_leaves_target(cx: &mut TestAppConte
             issue_id: "issue-1".into(),
             objective_id: "obj-1".into(),
         },
-    );
+    )
+    .expect("known action");
     root.update(cx, |root, _| {
         let tab = crate::root_view::state::PaneTab::page(
             "/w/alpha/courses/crs-001/learn?issue=issue-1",
@@ -327,7 +330,9 @@ fn pending_agent_call_clears_when_leaving_course_pages(cx: &mut TestAppContext) 
         &cgc_courses::content::AgentActionSpec {
             id: "a-hint".into(),
             label: "Hint".into(),
-            intent: cgc_courses::content::AgentIntent::Hint,
+            intent: cgc_courses::content::AgentActionIntent::Known(
+                cgc_courses::content::AgentIntent::Hint,
+            ),
             primary: false,
         },
         crate::agent_call::LearningTarget::Issue {
@@ -335,7 +340,8 @@ fn pending_agent_call_clears_when_leaving_course_pages(cx: &mut TestAppContext) 
             revision: None,
             issue_id: "issue-1".into(),
         },
-    );
+    )
+    .expect("known action");
     root.update(cx, |root, _| {
         let tab = crate::root_view::state::PaneTab::page(
             "/w/alpha/courses/crs-001/learn?issue=issue-1",

@@ -23,7 +23,7 @@ defmodule Cgc2046.Mcp.Tools.UnforfeitOrder do
   use Anubis.Server.Component,
     type: :tool,
     scopes: ["platform_admin"],
-    meta: %{workspace_id: :optional, membership: :platform_admin}
+    meta: %{membership: :platform_admin}
 
   alias Cgc2046.Mcp.{Confirmation, Wrapper}
   alias Cgc2046.Payments.Order

@@ -206,6 +206,30 @@ fn http_identity_uses_the_presented_token_and_rejects_invalid_or_redirected_resp
     assert!(
         matches!(api.identity("synthetic-secret"), Err(McpError::Server(message)) if message == "Credential server is not trusted")
     );
+
+    let _guard = crate::api::upgrade::LATCH_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    crate::api::upgrade::clear_upgrade_notice();
+    let (api_426, req_426) = identity_server(
+        426,
+        r#"{"error":{"code":"client_upgrade_required","message":"请更新桌面端"}}"#,
+        "",
+    );
+    let res_426 = api_426.identity("synthetic-secret");
+    assert!(matches!(res_426, Err(McpError::Server(_))));
+    let raw_req = req_426
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .unwrap()
+        .to_ascii_lowercase();
+    assert!(raw_req.contains("x-cgc-client: desktop"));
+    assert_eq!(
+        crate::api::upgrade::upgrade_notice()
+            .as_ref()
+            .map(|n| n.message.as_str()),
+        Some("请更新桌面端")
+    );
+    crate::api::upgrade::clear_upgrade_notice();
 }
 
 #[test]

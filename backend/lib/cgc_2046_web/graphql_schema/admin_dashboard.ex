@@ -3,7 +3,7 @@ defmodule Cgc2046Web.GraphqlSchema.AdminDashboard do
   Admin Dashboard（Platform Admin Dashboard Phase 5）域 GraphQL 面：admin
   查询/治理 mutation 字段；类型在 `AdminDashboard.Types`，域内 helper 与白名单
   属性在 `AdminDashboard.Helpers`。my_workspace_applications 为用户自助面，
-  字段与 admin_workspace_application 类型留在 schema（#844 放置裁决）。
+  已归属 `Account` 域（`admin_workspace_application` 类型在 `Account.Types`）。
   """
 
   use Absinthe.Schema.Notation

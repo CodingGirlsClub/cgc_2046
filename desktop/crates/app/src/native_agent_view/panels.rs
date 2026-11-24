@@ -13,6 +13,52 @@ fn model_picker_label(model_id: &str, setup: ModelSetup) -> String {
 }
 
 impl NativeAgentView {
+    /// 打开模型选择器时补一次网关目录：冷启动/目录过期后无需重开设置。
+    pub(super) fn ensure_gateway_catalog(&mut self, cx: &mut Context<Self>) {
+        if !cgc_platform::gateway::signed_in()
+            || !cgc_platform::gateway::cached_models().is_empty()
+            || self.catalog_refresh.in_flight
+        {
+            return;
+        }
+        if self
+            .catalog_refresh
+            .last_started
+            .is_some_and(|started| started.elapsed() < std::time::Duration::from_secs(10))
+        {
+            return;
+        }
+        self.catalog_refresh.in_flight = true;
+        self.catalog_refresh.last_started = Some(std::time::Instant::now());
+        let runtime = self.runtime.clone();
+        let task = cx
+            .background_executor()
+            .spawn(async { cgc_platform::gateway::fetch_models() });
+        cx.spawn(async move |this, cx| {
+            let outcome =
+                crate::native_runtime::refresh_catalog_and_providers(runtime, Some(task)).await;
+            let _ = this.update(cx, |this, cx| {
+                this.catalog_refresh.in_flight = false;
+                if let Some(Err(error)) = &outcome.catalog {
+                    log::warn!(
+                        target: "native-agent",
+                        "gateway catalog lazy refresh failed: {}",
+                        error.diagnostic()
+                    );
+                }
+                if let Err(error) = outcome.runtime {
+                    this.set_status_message(format!("模型目录刷新失败：{error}"), cx);
+                    return;
+                }
+                if matches!(&outcome.catalog, Some(Ok(models)) if models.is_empty()) {
+                    this.set_status_message("服务端当前无可用托管模型", cx);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     /// Phase B2b-3b：native composer 的 legacy 渲染（render 内联链纯搬迁，行为不变）。
     /// Phase B2b-3d-2a：slash 菜单（legacy 与 shared composer 共用）。
     pub(super) fn render_slash_menu(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
@@ -248,6 +294,7 @@ impl NativeAgentView {
             };
         let providers_for_menu = self.metadata().providers.clone();
         let model_root = cx.entity().downgrade();
+        let catalog_root = cx.entity().downgrade();
         let thinking_root = cx.entity().downgrade();
         let approval_root = cx.entity().downgrade();
         let (model_groups, model_targets) = collect_model_picker_entries(
@@ -267,6 +314,11 @@ impl NativeAgentView {
             width: 240.0,
             list_max_height: Some(280.0),
             search: None,
+            on_open: Some(Box::new(move |_window, cx| {
+                let _ = catalog_root.update(cx, |this, cx| {
+                    this.ensure_gateway_catalog(cx);
+                });
+            })),
             on_select: Box::new(move |index, _window, cx| {
                 let Some((provider_id, model_id)) = model_targets.get(index).cloned() else {
                     return;
@@ -317,6 +369,7 @@ impl NativeAgentView {
                 width: 160.0,
                 list_max_height: None,
                 search: None,
+                on_open: None,
                 on_select: Box::new(move |index, _window, cx| {
                     let _ = root.update(cx, |this, cx| {
                         if index < levels_len {
@@ -329,6 +382,7 @@ impl NativeAgentView {
             })
         });
         let current_approval = self.metadata().approval_mode;
+        let sandbox_enforcing = cgc_agent_tools::SandboxKind::detect().is_enforcing();
         let approval_picker = {
             let modes = [ApprovalMode::Ask, ApprovalMode::Auto];
             let items: Vec<PickerItem> = modes
@@ -336,7 +390,8 @@ impl NativeAgentView {
                 .map(|mode| {
                     let label = match mode {
                         ApprovalMode::Ask => "Ask（逐次审批）",
-                        ApprovalMode::Auto => "Auto（自动允许）",
+                        ApprovalMode::Auto if sandbox_enforcing => "Auto（自动允许）",
+                        ApprovalMode::Auto => "Auto（无沙箱：终端仍逐条审批）",
                     };
                     PickerItem::new(format!("native-approval-{}", mode.label()), label)
                         .selected(*mode == current_approval)
@@ -355,6 +410,7 @@ impl NativeAgentView {
                 width: 200.0,
                 list_max_height: None,
                 search: None,
+                on_open: None,
                 on_select: Box::new(move |index, _window, cx| {
                     let Some(mode) = modes.get(index).copied() else {
                         return;

@@ -5,8 +5,8 @@ defmodule Cgc2046.Notifications.NotificationWorker do
   通知类型契约的唯一真源 = 本 module 的 `@notification_types` 表（经 `type/1` /
   `types/0` 公开读契约，2026-08-18 架构深化候选 D）。
   生产方（subscriber/worker）仍自构建 data/job_meta 值（D4/D6），契约描述引用
-  `type/1`；unique 预设由 Notifications.Fanout 缺省查表（D3）；提醒类类型的 stale
-  重查由本 module 表驱动解释器统一判定（D2）。
+  `type/1`；提醒类类型的 stale 重查由 `Cgc2046.Notifications.Staleness` 消费
+  本表统一判定（D2）。
 
   ## @notification_types 条目字段
 
@@ -14,8 +14,6 @@ defmodule Cgc2046.Notifications.NotificationWorker do
     键集与表双射，D7 测试锚定）；
   - `id_key`：stale 重查的资源 id 在 data 中的键（不重查 = nil）；
   - `data_keys` / `job_meta_keys`：生产方构建 data / job_meta 的键集契约；
-  - `unique`：Notifications.Fanout.deliver 缺省使用的 unique 预设
-    （`:default` | `:reminder_7d`）；
   - `stale`：提醒类类型发送时重查规格 `{resource, required_status,
     :not_expired | :running}`（nil = 不重查）。
   """
@@ -42,7 +40,6 @@ defmodule Cgc2046.Notifications.NotificationWorker do
       id_key: nil,
       data_keys: ["status", "enrollment_id", "title", "capacity_seq"],
       job_meta_keys: ["enrollment_id"],
-      unique: :default,
       stale: nil
     },
     # 活动开始提醒 → 已报名用户（event_reminder；发送方已落地：Offering.
@@ -53,7 +50,6 @@ defmodule Cgc2046.Notifications.NotificationWorker do
       id_key: nil,
       data_keys: ["title", "starts_at", "venue"],
       job_meta_keys: [],
-      unique: :default,
       stale: nil
     },
     # 新待审批报名 → workspace Owner/Admin（request 策略）：不重查。
@@ -62,7 +58,6 @@ defmodule Cgc2046.Notifications.NotificationWorker do
       id_key: nil,
       data_keys: ["enrollment_id", "title"],
       job_meta_keys: ["enrollment_id", "idempotency_key"],
-      unique: :default,
       stale: nil
     },
     # 报名成功 → 报名学员本人：不重查。
@@ -71,7 +66,6 @@ defmodule Cgc2046.Notifications.NotificationWorker do
       id_key: nil,
       data_keys: ["enrollment_id", "title"],
       job_meta_keys: ["enrollment_id", "idempotency_key"],
-      unique: :default,
       stale: nil
     },
     # 核销码就绪 → 报名学员本人（#546）：与 enrollment_completed 同信号同幂等键，
@@ -81,7 +75,6 @@ defmodule Cgc2046.Notifications.NotificationWorker do
       id_key: nil,
       data_keys: ["check_in_code", "enrollment_id", "title"],
       job_meta_keys: ["enrollment_id", "idempotency_key"],
-      unique: :default,
       stale: nil
     },
     # Speaker 接受邀请 → workspace Owner/Admin：不重查。
@@ -90,7 +83,6 @@ defmodule Cgc2046.Notifications.NotificationWorker do
       id_key: nil,
       data_keys: ["speaker_invitation_id", "title"],
       job_meta_keys: ["speaker_invitation_id", "idempotency_key"],
-      unique: :default,
       stale: nil
     },
     # 分享完成 → Owner/Admin + Speaker 本人（title 仅管理者面携带）：不重查。
@@ -99,7 +91,6 @@ defmodule Cgc2046.Notifications.NotificationWorker do
       id_key: nil,
       data_keys: ["speaker_invitation_id", "title"],
       job_meta_keys: ["speaker_invitation_id", "idempotency_key"],
-      unique: :default,
       stale: nil
     },
     # 48h 审批提醒（Enrollment 面，run-less 报名单属主）：发送时重查报名仍
@@ -109,7 +100,6 @@ defmodule Cgc2046.Notifications.NotificationWorker do
       id_key: "enrollment_id",
       data_keys: ["enrollment_id", "approval_deadline"],
       job_meta_keys: ["enrollment_id"],
-      unique: :reminder_7d,
       stale: {Enrollment, :pending, :not_expired}
     },
     # 48h 审批提醒（Sponsorship 面，E-3 #48 F7）：发送时重查赞助仍 pending 且
@@ -119,7 +109,6 @@ defmodule Cgc2046.Notifications.NotificationWorker do
       id_key: "sponsorship_id",
       data_keys: ["sponsorship_id", "approval_deadline"],
       job_meta_keys: ["sponsorship_id"],
-      unique: :reminder_7d,
       stale: {Sponsorship, :pending, :not_expired}
     },
     # 学习停滞提醒（E-7 #122）：发送时重查 learning run 仍 running。
@@ -128,7 +117,6 @@ defmodule Cgc2046.Notifications.NotificationWorker do
       id_key: "run_id",
       data_keys: ["enrollment_id", "run_id", "title", "course_id"],
       job_meta_keys: ["run_id"],
-      unique: :reminder_7d,
       stale: {WorkflowRun, :running, :running}
     },
     # 缴费闭环三模板（U10/KTD8/R22；payload 值构建见
@@ -138,7 +126,6 @@ defmodule Cgc2046.Notifications.NotificationWorker do
       id_key: nil,
       data_keys: ["order_id", "enrollment_id", "amount", "provider"],
       job_meta_keys: ["idempotency_key"],
-      unique: :default,
       stale: nil
     },
     %{
@@ -146,7 +133,6 @@ defmodule Cgc2046.Notifications.NotificationWorker do
       id_key: nil,
       data_keys: ["order_id", "enrollment_id", "amount", "provider"],
       job_meta_keys: ["idempotency_key"],
-      unique: :default,
       stale: nil
     },
     %{
@@ -154,7 +140,6 @@ defmodule Cgc2046.Notifications.NotificationWorker do
       id_key: nil,
       data_keys: ["order_id", "enrollment_id", "amount", "provider"],
       job_meta_keys: ["idempotency_key"],
-      unique: :default,
       stale: nil
     },
     # organizer-payment U5/KTD6：收款到账 → workspace 管理者（逐笔实时，
@@ -164,7 +149,6 @@ defmodule Cgc2046.Notifications.NotificationWorker do
       id_key: nil,
       data_keys: ["order_id", "enrollment_id", "amount", "provider", "title", "tier_name"],
       job_meta_keys: ["idempotency_key"],
-      unique: :default,
       stale: nil
     },
     # organizer-payment U5/KTD6：订单超时作废 → 报名人 + workspace 管理者
@@ -174,7 +158,6 @@ defmodule Cgc2046.Notifications.NotificationWorker do
       id_key: nil,
       data_keys: ["order_id", "enrollment_id", "amount", "provider", "title", "re_enrollable"],
       job_meta_keys: ["idempotency_key"],
-      unique: :default,
       stale: nil
     },
     %{
@@ -182,7 +165,6 @@ defmodule Cgc2046.Notifications.NotificationWorker do
       id_key: nil,
       data_keys: ["event_id", "title", "min_participants", "confirmed_count"],
       job_meta_keys: ["event_id"],
-      unique: :default,
       stale: nil
     },
     %{
@@ -190,7 +172,6 @@ defmodule Cgc2046.Notifications.NotificationWorker do
       id_key: nil,
       data_keys: ["event_id", "title", "min_participants", "confirmed_count"],
       job_meta_keys: ["event_id"],
-      unique: :default,
       stale: nil
     },
     %{
@@ -199,7 +180,6 @@ defmodule Cgc2046.Notifications.NotificationWorker do
       id_key: nil,
       data_keys: ["event_id", "title", "min_participants", "confirmed_count", "outcome"],
       job_meta_keys: ["event_id"],
-      unique: :default,
       stale: nil
     },
     %{
@@ -207,7 +187,6 @@ defmodule Cgc2046.Notifications.NotificationWorker do
       id_key: nil,
       data_keys: ["event_id", "title", "starts_at", "venue"],
       job_meta_keys: ["event_id"],
-      unique: :default,
       stale: nil
     },
     %{
@@ -215,7 +194,6 @@ defmodule Cgc2046.Notifications.NotificationWorker do
       id_key: nil,
       data_keys: ["event_id", "title"],
       job_meta_keys: ["event_id"],
-      unique: :default,
       stale: nil
     },
     # 志愿者招募段位通知六模板（U4/KTD6；R14 阶段通知表逐行）：生产方 =
@@ -226,7 +204,6 @@ defmodule Cgc2046.Notifications.NotificationWorker do
       id_key: nil,
       data_keys: ["cohort_name", "position_label"],
       job_meta_keys: ["volunteer_application_id", "idempotency_key"],
-      unique: :default,
       stale: nil
     },
     %{
@@ -234,7 +211,6 @@ defmodule Cgc2046.Notifications.NotificationWorker do
       id_key: nil,
       data_keys: ["cohort_name", "group_time"],
       job_meta_keys: ["volunteer_application_id", "idempotency_key"],
-      unique: :default,
       stale: nil
     },
     %{
@@ -242,7 +218,6 @@ defmodule Cgc2046.Notifications.NotificationWorker do
       id_key: nil,
       data_keys: ["cohort_name", "training_starts_at"],
       job_meta_keys: ["volunteer_application_id", "idempotency_key"],
-      unique: :default,
       stale: nil
     },
     %{
@@ -250,7 +225,6 @@ defmodule Cgc2046.Notifications.NotificationWorker do
       id_key: nil,
       data_keys: ["event_title", "assignment_note"],
       job_meta_keys: ["volunteer_application_id", "idempotency_key"],
-      unique: :default,
       stale: nil
     },
     %{
@@ -258,7 +232,6 @@ defmodule Cgc2046.Notifications.NotificationWorker do
       id_key: nil,
       data_keys: ["cohort_name", "rejection_reason"],
       job_meta_keys: ["volunteer_application_id", "idempotency_key"],
-      unique: :default,
       stale: nil
     },
     %{
@@ -266,7 +239,6 @@ defmodule Cgc2046.Notifications.NotificationWorker do
       id_key: nil,
       data_keys: ["cohort_name", "cancel_note"],
       job_meta_keys: ["volunteer_application_id", "idempotency_key"],
-      unique: :default,
       stale: nil
     },
     # 主理人移除（#538）：仅主动移除发送（Moderators.remove）；成员离台级联
@@ -277,7 +249,6 @@ defmodule Cgc2046.Notifications.NotificationWorker do
       id_key: nil,
       data_keys: ["event_id", "title"],
       job_meta_keys: ["event_id"],
-      unique: :default,
       stale: nil
     },
     # 愿望 Echo（wish2 U3 KTD3）：附议贡献者收到「主办方收到你的提议」回响；
@@ -287,7 +258,6 @@ defmodule Cgc2046.Notifications.NotificationWorker do
       id_key: nil,
       data_keys: ["wish_id", "content_preview", "endorsement_id", "echo_id"],
       job_meta_keys: ["wish_id", "endorsement_id"],
-      unique: :default,
       stale: nil
     }
   ]
@@ -398,16 +368,4 @@ defmodule Cgc2046.Notifications.NotificationWorker do
   @doc "registry 全部条目（测试/契约读用；键集双射与 stale 契约的表驱动测试锚定）。"
   @spec types() :: [map()]
   def types, do: @notification_types
-
-  # 同 template_key 多行（approval_reminder 两面）unique 必一致——type/1 取首行
-  # 供 Fanout 查表，若同键配不同 unique 会静默取错窗口（advisor D-adv2 守卫，
-  # 模块体编译期即断言，配置错误在编译时立刻暴露而非静默漂移）。
-  if Enum.any?(
-       @notification_types
-       |> Enum.group_by(& &1.template_key)
-       |> Map.values(),
-       fn rows -> rows |> Enum.map(& &1.unique) |> Enum.uniq() |> length() > 1 end
-     ) do
-    raise "notification_types registry: 同 template_key 行 unique 不一致（type/1 首行语义会静默取错窗口）"
-  end
 end
