@@ -107,10 +107,11 @@ jobs:
     if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     # mix.lock 变更（deps 镜像重建）时全量构建实测可达 45min+（run
-    # 32487795766 超 45min 被杀）。90min 覆盖：deps 重建 + 全量编译 +
-    # 双 role 部署 + 余量。30/45min 各杀过一次（cancelled 无日志，
-    # 极易误判人为取消——timeout 语义见 run 32453255873 复盘）。
-    timeout-minutes: 90
+    # 32487795766 超 45min 被杀）。160min 覆盖：deploy 端 fallback 重建
+    # deps（45–90min）+ 全量编译 + 双 role 部署 + 余量。30/45/90min 各
+    # 杀过一次（cancelled 无日志，极易误判人为取消——timeout 语义见
+    # run 32453255873 复盘；2026-11-24 run 45324092720 撞 85min step 超时）。
+    timeout-minutes: 160
     environment: production
     steps:
       - uses: actions/checkout@v7
@@ -345,8 +346,8 @@ jobs:
           DESKTOP_DOWNLOAD_URL: ${{ vars.DESKTOP_DOWNLOAD_URL }}
           DESKTOP_RELEASE_NOTES: ${{ vars.DESKTOP_RELEASE_NOTES }}
         # step 级超时结论是 failure，job 级是 cancelled（后者已两次被误判
-        # 为人为取消）——85 < job 90，超时恒先红在 step 上，job 级仅作兜底
-        timeout-minutes: 85
+        # 为人为取消）——150 < job 160，超时恒先红在 step 上，job 级仅作兜底
+        timeout-minutes: 150
         run: |
           # sed 到临时副本：工作区保持干净，避免 Kamal dirty tag
           sed -e "s|<TCR_REGISTRY>|${{ secrets.TCR_REGISTRY }}|" \
