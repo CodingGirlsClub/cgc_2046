@@ -15,9 +15,12 @@ on:
 
 concurrency:
   # push 场景用 ref（同分支新 push 取消旧 run）；PR 场景用 head_ref。
-  # 原来 fallback 到 run_id 等于每次 push 独立分组，旧 run 从不被取消
+  # 原来 fallback 到 run_id 等于每次 push 独立分组，旧 run 从不被取消。
+  # 但 push 上取消会打断 deps-image 冷构建（45min+），导致 develop 上镜像
+  # 永远建不完、deploy 端只能现场重建并撞 85min step 超时（2026-11-21、
+  # 11-24 各一次）。因此 push 不取消在跑的 run（新 run 排队），PR 仍取消。
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # 门禁前置:push 事件的 merge commit 去重。
