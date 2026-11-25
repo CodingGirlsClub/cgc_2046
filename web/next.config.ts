@@ -34,6 +34,9 @@ const WEB_DEV_ORIGINS = (process.env.WEB_DEV_ORIGINS ?? "")
 const nextConfig: NextConfig = {
 	// standalone：Docker 镜像只打包运行时产物（web/Dockerfile 依赖此模式）
 	output: "standalone",
+	experimental: {
+		agentUpgrade: "security",
+	},
 	allowedDevOrigins: WEB_DEV_ORIGINS,
 	async rewrites() {
 		const rules = [
